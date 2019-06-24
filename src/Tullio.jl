@@ -9,14 +9,12 @@ using Base.Cartesian
     @tullio A[i,j] := B[i] * log(C[j])
     @moltullio A[i,j] := B[i] * log(C[j])
 
-This loops over all indices, but unlike `@einsum`/`@vielsum` the idea is to experiment
+This loops over all indices, but unlike `@einsum`/`@vielsum` the idea is to experiment with
 map/generator expressions, GPUifyLoops.jl, and loop unrolling...
 
     @tullio A[i] := B[i,j] * C[j]
     @tullio A[i] := B[i,j] * C[j]  (+, j<=10)
     @tullio A[] := B[i,j] * C[j]  (+, i, unroll, j<=10)
-
-    @moltullio A[i] := B[i,j] * C[j] (+)       # threaded
 
 Reduction by summing over `j`, but with all the same things.
 """
@@ -24,85 +22,110 @@ macro tullio(exs...)
     _tullio(exs...)
 end
 
-macro moltullio(exs...; multi=true)
-    _tullio(exs...)
+macro moltullio(exs...)
+    _tullio(exs...; multi=true)
 end
 
 function _tullio(leftright, after=nothing; multi=false)
-    store = (axes=Dict(), flags=Set(), checks=[], rightind=[], redop=Ref(:+), loop=[], unroll=[])
+    store = (axes=Dict(), flags=Set(), checks=[], rightind=[],
+        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),)
 
     #===== parse input =====#
-    @capture(leftright, (left_ := right_) | (left_ = right_) ) || error("wtf?")
+
+    newarray = @capture(leftright, left_ := right_ )
+    newarray ||  @capture(leftright, left_ = right_ ) || error("wtf?")
+
     @capture(left, Z_[leftind__]) || error("can't understand LHS")
 
     readred(after, store)
-    MacroTools.postwalk(sizewalk(store), right)
+    MacroTools.postwalk(sizewalk(store), leftright)
 
-    #===== start on RHS =====#
-    right2 = MacroTools.postwalk(indexwalk(leftind, :LI), right)
+    #===== start massaging RHS =====#
+
+    right2 = MacroTools.postwalk(indexwalk(leftind, :φ), right)
 
     redind = setdiff(store.rightind, leftind)
+
     isempty(store.loop) && isempty(store.unroll) ?
         append!(store.loop, redind) :
-        @assert sort(redind) == sort(vcat(store.redind, store.unroll)) "if you give any reduction indices, you must give them all"
+        @assert sort(redind) == sort(vcat(store.loop, store.unroll)) "if you give any reduction indices, you must give them all"
 
-    #===== output shape =====#
+    nφ = length(leftind)
+    nγ = length(redind)
+
+    #===== preliminary expressions =====#
+
     outex = quote end
-    inplace = @capture(leftright, left_ = right_ )
-    if inplace
-        push!(outex.args, :( ZI = CartesianIndices($Z) ))
+
+    append!(outex.args, store.checks)
+
+    if newarray
+        Alist = []
+        right1 = MacroTools.postwalk(typewalk(Alist), right)
+        unique!(Alist)
+        push!(outex.args, :( local h($(Alist...)) = $right1 ))
+        push!(outex.args, :( local T = typeof(h($(Alist...))) ))
     else
-        Zaxes = map(i -> store.axes[i], leftind)
-        push!(outex.args, :( ZI = CartesianIndices(($(Zaxes...),)) ))
+         push!(outex.args, :( local T = eltype($Z) ))
     end
 
     if isempty(redind)
-         #===== simple function =====#
-         push!(outex.args, :( @inline f(LI) = @inbounds $right2 ))
+         #===== simple function f(φ_...) =====#
+
+         push!(outex.args, :( local @inline $(ifunc(:f,nφ,:φ)) = begin @inbounds $right2 end))
     else
-        #===== reduction function =====#
-        right3 = MacroTools.postwalk(indexwalk(redind, :RI), right2)
+        #===== reduction function f(φ_...) = sum(g(φ_...)) =====#
+
+        right3 = MacroTools.postwalk(indexwalk(redind, :γ), right2)
+        push!(outex.args, :( local $(ifunc(:g,nφ,:φ, nγ,:γ)) = begin @inbounds $right3 end))
+
         ax = map(i -> store.axes[i], redind)
-        redaxes = :( CartesianIndices(($(ax...),)) )
-        right4 = :( sum($right3 for RI in SI )  )
-
-        push!(outex.args, :( SI = $redaxes ))
-        push!(outex.args, :( f(LI) = $right4 ))
+        push!(outex.args, :( local @inline $(ifunc(:f,nφ,:φ)) = $(sumloops(ax, nφ, store)) ))
     end
 
-    #===== final map =====#
-    if inplace
-        push!(outex.args, :( map!(f, $Z, ZI) ))
-    else
-        push!(outex.args, :( $Z = map(f, ZI) ))
-        # push!(outex.args, :( $Z = [f(I) for I in  ZI] ))
-    end
+    #===== final loops =====#
 
-    return esc(outex)
+    if newarray
+        Zsize = map(i -> :(length($(store.axes[i]))), leftind)
+        push!(outex.args, :( $Z = Array{T,$nφ}(undef, $(Zsize...)) ))
+    end
+    push!(outex.args, outwrite(Z, length(leftind)) )
+    push!(outex.args, Z)
+
+    # return esc(MacroTools.prewalk(unblock, outex))
+    esc(outex)
 end
 
 #===== ingestion =====#
 
-indexwalk(leftind, CI) = ex -> begin
+typewalk(list) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
-        indsI = map(indexreplace(leftind, CI), inds)
+        push!(list, A)
+        :( $A[$(map(i->1,inds)...)] )
+    end
+
+indexwalk(leftind, sy) = ex -> begin
+        @capture(ex, A_[inds__]) || return ex
+        indsI = map(indexreplace(leftind, sy), inds)
         :( $A[$(indsI...)] )
     end
 
-indexreplace(leftind, CI) = i -> begin
+indexreplace(leftind, sy) = i -> begin
         d = findfirst(isequal(i),leftind)
-        isnothing(d) ? i : :( $CI.I[$d] )
+        isnothing(d) ? i : Symbol(sy,:_,d)
     end
 
 sizewalk(store) = ex -> begin
         @capture(ex, A_[inds__]) && saveaxes(A, inds, store, true)
-        return ex
+        ex
     end
 
 saveaxes(A, inds, store, onright) =
     for (d,i) in enumerate(inds)
+        i isa Symbol || continue
         if haskey(store.axes, i)
-            push!(store.checks, :( @assert $(store.axes[i]) == axes($A,$d) ) )
+            str = "range of index $i must agree"
+            push!(store.checks, :( @assert $(store.axes[i]) == axes($A,$d) $str ))
         else
             store.axes[i] = :( axes($A,$d) )
         end
@@ -111,44 +134,74 @@ saveaxes(A, inds, store, onright) =
         end
     end
 
-function readred(ex, store)
-    @capture(ex, (op_, inds__,) ) || return
-    store.redop[] = op
-    foreach(savered(store), inds)
-end
+readred(ex, store) =
+    if @capture(ex, (op_, inds__,)) ||  @capture(ex, op_Symbol)
+        store.redop[] = op
+        store.init[] = op == :* ? :(one(T)) :
+            op == :max ? :(typemin(T)) :
+            op == :min ? :(typemin(T)) :
+            :(zero(T))
+        foreach(savered(store), something(inds,[]))
+    end
 
 savered(store) = i ->
     if i == :unroll
         push!(store.flags, :unroll)
+    elseif @capture(i, unroll(n_Int))
+        push!(store.flags, :unroll)
+        store.rolln[] = n
+
     elseif i isa Symbol
         unrollpush(store, i)
     elseif @capture(i, j_ <= m_)
-        unrollpush(store, i)
-        store.axes[j] = :( Base.OneTo($m) ) # store something more literal? save sizes elsewhere?
+        unrollpush(store, j)
+        store.axes[j] = :( Base.OneTo($m) )
     elseif @capture(i, n_ <= j_ <= m_)
-        unrollpush(store, i)
+        unrollpush(store, j)
         store.axes[j] = :( $n:$m )
+
+    elseif  @capture(i, init = z_)
+        store.init[] = z==0 ? :(zero(T)) : z==1 ? :(one(T)) : z
+    else
+        @warn "wtf is index $i"
     end
 
 unrollpush(store, i) = (:unroll in store.flags) ? push!(store.unroll, i) : push!(store.loop, i)
 
 #===== digestion =====#
 
-# outnew(Z, store) = zeros()
+outwrite(Z, n) =
+    macroexpand(@__MODULE__, quote
+        @inbounds( @nloops $n φ $Z  begin
+            (@nref $n $Z φ) = (@ncall $n f φ)
+        end )
+    end)
 
-outwrite(Z, store) = :( map!(f, $Z, ZI) )
+sumloops(ax, nφ, store, nγ=length(ax)) =
+    macroexpand(@__MODULE__, quote
+        local σ = $(store.init[])
+        @nloops $nγ γ d->$ax[d] begin
+            σ = $(store.redop[])(σ, $(ifunc(:g,nφ,:φ, nγ,:γ)))
+        end
+        σ
+    end)
 
+ilist(n, sy=:φ) = map(d -> Symbol(sy,:_,d), 1:n)
+ifunc(f, n1, sy1=:φ, n2=0, sy2=:γ) = :( $f($(ilist(n1,sy1)...), $(ilist(n2,sy2)...)) )
+
+#===== action =====#
+
+struct UndefArray{T,N} end
+
+UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 
 #= === TODO ===
 
-* GPUifylooos -- only in the reduction?
-* unrolling of sums?
+* GPUifyloops -- first for unrolling of sums?
+* threads, easy
 
 * index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
-* threadmap will be trivial, can also wait
-* creation of new arrays: by map() to keep it generic? map(i->1, CartesianIndices((1:3, 3:4)))
-* checks aren't used, but that's easy
 * constant indices A[i,3,$k] will be easy
 
 =#
