@@ -3,7 +3,8 @@ module Tullio
 export @tullio, @moltullio
 
 using MacroTools, GPUifyLoops
-using Base.Cartesian
+
+const UNROLLOK = VERSION >= v"1.2.0-DEV.462"
 
 """
     @tullio A[i,j] := B[i] * log(C[j])
@@ -12,9 +13,10 @@ using Base.Cartesian
 This loops over all indices, but unlike `@einsum`/`@vielsum` the idea is to experiment with
 map/generator expressions, GPUifyLoops.jl, and loop unrolling...
 
-    @tullio A[i] := B[i,j] * C[j]
-    @tullio A[i] := B[i,j] * C[j]  (+, j<=10)
-    @tullio A[] := B[i,j] * C[j]  (+, i, unroll, j<=10)
+    @tullio A[i] := B[i,j] * C[k]                            # implicit sum over j
+    @tullio A[i] := B[i,j] * C[k]  (+, j,k)                  # explicit sum, must give all indices
+    @tullio A[i] := B[i,j] * C[k]  (+, j, unroll(4), k)      # unrolled by 4 only k loop, innermost
+    @tullio A[i] := B[i,j] * C[k]  (+, unroll, j<=10, k<=10) # completely unroll j and k
 
 Reduction by summing over `j`, but with all the same things.
 """
@@ -27,97 +29,103 @@ macro moltullio(exs...)
 end
 
 function _tullio(leftright, after=nothing; multi=false)
-    store = (axes=Dict(), flags=Set(), checks=[], rightind=[],
-        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),)
+
+    @capture(leftright, left_ += right_ ) &&
+        return _tullio(:($left = $left + $right); after=after, multi=multi)
+    @capture(leftright, left_ -= right_ ) &&
+        return _tullio(:($left = $left - ($right) ); after=after, multi=multi)
+    @capture(leftright, left_ *= right_ ) &&
+        return _tullio(:($left = $left * ($right) ); after=after, multi=multi)
 
     #===== parse input =====#
 
-    newarray = @capture(leftright, left_ := right_ )
-    newarray ||  @capture(leftright, left_ = right_ ) || error("wtf?")
+    # TODO catch primes here
 
-    @capture(left, Z_[leftind__]) || error("can't understand LHS")
+    store = (axes=Dict(), flags=Set(), checks=[], arrays=[], rightind=[],
+        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),)
+
+    newarray = @capture(leftright, left_ := right_ )
+    newarray || @capture(leftright, left_ = right_ ) || error("wtf?")
+
+    @capture(left, Z_[leftind__] | [leftind__] ) || error("can't understand LHS")
+    isnothing(Z) && @gensym Z
 
     readred(after, store)
-    MacroTools.postwalk(sizewalk(store), leftright)
 
-    #===== start massaging RHS =====#
-
-    right2 = MacroTools.postwalk(indexwalk(leftind, :φ), right)
-
+    MacroTools.postwalk(rightwalk(store), right)
+    unique!(store.arrays)
+    unique!(store.rightind)
     redind = setdiff(store.rightind, leftind)
 
     isempty(store.loop) && isempty(store.unroll) ?
         append!(store.loop, redind) :
         @assert sort(redind) == sort(vcat(store.loop, store.unroll)) "if you give any reduction indices, you must give them all"
 
-    nφ = length(leftind)
-    nγ = length(redind)
+    isempty(store.unroll) || UNROLLOK ||
+        @warn "can't unroll loops on Julia $VERSION" maxlog=1 _id=hash(leftright)
 
     #===== preliminary expressions =====#
 
     outex = quote end
 
+    push!(outex.args, :( local @inline g($(store.rightind...), $(store.arrays...)) = begin @inbounds $right end))
+
     append!(outex.args, store.checks)
 
     if newarray
-        Alist = []
-        right1 = MacroTools.postwalk(typewalk(Alist), right)
-        unique!(Alist)
-        push!(outex.args, :( local h($(Alist...)) = $right1 ))
-        push!(outex.args, :( local T = typeof(h($(Alist...))) ))
+        allone = map(_->1, store.rightind)
+        push!(outex.args, :( local T = typeof(g($(allone...), $(store.arrays...))) ))
     else
-         push!(outex.args, :( local T = eltype($Z) ))
+        push!(outex.args, :( local T = eltype($Z) ))
     end
 
     if isempty(redind)
-         #===== simple function f(φ_...) =====#
-
-         push!(outex.args, :( local @inline $(ifunc(:f,nφ,:φ)) = begin @inbounds $right2 end))
+         rex = :( @inbounds $Z[$(leftind...)] = g($(leftind...), $(store.arrays...)) )
     else
-        #===== reduction function f(φ_...) = sum(g(φ_...)) =====#
+        #===== reduction function f(i,j,A,B) = sum(g(i,j,k,l,A,B)) =====#
+        if multi
+            push!(outex.args, :(local cache = Vector{T}(undef, Threads.nthreads()) ))
+            σ, cache = :( cache[Threads.threadid()] ), [:cache]
+        else
+            σ, cache = :σ, []
+        end
 
-        right3 = MacroTools.postwalk(indexwalk(redind, :γ), right2)
-        push!(outex.args, :( local $(ifunc(:g,nφ,:φ, nγ,:γ)) = begin @inbounds $right3 end))
+        ex = :( $σ = $(store.redop[])($σ, g($(store.rightind...), $(store.arrays...)) ) )
+        ex = recurseloops(ex, store)
+        ex = :( $σ = $(store.init[]); $ex; return $σ; )
+        multi && (ex = :(@inbounds $ex) )
+        ex = :( local f($(leftind...), $(store.arrays...), ::Val{T}, $(cache...)) where {T} = $ex)
+        push!(outex.args, ex)
 
-        ax = map(i -> store.axes[i], redind)
-        push!(outex.args, :( local @inline $(ifunc(:f,nφ,:φ)) = $(sumloops(ax, nφ, store)) ))
+        rex = :( @inbounds $Z[$(leftind...)] = f($(leftind...), $(store.arrays...), Val(T), $(cache...)) )
     end
 
     #===== final loops =====#
 
     if newarray
         Zsize = map(i -> :(length($(store.axes[i]))), leftind)
-        push!(outex.args, :( $Z = Array{T,$nφ}(undef, $(Zsize...)) ))
+        push!(outex.args, :( $Z = Array{T,$(length(leftind))}(undef, $(Zsize...)) ))
     end
-    push!(outex.args, outwrite(Z, length(leftind)) )
+
+    ex = recurseloops(rex, (axes=store.axes, loop=leftind, unroll=[], rolln=Ref(0)))
+    if multi
+        push!(outex.args, :( Threads.@threads $ex ))
+    else
+        push!(outex.args, ex)
+    end
+
     push!(outex.args, Z)
 
-    # return esc(MacroTools.prewalk(unblock, outex))
     esc(outex)
 end
 
 #===== ingestion =====#
 
-typewalk(list) = ex -> begin
+rightwalk(store) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
-        push!(list, A)
-        :( $A[$(map(i->1,inds)...)] )
-    end
-
-indexwalk(leftind, sy) = ex -> begin
-        @capture(ex, A_[inds__]) || return ex
-        indsI = map(indexreplace(leftind, sy), inds)
-        :( $A[$(indsI...)] )
-    end
-
-indexreplace(leftind, sy) = i -> begin
-        d = findfirst(isequal(i),leftind)
-        isnothing(d) ? i : Symbol(sy,:_,d)
-    end
-
-sizewalk(store) = ex -> begin
-        @capture(ex, A_[inds__]) && saveaxes(A, inds, store, true)
-        ex
+        push!(store.arrays, A)
+        append!(store.rightind, filter(i -> i isa Symbol, inds))
+        saveaxes(A, inds, store, true)
     end
 
 saveaxes(A, inds, store, onright) =
@@ -134,14 +142,17 @@ saveaxes(A, inds, store, onright) =
         end
     end
 
+readred(ex::Nothing, store) = nothing
 readred(ex, store) =
-    if @capture(ex, (op_, inds__,)) ||  @capture(ex, op_Symbol)
+    if @capture(ex, (op_Symbol, inds__,)) ||  @capture(ex, op_Symbol)
         store.redop[] = op
         store.init[] = op == :* ? :(one(T)) :
             op == :max ? :(typemin(T)) :
             op == :min ? :(typemin(T)) :
             :(zero(T))
         foreach(savered(store), something(inds,[]))
+    else
+        error("expected something like (+,i,j,unroll,k) but got $ex")
     end
 
 savered(store) = i ->
@@ -170,24 +181,25 @@ unrollpush(store, i) = (:unroll in store.flags) ? push!(store.unroll, i) : push!
 
 #===== digestion =====#
 
-outwrite(Z, n) =
-    macroexpand(@__MODULE__, quote
-        @inbounds( @nloops $n φ $Z  begin
-            (@nref $n $Z φ) = (@ncall $n f φ)
-        end )
-    end)
+recurseloops(ex, store) =
+    if !isempty(store.unroll)
+        i = pop!(store.unroll)
 
-sumloops(ax, nφ, store, nγ=length(ax)) =
-    macroexpand(@__MODULE__, quote
-        local σ = $(store.init[])
-        @nloops $nγ γ d->$ax[d] begin
-            σ = $(store.redop[])(σ, $(ifunc(:g,nφ,:φ, nγ,:γ)))
-        end
-        σ
-    end)
+        r = store.axes[i]
+        ex = iszero(store.rolln[]) ?
+            :(@unroll for $i in $r; $ex; end) :
+            :(@unroll $(store.rolln[]) for $i in $r; $ex; end)
+        return recurseloops(ex, store)
 
-ilist(n, sy=:φ) = map(d -> Symbol(sy,:_,d), 1:n)
-ifunc(f, n1, sy1=:φ, n2=0, sy2=:γ) = :( $f($(ilist(n1,sy1)...), $(ilist(n2,sy2)...)) )
+    elseif !isempty(store.loop)
+        i = pop!(store.loop)
+        r = store.axes[i]
+        ex = :(for $i in $r; $ex; end)
+        return recurseloops(ex, store)
+
+    else
+        return ex
+    end
 
 #===== action =====#
 
@@ -198,8 +210,13 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 #= === TODO ===
 
-* GPUifyloops -- first for unrolling of sums?
-* threads, easy
+Damn, now it's slow again.
+Do I need a function f? Maybe it should go directly into the loops.
+Should left indices always be outermost loops?
+Perhaps they should all be treated together...
+
+* Perhaps make one more function k!(Z, A,B,C)
+* GPUifyloops -- can this do threading for me?
 
 * index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
 * constant indices A[i,3,$k] will be easy
