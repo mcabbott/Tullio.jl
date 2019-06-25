@@ -10,8 +10,8 @@ const UNROLLOK = VERSION >= v"1.2.0-DEV.462"
     @tullio A[i,j] := B[i] * log(C[j])
     @moltullio A[i,j] := B[i] * log(C[j])
 
-This loops over all indices, but unlike `@einsum`/`@vielsum` the idea is to experiment with
-map/generator expressions, GPUifyLoops.jl, and loop unrolling...
+This loops over all indices, just like `@einsum`/`@vielsum`.
+But idea is to experiment with various things...
 
     @tullio A[i] := B[i,j] * C[k]                            # implicit sum over j
     @tullio A[i] := B[i,j] * C[k]  (+, j,k)                  # explicit sum, must give all indices
@@ -19,6 +19,8 @@ map/generator expressions, GPUifyLoops.jl, and loop unrolling...
     @tullio A[i] := B[i,j] * C[k]  (+, unroll, j<=10, k<=10) # completely unroll j and k
 
 Reduction by summing over `j`, but with all the same things.
+If given, the order of the summed indices is the order of the loops, i.e. `k` changes fastest.
+Unrolling uses `GPUifyLoops.jl` which only works on Julia 1.2.
 """
 macro tullio(exs...)
     _tullio(exs...)
@@ -68,21 +70,21 @@ function _tullio(leftright, after=nothing; multi=false)
 
     outex = quote end
 
-    push!(outex.args, :( local @inline g($(store.rightind...), $(store.arrays...)) = begin @inbounds $right end))
+    push!(outex.args, :( local @inline rhs($(store.rightind...), $(store.arrays...)) = begin @inbounds $right end))
 
     append!(outex.args, store.checks)
 
     if newarray
-        allone = map(_->1, store.rightind)
-        push!(outex.args, :( local T = typeof(g($(allone...), $(store.arrays...))) ))
+        allfirst = map(i -> :(first($(store.axes[i]))), store.rightind)
+        push!(outex.args, :( local T = typeof(rhs($(allfirst...), $(store.arrays...))) ))
     else
         push!(outex.args, :( local T = eltype($Z) ))
     end
 
     if isempty(redind)
-         rex = :( @inbounds $Z[$(leftind...)] = g($(leftind...), $(store.arrays...)) )
+         rex = :( $Z[$(leftind...)] = rhs($(leftind...), $(store.arrays...)) )
     else
-        #===== reduction function f(i,j,A,B) = sum(g(i,j,k,l,A,B)) =====#
+        #===== reduction =====#
         if multi
             push!(outex.args, :(local cache = Vector{T}(undef, Threads.nthreads()) ))
             σ, cache = :( cache[Threads.threadid()] ), [:cache]
@@ -90,14 +92,11 @@ function _tullio(leftright, after=nothing; multi=false)
             σ, cache = :σ, []
         end
 
-        ex = :( $σ = $(store.redop[])($σ, g($(store.rightind...), $(store.arrays...)) ) )
+        ex = :( $σ = $(store.redop[])($σ, rhs($(store.rightind...), $(store.arrays...)) ) )
         ex = recurseloops(ex, store)
-        ex = :( $σ = $(store.init[]); $ex; return $σ; )
-        multi && (ex = :(@inbounds $ex) )
-        ex = :( local f($(leftind...), $(store.arrays...), ::Val{T}, $(cache...)) where {T} = $ex)
-        push!(outex.args, ex)
+        ex = :( $σ = $(store.init[]); $ex; ) #return $σ; )
 
-        rex = :( @inbounds $Z[$(leftind...)] = f($(leftind...), $(store.arrays...), Val(T), $(cache...)) )
+        rex = :( $ex; $Z[$(leftind...)] = $σ )
     end
 
     #===== final loops =====#
@@ -107,7 +106,9 @@ function _tullio(leftright, after=nothing; multi=false)
         push!(outex.args, :( $Z = Array{T,$(length(leftind))}(undef, $(Zsize...)) ))
     end
 
-    ex = recurseloops(rex, (axes=store.axes, loop=leftind, unroll=[], rolln=Ref(0)))
+    ex = recurseloops( :( @inbounds $rex ),
+        (axes=store.axes, loop=reverse(leftind), unroll=[], rolln=Ref(0))
+        )
     if multi
         push!(outex.args, :( Threads.@threads $ex ))
     else
@@ -209,11 +210,6 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 
 #= === TODO ===
-
-Damn, now it's slow again.
-Do I need a function f? Maybe it should go directly into the loops.
-Should left indices always be outermost loops?
-Perhaps they should all be treated together...
 
 * Perhaps make one more function k!(Z, A,B,C)
 * GPUifyloops -- can this do threading for me?
