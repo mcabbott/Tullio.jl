@@ -6,6 +6,7 @@ version = "0.0.1"
 [deps]
 GPUifyLoops = "ba82f77b-6841-5d2e-bd9f-4daf811aec27"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+TiledIteration = "06e1c1a7-607b-532d-9fad-de7d9aa2abac"
 
 [compat]
 julia = "1"

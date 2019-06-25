@@ -2,7 +2,7 @@ module Tullio
 
 export @tullio, @moltullio
 
-using MacroTools, GPUifyLoops
+using MacroTools, GPUifyLoops, TiledIteration
 
 const UNROLLOK = VERSION >= v"1.2.0-DEV.462"
 
@@ -21,6 +21,19 @@ But idea is to experiment with various things...
 Reduction by summing over `j`, but with all the same things.
 If given, the order of the summed indices is the order of the loops, i.e. `k` changes fastest.
 Unrolling uses `GPUifyLoops.jl` which only works on Julia 1.2.
+
+    @tullio A[i,j] := B[i] * log(C[j])       {tile, i,j}
+    @tullio A[i] := B[i,j] * C[k]  (+, j,k)  {tile(256), i,j,k}
+
+This adds an outermost loop over tiles from TiledIteration.jl
+
+    @tullio A[i,j] := B[i] * log(C[j])       {static, i<=10,j<=10}
+
+Not yet, but perhaps this should unroll the LHS loops too.
+
+    @tullio A[i,j] := exp(B.data[i]) / C[j].field[k]
+
+The aim is to allow about this level of complexity.
 """
 macro tullio(exs...)
     _tullio(exs...)
@@ -30,7 +43,7 @@ macro moltullio(exs...)
     _tullio(exs...; multi=true)
 end
 
-function _tullio(leftright, after=nothing; multi=false)
+function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
 
     @capture(leftright, left_ += right_ ) &&
         return _tullio(:($left = $left + $right); after=after, multi=multi)
@@ -39,12 +52,13 @@ function _tullio(leftright, after=nothing; multi=false)
     @capture(leftright, left_ *= right_ ) &&
         return _tullio(:($left = $left * ($right) ); after=after, multi=multi)
 
+    leftright = MacroTools.postwalk(primewalk, leftright)
+
     #===== parse input =====#
 
-    # TODO catch primes here
-
     store = (axes=Dict(), flags=Set(), checks=[], arrays=[], rightind=[],
-        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),)
+        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),
+        tile=[], tilesize=Ref(512))
 
     newarray = @capture(leftright, left_ := right_ )
     newarray || @capture(leftright, left_ = right_ ) || error("wtf?")
@@ -52,7 +66,12 @@ function _tullio(leftright, after=nothing; multi=false)
     @capture(left, Z_[leftind__] | [leftind__] ) || error("can't understand LHS")
     isnothing(Z) && @gensym Z
 
-    readred(after, store)
+    if @capture(after1, (stuff__,))
+        readred(after1, store)
+        tiles = readtiles(after2, store)
+    else
+        tiles = readtiles(after1, store)
+    end
 
     MacroTools.postwalk(rightwalk(store), right)
     unique!(store.arrays)
@@ -70,21 +89,43 @@ function _tullio(leftright, after=nothing; multi=false)
 
     outex = quote end
 
-    push!(outex.args, :( local @inline rhs($(store.rightind...), $(store.arrays...)) = begin @inbounds $right end))
-
-    append!(outex.args, store.checks)
+    rhsfunc = :( rhs($(store.rightind...), $(store.arrays...)) )
+    push!(outex.args, :( local @inline $rhsfunc = begin @inbounds $right end))
 
     if newarray
         allfirst = map(i -> :(first($(store.axes[i]))), store.rightind)
         push!(outex.args, :( local T = typeof(rhs($(allfirst...), $(store.arrays...))) ))
+        Zsize = map(i -> :(length($(store.axes[i]))), leftind) # before tiles!
     else
-        push!(outex.args, :( local T = eltype($Z) ))
+        MacroTools.postwalk(leftwalk(store), right)
+        push!(outex.args, :( local T = eltype($Z) )) # before checks
+    end
+
+    append!(outex.args, store.checks)
+
+    #===== tiles =====#
+
+    if tiles
+        nt = length(store.tile)
+        tsz = trunc(Int, (store.tilesize[])^(1/nt))
+        ttup = ntuple(_ -> tsz, nt)
+
+        taxes = map(i -> store.axes[i], store.tile)
+        ex = :( local tiles = collect(TileIterator(($(taxes...),), $ttup)) )
+        push!(outex.args, ex)
+
+        for (n,i) in enumerate(store.tile)
+            store.axes[i] = :( tile[$n] )
+        end
     end
 
     if isempty(redind)
-         rex = :( $Z[$(leftind...)] = rhs($(leftind...), $(store.arrays...)) )
+        #===== no reduction =====#
+
+         rex = :( $Z[$(leftind...)] = $rhsfunc )
     else
         #===== reduction =====#
+
         if multi
             push!(outex.args, :(local cache = Vector{T}(undef, Threads.nthreads()) ))
             σ, cache = :( cache[Threads.threadid()] ), [:cache]
@@ -92,7 +133,7 @@ function _tullio(leftright, after=nothing; multi=false)
             σ, cache = :σ, []
         end
 
-        ex = :( $σ = $(store.redop[])($σ, rhs($(store.rightind...), $(store.arrays...)) ) )
+        ex = :( $σ = $(store.redop[])($σ, $rhsfunc ) )
         ex = recurseloops(ex, store)
         ex = :( $σ = $(store.init[]); $ex; ) #return $σ; )
 
@@ -102,34 +143,49 @@ function _tullio(leftright, after=nothing; multi=false)
     #===== final loops =====#
 
     if newarray
-        Zsize = map(i -> :(length($(store.axes[i]))), leftind)
         push!(outex.args, :( $Z = Array{T,$(length(leftind))}(undef, $(Zsize...)) ))
     end
 
-    ex = recurseloops( :( @inbounds $rex ),
-        (axes=store.axes, loop=reverse(leftind), unroll=[], rolln=Ref(0))
-        )
+    ministore = (axes=store.axes, loop=reverse(leftind), unroll=[], rolln=Ref(0))
+    ex = recurseloops( :( @inbounds $rex ), ministore)
+
+    if tiles
+        ex = :( for tile in tiles; $ex; end )
+    end
+
     if multi
         push!(outex.args, :( Threads.@threads $ex ))
     else
         push!(outex.args, ex)
     end
 
-    push!(outex.args, Z)
+    #===== done! =====#
 
+    push!(outex.args, Z)
     esc(outex)
 end
 
 #===== ingestion =====#
 
+primewalk(ex) = begin
+    @capture(ex, A_[inds__]) || return ex
+    map!(i -> @capture(i, j_') ? Symbol(j,'′') : i, inds, inds)
+    return :( $A[$(inds...)] )
+end
+
 rightwalk(store) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
         push!(store.arrays, A)
         append!(store.rightind, filter(i -> i isa Symbol, inds))
-        saveaxes(A, inds, store, true)
+        saveaxes(A, inds, store)
     end
 
-saveaxes(A, inds, store, onright) =
+leftwalk(store) = ex -> begin
+        @capture(ex, A_[inds__]) || return ex
+        saveaxes(A, inds, store)
+    end
+
+saveaxes(A, inds, store) =
     for (d,i) in enumerate(inds)
         i isa Symbol || continue
         if haskey(store.axes, i)
@@ -137,9 +193,6 @@ saveaxes(A, inds, store, onright) =
             push!(store.checks, :( @assert $(store.axes[i]) == axes($A,$d) $str ))
         else
             store.axes[i] = :( axes($A,$d) )
-        end
-        if onright
-            push!(store.rightind, i)
         end
     end
 
@@ -180,6 +233,20 @@ savered(store) = i ->
 
 unrollpush(store, i) = (:unroll in store.flags) ? push!(store.unroll, i) : push!(store.loop, i)
 
+readtiles(ex::Nothing, store) = false
+readtiles(ex, store) =
+    if @capture(ex, {op_, inds__})
+        if @capture(op, tile(n_) )
+            store.tilesize[] = n
+        elseif op != :tile
+            error("expected something like {tile(128),i,j} but got $ex")
+        end
+        append!(store.tile, inds)
+        return true
+    else
+        error("expected something like {tile(128),i,j} but got $ex")
+    end
+
 #===== digestion =====#
 
 recurseloops(ex, store) =
@@ -210,9 +277,6 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 
 #= === TODO ===
-
-* Perhaps make one more function k!(Z, A,B,C)
-* GPUifyloops -- can this do threading for me?
 
 * index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
 * constant indices A[i,3,$k] will be easy
