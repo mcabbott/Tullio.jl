@@ -18,32 +18,39 @@ But idea is to experiment with various things...
     @tullio A[i] := B[i,j] * C[k]  (+, j, unroll(4), k)      # unrolled by 4 only k loop, innermost
     @tullio A[i] := B[i,j] * C[k]  (+, unroll, j<=10, k<=10) # completely unroll j and k
 
-Reduction by summing over `j`, but with all the same things.
+Reduction by summing over `j`.
 If given, the order of the summed indices is the order of the loops, i.e. `k` changes fastest.
+The reduction operation is always first,
+and with something other than `(+)` or `(*)`, you may provide `(f, init=1)`.
 Unrolling uses `GPUifyLoops.jl` which only works on Julia 1.2.
 
     @tullio A[i,j] := B[i] * log(C[j])       {tile, i,j}
     @tullio A[i] := B[i,j] * C[k]  (+, j,k)  {tile(256), i,j,k}
 
-This adds an outermost loop over tiles from TiledIteration.jl
+This adds an outermost loop over tiles from `TiledIteration.jl`,
+the given size is the (maximum) product of tile dimensions.
+
+    @tullio A[i,_,j] := exp(B.data[i]) / C[j].vec[k] + f(D)[i,J[j],4] (+)
+
+This shows the level of complexity that is allowed. In particular constant indices
+are fine (`_` means `1`, and only `1` on the left with `:=`), arrays-of-arrays are fine
+on the right, as are arrays indexed by other arrays.
+Functions like `f(D)` will be called on every iteration.
+The eltype `A` comes from `T = typeof(rhs(1,1,1, B,C,J,D)`.
 
     @tullio A[i,j] := B[i] * log(C[j])       {static, i<=10,j<=10}
 
 Not yet, but perhaps this should unroll the LHS loops too.
-
-    @tullio A[i,j] := exp(B.data[i]) / C[j].field[k]
-
-The aim is to allow about this level of complexity.
 """
 macro tullio(exs...)
-    _tullio(exs...)
+    _tullio(exs...; mod=__module__)
 end
 
 macro moltullio(exs...)
-    _tullio(exs...; multi=true)
+    _tullio(exs...; multi=true, mod=__module__)
 end
 
-function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
+function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Main)
 
     @capture(leftright, left_ += right_ ) &&
         return _tullio(:($left = $left + $right); after=after, multi=multi)
@@ -54,10 +61,12 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
 
     leftright = MacroTools.postwalk(primewalk, leftright)
 
+    @gensym Tsym Ssym Csym # output elType, Scalar accumulator, per-thread Cache
+
     #===== parse input =====#
 
-    store = (axes=Dict(), flags=Set(), checks=[], arrays=[], rightind=[],
-        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero(T))),
+    store = (axes=Dict{Any,Any}(1 => 1), flags=Set(), checks=[], arrays=[], rightind=[],
+        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero($Tsym))),
         tile=[], tilesize=Ref(512))
 
     newarray = @capture(leftright, left_ := right_ )
@@ -66,11 +75,11 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
     @capture(left, Z_[leftind__] | [leftind__] ) || error("can't understand LHS")
     isnothing(Z) && @gensym Z
 
-    if @capture(after1, (stuff__,))
-        readred(after1, store)
-        tiles = readtiles(after2, store)
-    else
+    if @capture(after1, {stuff__} )
         tiles = readtiles(after1, store)
+    else
+        readred(after1, store, Tsym)
+        tiles = readtiles(after2, store)
     end
 
     MacroTools.postwalk(rightwalk(store), right)
@@ -89,16 +98,17 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
 
     outex = quote end
 
-    rhsfunc = :( rhs($(store.rightind...), $(store.arrays...)) )
-    push!(outex.args, :( local @inline $rhsfunc = begin @inbounds $right end))
+    @gensym rhsfunc
+    rhswithargs = :( $rhsfunc($(store.rightind...), $(store.arrays...)) )
+    push!(outex.args, :( local @inline $rhswithargs = begin @inbounds $right end))
 
     if newarray
         allfirst = map(i -> :(first($(store.axes[i]))), store.rightind)
-        push!(outex.args, :( local T = typeof(rhs($(allfirst...), $(store.arrays...))) ))
-        Zsize = map(i -> :(length($(store.axes[i]))), leftind) # before tiles!
+        push!(outex.args, :( local $Tsym = typeof($rhsfunc($(allfirst...), $(store.arrays...))) ))
+        outsize = map(i -> :(length($(store.axes[i]))), leftind) # before tiles!
     else
         MacroTools.postwalk(leftwalk(store), right)
-        push!(outex.args, :( local T = eltype($Z) )) # before checks
+        push!(outex.args, :( local $Tsym = eltype($Z) )) # before checks!
     end
 
     append!(outex.args, store.checks)
@@ -111,7 +121,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
         ttup = ntuple(_ -> tsz, nt)
 
         taxes = map(i -> store.axes[i], store.tile)
-        ex = :( local tiles = collect(TileIterator(($(taxes...),), $ttup)) )
+        ex = :( local tiles = collect(Tullio.TiledIteration.TileIterator(($(taxes...),), $ttup)) )
         push!(outex.args, ex)
 
         for (n,i) in enumerate(store.tile)
@@ -122,18 +132,18 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
     if isempty(redind)
         #===== no reduction =====#
 
-         rex = :( $Z[$(leftind...)] = $rhsfunc )
+         rex = :( $Z[$(leftind...)] = $rhswithargs ) # note that leftind may include constants
     else
         #===== reduction =====#
 
         if multi
-            push!(outex.args, :(local cache = Vector{T}(undef, Threads.nthreads()) ))
-            σ, cache = :( cache[Threads.threadid()] ), [:cache]
+            push!(outex.args, :(local $Csym = Vector{$Tsym}(undef, Threads.nthreads()) ))
+            σ, cache = :( $Csym[Threads.threadid()] ), [Csym]
         else
-            σ, cache = :σ, []
+            σ, cache = Ssym, []
         end
 
-        ex = :( $σ = $(store.redop[])($σ, $rhsfunc ) )
+        ex = :( $σ = $(store.redop[])($σ, $rhswithargs ) )
         ex = recurseloops(ex, store)
         ex = :( $σ = $(store.init[]); $ex; ) #return $σ; )
 
@@ -143,10 +153,10 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false)
     #===== final loops =====#
 
     if newarray
-        push!(outex.args, :( $Z = Array{T,$(length(leftind))}(undef, $(Zsize...)) ))
+        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftind))}(undef, $(outsize...)) ))
     end
 
-    ministore = (axes=store.axes, loop=reverse(leftind), unroll=[], rolln=Ref(0))
+    ministore = (axes=store.axes, loop=reverse(filter(i -> i isa Symbol, leftind)), unroll=[], rolln=Ref(0))
     ex = recurseloops( :( @inbounds $rex ), ministore)
 
     if tiles
@@ -169,15 +179,20 @@ end
 
 primewalk(ex) = begin
     @capture(ex, A_[inds__]) || return ex
-    map!(i -> @capture(i, j_') ? Symbol(j,'′') : i, inds, inds)
+    map!(inds, inds) do i
+        @capture(i, j_') ? Symbol(j,'′') :  # normalise i' to i′
+        i == :_ ? 1 : i                     # and A[i,_] to A[i,1]
+    end
     return :( $A[$(inds...)] )
 end
 
 rightwalk(store) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
-        push!(store.arrays, A)
-        append!(store.rightind, filter(i -> i isa Symbol, inds))
-        saveaxes(A, inds, store)
+        push!(store.arrays, arrayonly(A))
+        append!(store.rightind, filter(i -> i isa Symbol, inds)) # skips constant indices
+        # @show ex A inds
+        saveaxes(arrayfirst(A), inds, store)
+        return ex
     end
 
 leftwalk(store) = ex -> begin
@@ -196,20 +211,40 @@ saveaxes(A, inds, store) =
         end
     end
 
-readred(ex::Nothing, store) = nothing
-readred(ex, store) =
+arrayonly(A::Symbol) = A
+arrayonly(A::Expr) =
+    if @capture(A, B_[inds__].field_) || @capture(A, B_[inds__])
+        return B
+    elseif @capture(A, B_.field_) || @capture(A, f_(B_) )
+        return B
+    end
+
+arrayfirst(A::Symbol) = A
+arrayfirst(A::Expr) =
+    if @capture(A, B_[inds__].field_)
+        return :( first($B).$field )
+    elseif @capture(A, B_[inds__])
+        return :( first($B) )
+    elseif @capture(A, B_.field_)
+        return A
+    elseif @capture(A, f_(B_) )
+        return A
+    end
+
+readred(ex::Nothing, store, Tsym) = nothing
+readred(ex, store, Tsym) =
     if @capture(ex, (op_Symbol, inds__,)) ||  @capture(ex, op_Symbol)
         store.redop[] = op
-        store.init[] = op == :* ? :(one(T)) :
-            op == :max ? :(typemin(T)) :
-            op == :min ? :(typemin(T)) :
-            :(zero(T))
-        foreach(savered(store), something(inds,[]))
+        store.init[] = op == :* ? :(one($Tsym)) :
+            op == :max ? :(typemin($Tsym)) :
+            op == :min ? :(typemin($Tsym)) :
+            :(zero($Tsym))
+        foreach(savered(store, Tsym), something(inds,[]))
     else
         error("expected something like (+,i,j,unroll,k) but got $ex")
     end
 
-savered(store) = i ->
+savered(store, Tsym) = i ->
     if i == :unroll
         push!(store.flags, :unroll)
     elseif @capture(i, unroll(n_Int))
@@ -226,7 +261,7 @@ savered(store) = i ->
         store.axes[j] = :( $n:$m )
 
     elseif  @capture(i, init = z_)
-        store.init[] = z==0 ? :(zero(T)) : z==1 ? :(one(T)) : z
+        store.init[] = z==0 ? :(zero($Tsym)) : z==1 ? :(one($Tsym)) : z
     else
         @warn "wtf is index $i"
     end
@@ -255,8 +290,8 @@ recurseloops(ex, store) =
 
         r = store.axes[i]
         ex = iszero(store.rolln[]) ?
-            :(@unroll for $i in $r; $ex; end) :
-            :(@unroll $(store.rolln[]) for $i in $r; $ex; end)
+            :(Tullio.GPUifyLoops.@unroll for $i in $r; $ex; end) :
+            :(Tullio.GPUifyLoops.@unroll $(store.rolln[]) for $i in $r; $ex; end)
         return recurseloops(ex, store)
 
     elseif !isempty(store.loop)
@@ -280,6 +315,12 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 * index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
 * constant indices A[i,3,$k] will be easy
+* allow {zygote} which wraps the whole thing in a function & adds @adjoint?
+could even be default based on isdefined...
+
+* error if both tile and unroll anything.
+* allow unrolling of LHS indices too
+* make the order of LHS indices what you give it, if you give any those go first
 
 =#
 end # module
