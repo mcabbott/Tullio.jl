@@ -48,11 +48,6 @@ are fine (`_` means `1`, and only `1` on the left with `:=`), arrays-of-arrays a
 on the right, as are arrays indexed by other arrays.
 Functions like `f(D)` will be called on every iteration.
 The eltype of `A` comes from `T = typeof(rhs(1,1,1, B,C,J,D))`.
-
-    @tullio A[i,j] := B[i] * log(C[j])       {static, i<=10,j<=10}
-    @tullio A[i,j] := B[i] * log(C[j])       {gpu}
-
-Not yet, but perhaps these should/could be done...
 """
 macro tullio(exs...)
     _tullio(exs...; mod=__module__)
@@ -85,7 +80,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     newarray = @capture(leftright, left_ := right_ )
     newarray || @capture(leftright, left_ = right_ ) || error("wtf?")
 
-    @capture(left, Z_[leftind__] | [leftind__] ) || error("can't understand LHS $left")
+    @capture(left, Z_[leftind__] | [leftind__] ) ||
+        error("can't understand LHS, expected A[i,j,k], got $left")
     isnothing(Z) && @gensym Z
 
     if @capture(after1, {stuff__} )
@@ -102,7 +98,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     isempty(store.loop) && isempty(store.unroll) ?
         append!(store.loop, redind) :
-        sort(redind) == sort(vcat(store.loop, store.unroll)) || error("if you give any reduction indices, you must give them all: $(Tuple(redind))")
+        sort(redind) == sort(vcat(store.loop, store.unroll)) ||
+        error("if you give any reduction indices, you must give them all: $(Tuple(redind))")
 
     isempty(store.unroll) || UNROLLOK ||
         @warn "can't unroll loops on Julia $VERSION" maxlog=1 _id=hash(leftright)
@@ -185,7 +182,9 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         ex = :( for $Isym in $Gsym; $ex; end )
     end
 
-    if store.multi[]
+    if isempty(loopind) # scalar output needs a let block in global scope
+        push!(outex.args, :( let; $ex; end ))
+    elseif store.multi[]
         push!(outex.args, :( Threads.@threads $ex ))
     else
         push!(outex.args, ex)
@@ -221,7 +220,7 @@ leftwalk(store) = ex -> begin
         saveaxes(A, inds, store)
     end
 
-saveaxes(A, inds, store) =
+saveaxes(A, inds, store) = begin
     for (d,i) in enumerate(inds)
         i isa Symbol || continue
         if haskey(store.axes, i)
@@ -231,6 +230,10 @@ saveaxes(A, inds, store) =
             store.axes[i] = :( axes($A,$d) )
         end
     end
+    n = length(inds)
+    str = "expected a $n-array $A" # already arrayfirst(A)
+    push!(store.checks, :( @assert ndims($A) == $n $str ))
+end
 
 arrayonly(A::Symbol) = A   # this is for rhs(i,j,k, A,B,C)
 arrayonly(A::Expr) =
@@ -291,7 +294,8 @@ unrollpush(store, i) = (:unroll in store.flags) ? push!(store.unroll, i) : push!
 
 readcurly(ex::Nothing, store) = nothing
 readcurly(ex, store) = @capture(ex, {stuff__}) ?
-    foreach(savecurly(store), stuff) : error("expected something like {tile(2^10),i,j,k} but got $ex")
+    foreach(savecurly(store), stuff) :
+    error("expected something like {tile(2^10),i,j,k} but got $ex")
 
 savecurly(store) = i ->
     if @capture(i, tile(n_) | tiles(n_) )
@@ -345,12 +349,15 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 
 #= === TODO ===
 
-* index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
-* constant indices A[i,3,$k] will be easy
-* allow {zygote} which wraps the whole thing in a function & adds @adjoint?
-could even be default based on isdefined...
+* actual GPU loops, {gpu}... if limited to 3 loops, and in-place, then perhaps not too hard
 
-* allow unrolling of LHS indices too
+* allow unrolling of LHS indices too? Then {static}...
+
+* index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
+* constant indices A[i,$k] will be easy
+* option {zero} for A[i,i] := ...
+* allow {zygote} which wraps the whole thing in a function & adds @adjoint?
+  could even be default based on isdefined...
 
 =#
 end # module
