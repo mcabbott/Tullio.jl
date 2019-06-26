@@ -1,7 +1,7 @@
 # Tullio.jl
 
-This is a sketch of a replacement for `Einsum.jl`, which similarly generates 
-loops over indices:
+This is a sketch of a replacement for [Einsum.jl](https://github.com/ahwillia/Einsum.jl), 
+which similarly generates loops over indices:
 
 ```julia
 julia> @pretty  @tullio A[i,j] := B[i] * log(C[j]) 
@@ -19,7 +19,7 @@ end
 ```
 
 It exists to experiment with various things. 
-First, you can explicitly unroll loops (using GPUifyLoops.jl)
+First, you can explicitly unroll loops (using [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl))
 
 ```julia
 julia> @pretty  @tullio A[i] := B[i,j]  (+, unroll(10), j)
@@ -34,7 +34,10 @@ julia> @pretty  @tullio A[i] := B[i,j]  (+, unroll(10), j)
 ...
 ```
 
-Second, you can access things in tiled order (using TiledIteration.jl):
+The tuple `(+,i,j)` also lets you specify the reduction function,
+and the order of loops. 
+
+Second, you can access things in tiled order (using [TiledIteration.jl](https://github.com/JuliaArrays/TiledIteration.jl)). 
 
 ```julia
 julia> @pretty  @tullio A[i,j] := B[j,i]  {tile(1024),i,j} 
@@ -54,7 +57,7 @@ Third, there is multi-threading, which is a little smarter about accumulation sp
 than `@vielsum`:
 
 ```julia
-julia> @pretty  @moltullio A[i] := B[i,j]  (+,j)
+julia> @pretty  @tullio A[i] := B[i,j]  (+,j)  {threads}
 ...
     local cache = Vector{T}(undef, nthreads())
     @threads for i in axes(B, 1)
@@ -67,21 +70,41 @@ julia> @pretty  @moltullio A[i] := B[i,j]  (+,j)
 ...
 ```
 
+Finally, the expression on the right need not be just simple arrays:
 
+```julia
+julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
+...
+    @assert axes(C, 1) == axes(D, 1) "range of index i must agree"
+    for j = axes((first(D)).field, 1)
+        for i = axes(C, 1)
+            @inbounds A[i, 1, j] = rhs(i, j, C, B, D)
+        end
+    end
+...
+```
 
-Alive:
-* https://github.com/cstjean/Unrolled.jl
+This isn't registered, so install like so:
+
+```julia
+] add https://github.com/mcabbott/Tullio.jl
+```
+
+## Elsewhere 
+
+Used:
 * https://github.com/vchuravy/GPUifyLoops.jl
 * https://github.com/JuliaArrays/TiledIteration.jl
+* https://github.com/MikeInnes/MacroTools.jl
 
-Dead:
-* https://github.com/shashi/ArrayMeta.jl
-* https://github.com/tkelman/Tokamak.jl (this fork has the readme!)
-
-At work:
+Related:
 * https://github.com/ahwillia/Einsum.jl (writes simple loops)
 * https://github.com/Jutho/TensorOperations.jl (reduces to BLAS etc)
 * https://github.com/mcabbott/TensorCast.jl (re-writes to broadcasting)
 
 Being born:
-* https://github.com/under-Peter/OMEinsum.jl
+* https://github.com/under-Peter/OMEinsum.jl (aims to be differentiable)
+
+Dead:
+* https://github.com/shashi/ArrayMeta.jl ()
+* https://github.com/tkelman/Tokamak.jl (this fork has the readme!)
