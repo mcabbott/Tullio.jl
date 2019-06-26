@@ -8,8 +8,8 @@ const UNROLLOK = VERSION >= v"1.2.0-DEV.462"
 const TILESIZE = 1024
 
 """
-    @tullio A[i,j] := B[i] * C[j]
-    @tullio A[i,j] := B[i,j] * log(C[j]) + D[i]
+    @tullio A[i,j] := B[i] * C[j]                            # outer product
+    @tullio A[i,j] = B[i,j] * log(C[j]) + D[i]               # A .= B .* log.(C') .+ D
 
 Index notation macro, a lot like `@einsum`. This package exists to experiment
 with various additions.
@@ -31,20 +31,20 @@ Unrolling uses `GPUifyLoops.jl` which only works on Julia 1.2.
     @tullio A[i,j] := B[j,i] / C[j,i]  (+,k)  {j,i}          # loops with i innermost, default
     @tullio A[i,j] := B[i] * log(C[i,j]/B[j]) {thread}       # multithreading over outermost, j
     @tullio A[i,j] := B[j,i] * C[k]           {tile, thread} # multithreading over tiles for i,j
-    @tullio A[i] := B[i,j] * C[k]  (+, j,k)   {tile(2^10), i,j,k}
+    @tullio A[i] := B[i,j] * C[k]  (+, j,k)   {tile(8^3), i,j,k}
 
 Loops over indices on the left are controlled by `{}`.
 Default order for `A[i,j]` is {j,i} meaning `for j ∈..., i ∈...` i.e. `i` changes fastest.
 Magic word `thread` (or `threads`) adds `Threads.@threads` to outermost loop.
 
 Magic word `tile` adds an outer loop over tiles from `TiledIteration.jl`.
-This can include indices being reduced over, if given explicitly.
 The given size is the (maximum) product of tile dimensions. Default is `$TILESIZE`.
+You can tile over reduction indices, if you give them explicitly, but this is not thread safe.
 
     @tullio A[i,_,j] := exp(B.data[i]) / C[j].vec[k] + f(D)[i,J[j],4] (+)
 
 This shows the level of complexity that is allowed. In particular constant indices
-are fine (`_` means `1`, and only `1` on the left with `:=`), arrays-of-arrays are fine
+are fine (`_` means `1`, and on the left with `:=` only `1` is allowed), arrays-of-arrays are fine
 on the right, as are arrays indexed by other arrays.
 Functions like `f(D)` will be called on every iteration.
 The eltype of `A` comes from `T = typeof(rhs(1,1,1, B,C,J,D))`.
@@ -69,16 +69,16 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     leftright = MacroTools.postwalk(primewalk, leftright)
 
     @gensym Tsym Ssym Csym # output elType, Scalar accumulator, per-thread Cache
-    @gensym Fsym Gsym Isym # Function, tile Grid, tile Index
+    @gensym Fsym Gsym Isym Nsym # Function, tile Grid, tile Index, tilesize Ntuple
 
     #===== parse input =====#
 
     store = (axes=Dict{Any,Any}(1 => 1), flags=Set(), checks=[], arrays=[], rightind=[],
-        redop=Ref(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero($Tsym))),
-        curly=[], tilesize=Ref(0), multi=Ref(multi))
+        redop=Ref{Any}(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero($Tsym))),
+        curly=[], tilesize=Ref{Any}(0), multi=Ref{Bool}(multi))
 
     newarray = @capture(leftright, left_ := right_ )
-    newarray || @capture(leftright, left_ = right_ ) || error("wtf?")
+    newarray || @capture(leftright, left_ = right_ ) || error("expected A[] := B[] or A[] = B[], got $ex")
 
     @capture(left, Z_[leftind__] | [leftind__] ) ||
         error("can't understand LHS, expected A[i,j,k], got $left")
@@ -104,9 +104,12 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     isempty(store.unroll) || UNROLLOK ||
         @warn "can't unroll loops on Julia $VERSION" maxlog=1 _id=hash(leftright)
 
-    store.tilesize[] == 0 ||
-        isempty(intersect(store.unroll, store.curly)) ||
-        error("can't unroll and tile the same index")
+    isempty(setdiff(filter(i -> i isa Symbol, leftind), store.rightind)) || !newarray ||
+        error("some indices appear only on the left, this is not allowed with :=")
+
+    # store.tilesize[] == 0 ||
+    #     isempty(intersect(store.unroll, store.curly)) ||
+    #     error("can't unroll and tile the same index") # why not, actually?
 
     #===== preliminary expressions =====#
 
@@ -129,19 +132,30 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== tiles =====#
 
-    if store.tilesize[] > 0
+    if store.tilesize[] != 0
         length(store.curly) == 0 && append!(store.curly, reverse(filter(i -> i isa Symbol, leftind)))
+
         nt = length(store.curly)
-        tsz = trunc(Int, (store.tilesize[])^(1/nt))
-        ttup = ntuple(_ -> tsz, nt)
+        if store.tilesize[] isa Int
+            tsz = trunc(Int, (store.tilesize[])^(1/nt))
+            tiletup = ntuple(_ -> tsz, nt)
+        else # you got tiles(8^3) or something, calculate tile sizes later:
+            push!(outex.args, :( $Nsym = ntuple(_ -> trunc(Int, ($(store.tilesize[]))^(1/$nt)), $nt) ))
+            tiletup = Nsym
+        end
 
         taxes = map(i -> store.axes[i], store.curly)
-        ex = :( local $Gsym = collect(Tullio.TiledIteration.TileIterator(($(taxes...),), $ttup)) )
+        ex = :( local $Gsym = collect(Tullio.TiledIteration.TileIterator(($(taxes...),), $tiletup)) )
         push!(outex.args, ex)
 
         for (n,i) in enumerate(store.curly)
             store.axes[i] = :( $Isym[$n] )
         end
+
+        nt==1 && @warn "tiling over just one index!" maxlog=1 #_id=hash(leftright)
+
+        store.multi[] && length(intersect(store.curly, redind)) > 0 &&
+            error("tiling over a reduction index is not safe with multithreading, right now")
     end
 
     if isempty(redind)
@@ -160,35 +174,41 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         ex = :( $σ = $(store.redop[])($σ, $funwithargs ) )
         ex = recurseloops(ex, store)
-        ex = :( $σ = $(store.init[]); $ex; ) #return $σ; )
+        ex = :( $σ = $(store.init[]); $ex; )
 
         rex = :( $ex; $Z[$(leftind...)] = $σ )
     end
 
-    #===== final loops =====#
+    #===== output array =====#
 
     if newarray
         push!(outex.args, :( $Z = Array{$Tsym,$(length(leftind))}(undef, $(outsize...)) ))
     end
+    if :zero in store.flags
+        push!(outex.args, :( $Z .= zero($Tsym) ))
+    end
+
+    #===== final loops =====#
 
     leftind = reverse(filter(i -> i isa Symbol, leftind)) # default set
     leftcurly = intersect(store.curly, leftind)           # take order from {}, may be super/subset
     loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
-    ministore = (axes=store.axes, loop=loopind, unroll=[], rolln=Ref(0))
+    ministore = (axes=store.axes, loop=copy(loopind), unroll=[], rolln=Ref(0)) # copy for scalar below
 
-    ex = recurseloops( :( @inbounds $rex ), ministore)
+    ex = recurseloops(rex, ministore)
 
-    if store.tilesize[] > 0
+    if store.tilesize[] != 0
         ex = :( for $Isym in $Gsym; $ex; end )
     end
 
     if isempty(loopind) # scalar output needs a let block in global scope
-        push!(outex.args, :( let; $ex; end ))
+        ex = :( let; @inbounds $ex; end )
     elseif store.multi[]
-        push!(outex.args, :( Threads.@threads $ex ))
+        ex = :( @inbounds Threads.@threads $ex )
     else
-        push!(outex.args, ex)
+        ex = :( @inbounds $ex )
     end
+    push!(outex.args, ex)
 
     #===== done! =====#
 
@@ -196,16 +216,22 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     esc(outex)
 end
 
-#===== ingestion =====#
+#===== parsing expressions =====#
 
-primewalk(ex) = begin
+primewalk(ex) = begin # e.g. @macroexpand1 @tullio A[i'] := f(B[i',:,$c] )
     @capture(ex, A_[inds__]) || return ex
     map!(inds, inds) do i
-        @capture(i, j_') ? Symbol(j,'′') :  # normalise i' to i′
-        i == :_ ? 1 : i                     # and A[i,_] to A[i,1]
+        @capture(i, j_') ? Symbol(j,'′') :        # normalise i' to i′
+        i == :_ ? 1 :                             # and A[i,_] to A[i,1]
+        isdollar(i) ? :(identity($(i.args[1]))) : # trick to protect constants
+        i == :(:) ? :(Colon()) :                  # and treat : like a constant
+        i
     end
     return :( $A[$(inds...)] )
 end
+
+isdollar(i) = false
+isdollar(i::Expr) = i.head == :$
 
 rightwalk(store) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
@@ -255,6 +281,8 @@ arrayfirst(A::Expr) =
         return A
     end
 
+#===== parsing option tuples =====#
+
 readred(ex::Nothing, store, Tsym) = nothing
 readred(ex, store, Tsym) =
     if @capture(ex, (op_Symbol, inds__,)) ||  @capture(ex, op_Symbol)
@@ -301,9 +329,11 @@ savecurly(store) = i ->
     if @capture(i, tile(n_) | tiles(n_) )
         store.tilesize[] = n
     elseif i==:tile || i==:tiles
-        store.tilesize = TILESIZE
+        store.tilesize[] = TILESIZE
     elseif i==:thread || i==:threads
         store.multi[] = true
+    elseif i==:zero
+        push!(store.flags, :zero)
 
     elseif i isa Symbol
         push!(store.curly, i)
@@ -318,7 +348,7 @@ savecurly(store) = i ->
         error("don't know what to do with index $i")
     end
 
-#===== digestion =====#
+#===== making loops =====#
 
 recurseloops(ex, store) =
     if !isempty(store.unroll)
@@ -340,11 +370,14 @@ recurseloops(ex, store) =
         return ex
     end
 
-#===== action =====#
+gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
+    [:( threadIdx().x ), :( threadIdx().y ), :( threadIdx().z )][1:n]
 
-struct UndefArray{T,N} end
-
-UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
+gpuloop(ex, store) = begin
+    i = pop!(store.loop)
+    r = :( store.axes[i]; $gr )
+    :( Tullio.GPUifyLoops.@loop for $i in $r; $ex; end )
+end
 
 
 #= === TODO ===
@@ -354,10 +387,7 @@ UndefArray{T,N}(ax...) where {T,N} = Array{T,N}(undef, map(length, ax)...)
 * allow unrolling of LHS indices too? Then {static}...
 
 * index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
-* constant indices A[i,$k] will be easy
-* option {zero} for A[i,i] := ...
 * allow {zygote} which wraps the whole thing in a function & adds @adjoint?
-  could even be default based on isdefined...
 
 =#
 end # module

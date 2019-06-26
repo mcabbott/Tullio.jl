@@ -3,7 +3,7 @@
 This is a sketch of a replacement for [Einsum.jl](https://github.com/ahwillia/Einsum.jl), 
 which similarly generates loops over indices:
 
-```julia
+```
 julia> @pretty  @tullio A[i,j] := B[i] * log(C[j]) 
 begin
     local @inline rhs(i, j, B, C) = @inbounds B[i] * log(C[j])
@@ -21,7 +21,7 @@ end
 It exists to experiment with various things. 
 First, you can explicitly unroll loops (using [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl))
 
-```julia
+```
 julia> @pretty  @tullio A[i] := B[i,j]  (+, unroll(10), j)
 ┌ Warning: can't unroll loops on Julia 1.1.0
 └ @ Tullio ~/.julia/dev/Tullio/src/Tullio.jl:86
@@ -39,7 +39,7 @@ and the order of loops.
 
 Second, you can access things in tiled order (using [TiledIteration.jl](https://github.com/JuliaArrays/TiledIteration.jl)). 
 
-```julia
+```
 julia> @pretty  @tullio A[i,j] := B[j,i]  {tile(1024),i,j} 
 ...
     local tiles = collect(TileIterator((axes(B, 2), axes(B, 1)), (32, 32)))
@@ -56,7 +56,7 @@ julia> @pretty  @tullio A[i,j] := B[j,i]  {tile(1024),i,j}
 Third, there is multi-threading, which is a little smarter about accumulation space 
 than `@vielsum`:
 
-```julia
+```
 julia> @pretty  @tullio A[i] := B[i,j]  (+,j)  {threads}
 ...
     local cache = Vector{T}(undef, nthreads())
@@ -72,7 +72,7 @@ julia> @pretty  @tullio A[i] := B[i,j]  (+,j)  {threads}
 
 Finally, the expression on the right need not be just simple arrays:
 
-```julia
+```
 julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
 ...
     @assert axes(C, 1) == axes(D, 1) "range of index i must agree"
@@ -86,7 +86,7 @@ julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
 
 This isn't registered, so install like so:
 
-```julia
+```
 ] add https://github.com/mcabbott/Tullio.jl
 ```
 
