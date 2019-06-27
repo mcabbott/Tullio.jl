@@ -111,6 +111,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     isempty(setdiff(leftind, store.rightind)) || !newarray ||
         error("some indices appear only on the left, this is not allowed with :=")
 
+    isempty(setdiff(store.curly, store.rightind)) || error("some indices in {} are not in expression")
+
     #===== rhs function, and eltype(Z) =====#
 
     outex = quote end
@@ -133,7 +135,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     #===== tiles =====#
 
     if store.tilesize[] != 0
-        length(store.curly) == 0 && append!(store.curly, leftsym)
+        length(store.curly) == 0 && append!(store.curly, leftind)
 
         nt = length(store.curly)
         if store.tilesize[] isa Int
@@ -203,7 +205,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     #===== final loops =====#
 
     leftcurly = intersect(store.curly, leftind) # take order from {}, may be super/subset
-    loopind = vcat(leftcurly, setdiff(leftraw, leftcurly))
+    loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
     ministore = (axes=store.axes, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
 
     ex = recurseloops(rex, ministore)
@@ -359,9 +361,9 @@ savecurly(store) = i ->
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
-        pushcheck(store, i)
+        push!(store.curly, i)
     elseif @capture(i, j_ <= m_)
-        pushcheck(store, j)
+        push!(store.curly, j)
         store.axes[j] = :( Base.OneTo($m) )
 
     else
@@ -369,7 +371,6 @@ savecurly(store) = i ->
     end
 
 spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s==:cuda ? :gpu : s
-pushcheck(store, i) = i in store.rightind ? push!(store.curly) : error("index $i in {} not seen in expression")
 
 #===== making loops =====#
 
