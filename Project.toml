@@ -4,6 +4,8 @@ authors = ["Michael Abbott"]
 version = "0.0.1"
 
 [deps]
+CUDAnative = "be33ccc6-a3ff-5ff2-a52e-74243cff1e17"
+CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae"
 GPUifyLoops = "ba82f77b-6841-5d2e-bd9f-4daf811aec27"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 TiledIteration = "06e1c1a7-607b-532d-9fad-de7d9aa2abac"
@@ -13,7 +15,8 @@ julia = "1"
 
 [extras]
 Einsum = "b7d42ee7-0b51-5a75-98ca-779d3107e4c0"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Einsum"]
+test = ["Test", "Einsum", "LinearAlgebra"]

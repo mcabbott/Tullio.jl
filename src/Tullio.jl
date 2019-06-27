@@ -163,12 +163,13 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     #===== gpu loop ranges =====#
 
     if :gpu in store.flags
+        newarray && error("can only use gpu loops in-place, A[] = B[]")
         store.tilesize[] == 0 || error("can't do tiled iteration and gpu loops")
 
         loopind = vcat(store.loop, leftind)
 
         for (i,r) in zip(loopind, gpuranges(length(loopind)))
-            store.axes[i] = :( $(store.axes[i]) ; $(altranges[n]) )
+            store.axes[i] = :( $(store.axes[i]) ; $r )
         end
     end
 
@@ -227,17 +228,17 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     else
         #===== out of body cognition =====#
 
-        fex = :( $Ksym($Z) = ($ex; @synchronize; nothing) )
+        fex = :( $Ksym($Z, $(store.arrays...)) = ($ex; Tullio.GPUifyLoops.@synchronize; nothing) )
         push!(outex.args, fex)
 
-        cuex = :(function $Ksym($Z::CuArray)
-                Tullio.GPUifyLoops.@launch CUDA() threads=length($Z) $Ksym($Z)
+        cuex = :($Ksym($Z::CuArray, $(store.arrays...)) = begin
+                Tullio.GPUifyLoops.launch(Tullio.GPUifyLoops.CUDA(), $Ksym, $Z, $(store.arrays...); threads=size($Z))
                 end)
         push!(outex.args, cuex)
 
-        push!(outex.args, :($Ksym($Z) )) # make K!(Z) to do the work!
+        push!(outex.args, :($Ksym($Z, $(store.arrays...)) )) # make K!(Z) to do the work!
 
-        Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
+        # Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
     end
 
     #===== done! =====#

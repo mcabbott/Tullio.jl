@@ -1,5 +1,7 @@
 using Test
-using Tullio, Einsum
+using Tullio, Einsum, LinearAlgebra
+
+@info "running tests with $(Threads.nthreads()) threads, Julia $VERSION"
 
 @testset "cast" begin
 
@@ -58,8 +60,11 @@ end
     @test reshape(A,2,1,3) == @tullio B[i,_,j] := A[i,j]
 
     @test A[:,3] == @tullio C[i] := A[i,3]
-    i=99; k=3
+    k=3
     @test A[:,3] == @tullio C[i] := A[i,$k]
+
+    i=99;
+    @tullio C[i] := A[i,3]
     @test i==99
 
     @tullio D1[i] := A[i,j] (+,j)
@@ -67,4 +72,42 @@ end
 
     @test A' == @tullio E[a,a'] := A[a′,a]
 
+    @test Diagonal(C) == @tullio F[d,d] := C[d] {zero}
+
 end
+@static if false # Base.find_package("CuArrays") !== nothing
+
+    @info "found CuArrays, starting GPU tests"
+
+    using CuArrays
+    using CUDAnative
+
+    @testset "gpu cast" begin
+
+        V = rand(10)
+        cV = cu(V)
+        W, cW = similar(V), similar(cV)
+
+        @test V == @tullio W[i] = V[i] {gpu}
+        @test cV == @tullio cW[i] = cV[i] {gpu}
+
+        M = rand(10,10)
+        cM = cu(M)
+        N, cN = similar(M), similar(cM)
+
+
+    end
+    @testset "gpu reduce" begin
+
+        @test true
+
+    end
+else
+    @info "did not find CuArrays, omitting GPU tests"
+end
+@testset "errors" begin
+
+    @test true
+
+end
+
