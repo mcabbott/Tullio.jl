@@ -79,8 +79,8 @@ julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
     T = typeof(rhs(1, 1, C, B, D))
 ...
     @assert axes(C, 1) == axes(D, 1) "range of index i must agree"
-    for j = axes((first(D)).field, 1)
-        for i = axes(C, 1)
+    for j in axes((first(D)).field, 1)
+        for i in axes(C, 1)
             @inbounds A[i, 1, j] = rhs(i, j, C, B, D)
         end
     end
@@ -94,13 +94,14 @@ And finally, I'm trying to learn how to make it write loops for `CuArrays`
 julia> @pretty @tullio A[i,j] = B[i,j,k] {gpu}
 ...
     function kernel!(A, B)
-        GPUifyLoops.@loop for j = (axes(B, 2); threadIdx().z)
+        @loop for j in (axes(B, 2); threadIdx().z)
+            @loop for i in (axes(B, 1); threadIdx().y)
 ...
         @synchronize
         nothing
     end
     function kernel!(A::CuArray, B)
-        GPUifyLoops.launch(CUDA(), kernel!, A, B; threads=(axes(B, 3), axes(B, 1), axes(B, 2)))
+        GPUifyLoops.launch(CUDA(), kernel!, A, B; threads=(size(B, 3), size(B, 1), size(B, 2)))
     end
     kernel!(A, B)
 ...
@@ -128,5 +129,5 @@ Being born:
 * https://github.com/under-Peter/OMEinsum.jl (aims to be differentiable)
 
 Dead:
-* https://github.com/shashi/ArrayMeta.jl ()
+* https://github.com/shashi/ArrayMeta.jl (same `(*,i)` notation)
 * https://github.com/tkelman/Tokamak.jl (this fork has the readme!)
