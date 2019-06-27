@@ -70,19 +70,23 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     @gensym Tsym Ssym Csym # output elType, Scalar accumulator, per-thread Cache
     @gensym Fsym Gsym Isym Nsym # Function, tile Grid, tile Index, tilesize Ntuple
+    @gensym Ksym # mutating Kernel function
 
     #===== parse input =====#
 
-    store = (axes=Dict{Any,Any}(1 => 1), flags=Set(), checks=[], arrays=[], rightind=[],
-        redop=Ref{Any}(:+), loop=[], unroll=[], rolln=Ref(0), init=Ref{Any}(:(zero($Tsym))),
-        curly=[], tilesize=Ref{Any}(0), multi=Ref{Bool}(multi))
+    store = (axes=Dict{Any,Any}(1 => 1),
+        flags=Set{Any}(multi ? [:multi] : []),
+        redop=Ref{Any}(:+), init=Ref{Any}(:(zero($Tsym))),
+        arrays=[], rightind=[], curly=[], checks=[], loop=[], unroll=[],
+        tilesize=Ref{Any}(0), rolln=Ref(0))
 
     newarray = @capture(leftright, left_ := right_ )
     newarray || @capture(leftright, left_ = right_ ) || error("expected A[] := B[] or A[] = B[], got $ex")
 
-    @capture(left, Z_[leftind__] | [leftind__] ) ||
+    @capture(left, Z_[leftraw__] | [leftraw__] ) ||
         error("can't understand LHS, expected A[i,j,k], got $left")
     isnothing(Z) && @gensym Z
+    leftind = reverse(filter(i -> i isa Symbol, leftraw)) # default outer loop variables
 
     if @capture(after1, {stuff__} )
         readcurly(after1, store)
@@ -94,7 +98,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     MacroTools.postwalk(rightwalk(store), right)
     unique!(store.arrays)
     unique!(store.rightind)
-    redind = setdiff(store.rightind, leftind)
+    redind = setdiff(store.rightind, leftraw)
 
     isempty(store.loop) && isempty(store.unroll) ?
         append!(store.loop, redind) :
@@ -104,14 +108,10 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     isempty(store.unroll) || UNROLLOK ||
         @warn "can't unroll loops on Julia $VERSION" maxlog=1 _id=hash(leftright)
 
-    isempty(setdiff(filter(i -> i isa Symbol, leftind), store.rightind)) || !newarray ||
+    isempty(setdiff(leftind, store.rightind)) || !newarray ||
         error("some indices appear only on the left, this is not allowed with :=")
 
-    # store.tilesize[] == 0 ||
-    #     isempty(intersect(store.unroll, store.curly)) ||
-    #     error("can't unroll and tile the same index") # why not, actually?
-
-    #===== preliminary expressions =====#
+    #===== rhs function, and eltype(Z) =====#
 
     outex = quote end
 
@@ -121,7 +121,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     if newarray
         allfirst = map(i -> :(first($(store.axes[i]))), store.rightind)
         push!(outex.args, :( local $Tsym = typeof($Fsym($(allfirst...), $(store.arrays...))) ))
-        outsize = map(i -> :(length($(store.axes[i]))), leftind) # before tiles!
+        outsize = map(i -> :(length($(store.axes[i]))), leftraw) # before tiles!
     else
         MacroTools.postwalk(leftwalk(store), left) # before checks!
         push!(outex.args, :( local $Tsym = eltype($Z) ))
@@ -133,7 +133,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     #===== tiles =====#
 
     if store.tilesize[] != 0
-        length(store.curly) == 0 && append!(store.curly, reverse(filter(i -> i isa Symbol, leftind)))
+        length(store.curly) == 0 && append!(store.curly, leftsym)
 
         nt = length(store.curly)
         if store.tilesize[] isa Int
@@ -154,18 +154,30 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         nt==1 && @warn "tiling over just one index!" maxlog=1 #_id=hash(leftright)
 
-        store.multi[] && length(intersect(store.curly, redind)) > 0 &&
+        (:thread in store.flags) && length(intersect(store.curly, redind)) > 0 &&
             error("tiling over a reduction index is not safe with multithreading, right now")
+    end
+
+    #===== gpu loop ranges =====#
+
+    if :gpu in store.flags
+        store.tilesize[] == 0 || error("can't do tiled iteration and gpu loops")
+
+        loopind = vcat(store.loop, leftind)
+
+        for (i,r) in zip(loopind, gpuranges(length(loopind)))
+            store.axes[i] = :( $(store.axes[i]) ; $(altranges[n]) )
+        end
     end
 
     if isempty(redind)
         #===== no reduction =====#
 
-         rex = :( $Z[$(leftind...)] = $funwithargs ) # note that leftind may include constants
+         rex = :( $Z[$(leftraw...)] = $funwithargs ) # note that leftraw may include constants
     else
-        #===== reduction =====#
+        #===== reduction loops =====#
 
-        if store.multi[]
+        if (:thread in store.flags)
             push!(outex.args, :(local $Csym = Vector{$Tsym}(undef, Threads.nthreads()) ))
             σ = :( $Csym[Threads.threadid()] )
         else
@@ -176,13 +188,13 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         ex = recurseloops(ex, store)
         ex = :( $σ = $(store.init[]); $ex; )
 
-        rex = :( $ex; $Z[$(leftind...)] = $σ )
+        rex = :( $ex; $Z[$(leftraw...)] = $σ )
     end
 
     #===== output array =====#
 
     if newarray
-        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftind))}(undef, $(outsize...)) ))
+        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsize...)) ))
     end
     if :zero in store.flags
         push!(outex.args, :( $Z .= zero($Tsym) ))
@@ -190,10 +202,9 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== final loops =====#
 
-    leftind = reverse(filter(i -> i isa Symbol, leftind)) # default set
-    leftcurly = intersect(store.curly, leftind)           # take order from {}, may be super/subset
-    loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
-    ministore = (axes=store.axes, loop=copy(loopind), unroll=[], rolln=Ref(0)) # copy for scalar below
+    leftcurly = intersect(store.curly, leftind) # take order from {}, may be super/subset
+    loopind = vcat(leftcurly, setdiff(leftraw, leftcurly))
+    ministore = (axes=store.axes, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
 
     ex = recurseloops(rex, ministore)
 
@@ -203,12 +214,29 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     if isempty(loopind) # scalar output needs a let block in global scope
         ex = :( let; @inbounds $ex; end )
-    elseif store.multi[]
+    elseif (:thread in store.flags)
         ex = :( @inbounds Threads.@threads $ex )
     else
         ex = :( @inbounds $ex )
     end
-    push!(outex.args, ex)
+
+    if !(:gpu in store.flags)
+        push!(outex.args, ex) # simple case: just run these loops!
+    else
+        #===== out of body cognition =====#
+
+        fex = :( $Ksym($Z) = ($ex; @synchronize; nothing) )
+        push!(outex.args, fex)
+
+        cuex = :(function $Ksym($Z::CuArray)
+                Tullio.GPUifyLoops.@launch CUDA() threads=length($Z) $Ksym($Z)
+                end)
+        push!(outex.args, cuex)
+
+        push!(outex.args, :($Ksym($Z) )) # make K!(Z) to do the work!
+
+        Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
+    end
 
     #===== done! =====#
 
@@ -308,9 +336,6 @@ savered(store, Tsym) = i ->
     elseif @capture(i, j_ <= m_)
         unrollpush(store, j)
         store.axes[j] = :( Base.OneTo($m) )
-    elseif @capture(i, n_ <= j_ <= m_)
-        unrollpush(store, j)
-        store.axes[j] = :( $n:$m )
 
     elseif  @capture(i, init = z_)
         store.init[] = z==0 ? :(zero($Tsym)) : z==1 ? :(one($Tsym)) : z
@@ -328,25 +353,23 @@ readcurly(ex, store) = @capture(ex, {stuff__}) ?
 savecurly(store) = i ->
     if @capture(i, tile(n_) | tiles(n_) )
         store.tilesize[] = n
-    elseif i==:tile || i==:tiles
+    elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i==:thread || i==:threads
-        store.multi[] = true
-    elseif i==:zero
-        push!(store.flags, :zero)
+    elseif i in (:thread, :threads, :zero, :gpu, :cuda)
+        push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
-        push!(store.curly, i)
+        pushcheck(store, i)
     elseif @capture(i, j_ <= m_)
-        push!(store.curly, j)
+        pushcheck(store, j)
         store.axes[j] = :( Base.OneTo($m) )
-    elseif @capture(i, n_ <= j_ <= m_)
-        push!(store.curly, j)
-        store.axes[j] = :( $n:$m )
 
     else
         error("don't know what to do with index $i")
     end
+
+spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s==:cuda ? :gpu : s
+pushcheck(store, i) = i in store.rightind ? push!(store.curly) : error("index $i in {} not seen in expression")
 
 #===== making loops =====#
 
@@ -363,7 +386,9 @@ recurseloops(ex, store) =
     elseif !isempty(store.loop)
         i = pop!(store.loop)
         r = store.axes[i]
-        ex = :(for $i in $r; $ex; end)
+        ex = (:gpu in store.flags) ?
+            :( Tullio.GPUifyLoops.@loop for $i in $r; $ex; end ) :
+            :(for $i in $r; $ex; end)
         return recurseloops(ex, store)
 
     else
@@ -372,12 +397,6 @@ recurseloops(ex, store) =
 
 gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
     [:( threadIdx().x ), :( threadIdx().y ), :( threadIdx().z )][1:n]
-
-gpuloop(ex, store) = begin
-    i = pop!(store.loop)
-    r = :( store.axes[i]; $gr )
-    :( Tullio.GPUifyLoops.@loop for $i in $r; $ex; end )
-end
 
 
 #= === TODO ===
