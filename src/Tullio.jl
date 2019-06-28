@@ -401,6 +401,21 @@ gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
     [:( threadIdx().x ), :( threadIdx().y ), :( threadIdx().z )][1:n]
 
 
+
+"""
+    Tullio.@einsum A[i] := B[i]
+
+Since this package is a superset of `Einsum.jl`, you can drop that and write `using Tullio: @einsum`
+to use the new macro under the old name.
+"""
+macro einsum(exs...)
+    _tullio(exs...; mod=__module__)
+end
+
+macro vielsum(exs...)
+    _tullio(exs...; multi=true, mod=__module__)
+end
+
 #= === TODO ===
 
 * actual GPU loops, {gpu}... if limited to 3 loops, and in-place, then perhaps not too hard
