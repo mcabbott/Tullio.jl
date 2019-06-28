@@ -5,8 +5,8 @@ using Tullio, Einsum, LinearAlgebra
 
 @testset "cast" begin
 
-    A = rand(2,3)
-    V = rand(3)
+    A = rand(7,10)
+    V = rand(10)
 
     @einsum C1[j,i] := A[i,j] + V[j]
     @test C1 == @tullio C2[j,i] := A[i,j] + V[j]
@@ -19,23 +19,24 @@ using Tullio, Einsum, LinearAlgebra
     @test C1 == @tullio D2[j,i] = A[i,j] + V[j]
     @test C1 == @tullio D3[j,i] = A[i,j] + V[j] {thread}
     @test C1 == @tullio D4[j,i] := A[i,j] + V[j] {tile}
-    @test C1 == @tullio D5[j,i] := A[i,j] + V[j] {tile(10),i,j}
+    @test C1 == @tullio D5[j,i] := A[i,j] + V[j] {tile(5^2),i,j}
 
 end
 @testset "reduce" begin
 
-    A = rand(2,10)
-    B = rand(3,10)
+    A = rand(10,10)
+    B = rand(10,10)
 
     @einsum Z1[i,k] := A[i,j] + B[k,j]/2
     @test Z1 == @tullio Z2[i,k] := A[i,j] + B[k,j]/2
     @test Z1 == @tullio Z3[i,k] := A[i,j] + B[k,j]/2 {thread}
-    @test Z1 == @tullio Z4[i,k] := A[i,j] + B[k,j]/2 {tile,i,j,k}
+    @test Z1 == @tullio Z4[i,k] := A[i,j] + B[k,j]/2 {tile,i,k}
+    @test Z1 == @tullio Z4[i,k] := A[i,j] + B[k,j]/2 {tile(100),i,j,k}
 
     @test Z1 == @tullio Z5[i,k] := A[i,j] + B[k,j]/2 (+,j)
     @test Z1 == @tullio Z6[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j)
     @test Z1 == @tullio Z7[i,k] := A[i,j] + B[k,j]/2 (+,unroll(3),j)
-    @test Z1 == @tullio Z8[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile,i,j,k}
+    @test Z1 == @tullio Z8[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile(100),i,j,k}
     @test Z1 == @tullio Z9[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile,i,k,thread}
 
 end
@@ -81,6 +82,7 @@ end
 
     using CuArrays
     using CUDAnative
+    CuArrays.allowscalar(false)
 
     @testset "gpu cast" begin
 
@@ -95,11 +97,21 @@ end
         cM = cu(M)
         N, cN = similar(M), similar(cM)
 
+        @test M' == @tullio N[i,j] = M[j,i] {gpu}
+        @test_broken cM' == @tullio cN[i,j] = cM[j,i] {gpu} # broken by allowscalar(false)
 
     end
     @testset "gpu reduce" begin
 
-        @test true
+        V = rand(10)
+        cV = cu(V)
+        W, cW = similar(V), similar(cV)
+
+        M = rand(10,10)
+        cM = cu(M)
+
+        @tullio W[i] = M[i,j] + V[j] {gpu}
+        @test_broken cu(W) == @tullio cW[i] = cM[i,j] + cV[j] {gpu}
 
     end
 else
