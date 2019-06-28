@@ -156,8 +156,13 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         nt==1 && @warn "tiling over just one index!" maxlog=1 #_id=hash(leftright)
 
-        (:thread in store.flags) && length(intersect(store.curly, redind)) > 0 &&
-            error("tiling over a reduction index is not safe with multithreading, right now")
+        if length(intersect(store.curly, redind)) > 0
+            (:thread in store.flags) &&
+                error("tiling over a reduction index is not safe with multithreading, right now")
+            ntin = length(intersect(store.curly, redind))
+            condex = Expr(:comparison, [isodd(m) ? :($Isym[$(nt - (m-1)÷2)]) : :(==) for m=1:2*ntin]..., 1)
+            store.init[] = :( ifelse($condex, $(store.init[]), $Z[$(leftraw...)]) )
+        end
     end
 
     #===== gpu loop ranges =====#
