@@ -35,19 +35,31 @@ Unrolling uses `GPUifyLoops.jl` which only works on Julia 1.2.
 
 Loops over indices on the left are controlled by `{}`.
 Default order for `A[i,j]` is {j,i} meaning `for j ∈..., i ∈...` i.e. `i` changes fastest.
-Magic word `thread` (or `threads`) adds `Threads.@threads` to outermost loop.
+Magic word `{thread}` (or `threads`) adds `Threads.@threads` to outermost loop.
 
-Magic word `tile` adds an outer loop over tiles from `TiledIteration.jl`.
+Magic word `{tile}` adds an outer loop over tiles from `TiledIteration.jl`.
 The given size is the (maximum) product of tile dimensions. Default is `$TILESIZE`.
 You can tile over reduction indices, if you give them explicitly, but this is not thread safe.
 
-    @tullio A[i,_,j] := exp(B.data[i]) / C[j].vec[k] + f(D)[i,J[j],4] (+)
+    @tullio A[i,_,j] := exp(B.data[i]) / C[j].vec[k] + f(D)[i,j,4] (+)
+    @tullio A[i,i,k] = B[J[i], J[i], K[k]]  {zero}
 
 This shows the level of complexity that is allowed. In particular constant indices
 are fine (`_` means `1`, and on the left with `:=` only `1` is allowed), arrays-of-arrays are fine
 on the right, as are arrays indexed by other arrays.
 Functions like `f(D)` will be called on every iteration.
 The eltype of `A` comes from `T = typeof(rhs(1,1,1, B,C,J,D))`.
+
+        @tullio A[i] := B[i] + C[i]              # range is i ∈ (1:∞) ∩ axes(B,1) ∩ axes(C,1)
+        @tullio A[i] := B[i] - C[i]    {strict}  # asserts axes(B,1) == axes(C,1)
+        @tullio A[i] := B[i-2] * B[i]  {offset}  # range is i ∈ axes(B,1).+2 ∩ axes(B,1)
+        @tullio A[i] := B[i+5] / B[i]  {cyclic}  # contains B[mod(i+5, axes(B,1)]
+
+By default indexing runs over the largest shared range. Saying `{strict}` demands that ranges agree;
+`{cyclic}` treats any shifted index modulo the size of that array.
+When creating a new `Array`, a shared range starting at `i<=0` will be clipped to `i>=1`,
+and a shared range starting at `i>=2` will give an error.
+But if you say `{offset}` to produce an `OffsetArray`, then the output can have any range.
 """
 macro tullio(exs...)
     _tullio(exs...; mod=__module__)
@@ -74,7 +86,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== parse input =====#
 
-    store = (axes=Dict{Any,Any}(1 => 1),
+    store = (ranges=Dict{Any,Any}(1 => 1), constraints=Dict(),
         flags=Set{Any}(multi ? [:multi] : []),
         redop=Ref{Any}(:+), init=Ref{Any}(:(zero($Tsym))),
         arrays=[], rightind=[], curly=[], checks=[], loop=[], unroll=[],
@@ -95,9 +107,22 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         readcurly(after2, store)
     end
 
-    MacroTools.postwalk(rightwalk(store), right)
+    modright = MacroTools.postwalk(rightwalk(store), right)
     unique!(store.arrays)
     unique!(store.rightind)
+
+    if newarray && !(:offset in store.flags)
+        for i in leftind
+            push!(store.constraints[i], :( 1:typemax(Int) )) # "some indices appear only on the left ...
+        end
+    elseif !newarray
+        saveconstraintsmod(Z, leftraw, store, false) # replaces leftwalk
+    end
+
+    #===== process & check input =====#
+
+    resolveranges(store)
+
     redind = setdiff(store.rightind, leftraw)
 
     isempty(store.loop) && isempty(store.unroll) ?
@@ -113,24 +138,31 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     isempty(setdiff(store.curly, store.rightind)) || error("some indices in {} are not in expression")
 
+    if newarray && !(:offset in store.flags) # && !(:zero in store.flags)
+        for i in leftind
+            str = "range of index $i must start at one, try {offset}"
+            push!(store.checks, :( @assert 1 == minimum($(store.ranges[i])) $str ))
+        end
+    end
+
     #===== rhs function, and eltype(Z) =====#
 
     outex = quote end
 
+    append!(outex.args, store.checks)
+
     funwithargs = :( $Fsym($(store.rightind...), $(store.arrays...)) )
-    push!(outex.args, :( local $funwithargs = @inbounds $right ))
+    push!(outex.args, :( local $funwithargs = @inbounds $modright ))
 
     if newarray
-        allfirst = map(i -> :(first($(store.axes[i]))), store.rightind)
+        allfirst = map(i -> :(first($(store.ranges[i]))), store.rightind)
         push!(outex.args, :( local $Tsym = typeof($Fsym($(allfirst...), $(store.arrays...))) ))
-        outsize = map(i -> :(length($(store.axes[i]))), leftraw) # before tiles!
+        outsizes = map(i -> :(length($(store.ranges[i]))), leftraw) # before tiles!
+        outranges = map(i -> store.ranges[i], leftraw)
     else
-        MacroTools.postwalk(leftwalk(store), left) # before checks!
         push!(outex.args, :( local $Tsym = eltype($Z) ))
     end
     push!(outex.args, :( $Tsym == Any && @warn "eltype is Any, sorry" maxlog=1 _id=$(hash(right))))
-
-    append!(outex.args, store.checks)
 
     #===== tiles =====#
 
@@ -146,12 +178,12 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
             tiletup = Nsym
         end
 
-        taxes = map(i -> store.axes[i], store.curly)
+        taxes = map(i -> store.ranges[i], store.curly)
         ex = :( local $Gsym = collect(Tullio.TiledIteration.TileIterator(($(taxes...),), $tiletup)) )
         push!(outex.args, ex)
 
         for (n,i) in enumerate(store.curly)
-            store.axes[i] = :( $Isym[$n] )
+            store.ranges[i] = :( $Isym[$n] )
         end
 
         nt==1 && @warn "tiling over just one index!" maxlog=1 #_id=hash(leftright)
@@ -174,7 +206,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         loopind = vcat(store.loop, leftind)
 
         for (i,r) in zip(loopind, gpuranges(length(loopind)))
-            store.axes[i] = :( $(store.axes[i]) ; $r )
+            store.ranges[i] = :( $(store.ranges[i]) ; $r )
         end
     end
 
@@ -201,8 +233,10 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== output array =====#
 
-    if newarray
-        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsize...)) ))
+    if newarray && (:offset in store.flags)
+        push!(outex.args, :( $Z = OffsetArrays.OffsetArray{$Tsym,$(length(leftraw))}(undef, $(outranges...)) ))
+    elseif newarray
+        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsizes...)) ))
     end
     if :zero in store.flags
         push!(outex.args, :( $Z .= zero($Tsym) ))
@@ -212,7 +246,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     leftcurly = intersect(store.curly, leftind) # take order from {}, may be super/subset
     loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
-    ministore = (axes=store.axes, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
+    ministore = (ranges=store.ranges, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
 
     ex = recurseloops(rex, ministore)
 
@@ -255,60 +289,44 @@ end
 #===== parsing expressions =====#
 
 primewalk(ex) = begin # e.g. @macroexpand1 @tullio A[i'] := f(B[i',:,$c] )
-    @capture(ex, A_[inds__]) || return ex
-    for (d,i) in enumerate(inds)
-        inds[d] = @capture(i, (j_ + k_) | (j_ - k_) ) ?
-            :( 1 + mod($i - 1, size($(arrayfirst(A)),$d)) ) :
-            primetidy(i)
-    end
-    return :( $A[$(inds...)] )
-end
-
-primetidy(i) = begin
+    @capture(ex, A_[iraw__]) || return ex
+    inds = map(iraw) do i
         @capture(i, j_') ? Symbol(j,'′') :        # normalise i' to i′
         i == :_ ? 1 :                             # and A[i,_] to A[i,1]
         isdollar(i) ? :(identity($(i.args[1]))) : # trick to protect constants
         i == :(:) ? :(Colon()) :                  # and treat : like a constant
         i
     end
+    return :( $A[$(inds...)] )
+end
 
 isdollar(i) = false
 isdollar(i::Expr) = i.head == :$
 
 rightwalk(store) = ex -> begin
-        @capture(ex, A_[iraw__]) || return ex
-        push!(store.arrays, arrayonly(A))
-        append!(store.rightind, mapreduce(indicesonly, vcat, iraw))
-        saveaxes(arrayfirst(A), iraw, store)
-        return ex
-    end
-
-leftwalk(store) = ex -> begin
         @capture(ex, A_[inds__]) || return ex
-        saveaxes(A, inds, store)
+        push!(store.arrays, arrayonly(A))
+        saveconstraintsmod(A, inds, store, true)
     end
 
-saveaxes(A, inds, store) = begin
-    for (d,ii) in enumerate(inds)
-    for i in indicesonly(ii)
-        if haskey(store.axes, i)
-            str = "range of index $i must agree"
-            push!(store.checks, :( @assert $(store.axes[i]) == axes($A,$d) $str ))
-        else
-            store.axes[i] = :( axes($A,$d) )
+saveconstraintsmod(A, inds, store, right=true) = begin
+    A1 = arrayfirst(A)
+    for (d,ex) in enumerate(inds)
+        for i in indicesonly(ex)
+            right && push!(store.rightind, i)
+            ri = indexrange(i, ex, A1, d, :cyclic in store.flags)
+            get!(store.constraints, i, Any[])
+            isnothing(ri) || push!(store.constraints[i], ri)
+        end
+        if (:cyclic in store.flags)
+            inds[d] = :( 1 + mod($ex - 1, size($A1,$d)) )
         end
     end
-    end
     n = length(inds)
-    str = "expected a $n-array $A" # already arrayfirst(A)
-    push!(store.checks, :( @assert ndims($A) == $n $str ))
+    str = "expected a $n-array $A1" # already arrayfirst(A)
+    push!(store.checks, :( @assert ndims($A1) == $n $str ))
+    return :( $A[$(inds...)] )
 end
-
-indicesonly(n) = Symbol[]
-indicesonly(i::Symbol) = [i]
-indicesonly(ii::Expr) = @capture(ii, (1 + mod((j_+k_) - 1, sz_)) | (1 + mod((j_-k_) - 1, sz_)) ) ? # @capture(ii, (j_ + k_) | (j_ - k_) ) ?
-        vcat(indicesonly(j), indicesonly(k)) :
-        Symbol[]
 
 arrayonly(A::Symbol) = A   # this is for rhs(i,j,k, A,B,C)
 arrayonly(A::Expr) =
@@ -329,6 +347,90 @@ arrayfirst(A::Expr) =
     elseif @capture(A, f_(B_) )
         return A
     end
+
+#===== range calculation =====#
+
+resolveranges(store) = (:strict in store.flags) ?
+    map(resolvestrict(store), store.rightind) :
+    map(resolveintersect(store), store.rightind)
+
+resolvestrict(store) = i ->
+    for ax in store.constraints[i]
+        if haskey(store.ranges, i)
+            str = "range of index $i must agree"
+            push!(store.checks, :( @assert $(store.ranges[i]) == $ax $str ))
+        else
+            store.ranges[i] = ax
+        end
+    end
+
+resolveintersect(store) = i ->
+    if haskey(store.ranges, i)
+        for ax in store.constraints[i]
+            issubset(ax, store.ranges[i])
+            str = "range of index $i must fit within given arrays"
+            push!(store.checks, :( @assert issubset($(store.ranges[i]), $ax) $str ))
+        end
+    else
+        res = length(store.constraints[i])==1 ?
+            store.constraints[i][1] : # because intersect(1:3) isa Vector, wtf?
+            :( intersect($(store.constraints[i]...)) )
+            @gensym Rsym
+        r_i = Symbol(Rsym,:_, i)
+        push!(store.checks, :( local $r_i = $res ))
+        store.ranges[i] = r_i
+    end
+
+indicesonly(n) = Symbol[]
+indicesonly(i::Symbol) = [i]
+indicesonly(ex::Expr) = @capture(ex, (j_ + k_) | (j_ - k_) ) ? vcat(indicesonly(j), indicesonly(k)) :
+        @capture(ex, (s_ * j_ + k_) | (s_ * j_ - k_) ) ? vcat(indicesonly(s), indicesonly(j), indicesonly(k)) :
+        Symbol[]
+
+indexrange(i, ex::Symbol, A, d, cyclic) = :( axes($A, $d) )
+indexrange(i, ex::Expr, A, d, cyclic) = begin
+    s, k = indexscaleshift(i, ex)
+    @show i ex s,k
+    s==1 || error("not yet")
+    cyclic && return :(axes($A, $d))
+    return :(axes($A, $d) .- ($k))
+end
+    # if @capture(ex, -i )
+    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- size($A, $d) .- 1)
+    # elseif @capture(ex, (i + k_Int) ) || @capture(ex, (k_Int + i) )
+    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- $k)
+    # elseif @capture(ex, (i - k_Int) ) || @capture(ex, (-k_Int + i) )
+    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .+ $k)
+    # elseif @capture(ex, (-i + k_Int) ) || @capture(ex, (k_Int - i) )
+    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- size($A, $d) .- 1 .+ $k)
+    # else
+    #     @warn "ignoring $ex"
+    # end
+
+indexscaleshift(i, ex) = begin
+    ex == i && return 1, 0
+    @capture(ex, -i ) && return -1, 0
+
+    @capture(ex, $i + k_ )||@capture(ex, k_ + $i ) && return 1, k
+    @capture(ex, $i-k_ )||@capture(ex, -k_+$i ) && return 1, :(-$k)
+    @capture(ex, (-i+k_) | (k_-i) ) && return -1, k
+    @capture(ex, (-i-k_) | (-k_-i) ) && return -1, :(-$k)
+
+    @capture(ex, s_ * i ) && return s, 0
+    @capture(ex, -s_ * i ) && return :(-$s), 0
+    @capture(ex, (s_ * i + k_) | ( k_ + s_ * i) ) && return s, k
+    @capture(ex, (s_ * i - k_) | ( -k_ + s_ * i) ) && return s, :(-$k)
+    @capture(ex, (-s_ * i + k_) | ( k_ - s_ * i) ) && return :(-$s), k
+    @capture(ex, (-s_ * i - k_) | ( -k_ - s_ * i) ) && return :(-$s), :(-$k)
+    error("confused by $ex, sorry")
+end
+
+isneg(s::Int) = s<0
+isneg(s::Expr) = @capture(s, -σ_)
+isneg(s::Symbol) = false
+makepos(s::Int) = abs(s)
+makepos(s::Expr) = @capture(s, -σ_) ? σ : s
+makepos(s::Symbol) = s
 
 #===== parsing option tuples =====#
 
@@ -356,7 +458,7 @@ savered(store, Tsym) = i ->
         unrollpush(store, i)
     elseif @capture(i, j_ <= m_)
         unrollpush(store, j)
-        store.axes[j] = :( Base.OneTo($m) )
+        store.ranges[j] = :( Base.OneTo($m) )
 
     elseif  @capture(i, init = z_)
         store.init[] = z==0 ? :(zero($Tsym)) : z==1 ? :(one($Tsym)) : z
@@ -376,14 +478,14 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cyclic)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
         push!(store.curly, i)
     elseif @capture(i, j_ <= m_)
         push!(store.curly, j)
-        store.axes[j] = :( Base.OneTo($m) )
+        store.ranges[j] = :( Base.OneTo($m) )
 
     else
         error("don't know what to do with index $i")
@@ -397,7 +499,7 @@ recurseloops(ex, store) =
     if !isempty(store.unroll)
         i = pop!(store.unroll)
 
-        r = store.axes[i]
+        r = store.ranges[i]
         ex = iszero(store.rolln[]) ?
             :(Tullio.GPUifyLoops.@unroll for $i in $r; $ex; end) :
             :(Tullio.GPUifyLoops.@unroll $(store.rolln[]) for $i in $r; $ex; end)
@@ -405,7 +507,7 @@ recurseloops(ex, store) =
 
     elseif !isempty(store.loop)
         i = pop!(store.loop)
-        r = store.axes[i]
+        r = store.ranges[i]
         ex = (:gpu in store.flags) ?
             :( Tullio.GPUifyLoops.@loop for $i in $r; $ex; end ) :
             :(for $i in $r; $ex; end)
