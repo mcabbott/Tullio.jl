@@ -74,6 +74,24 @@ end
     @test A' == @tullio E[a,a'] := A[a′,a]
 
     @test Diagonal(C) == @tullio F[d,d] := C[d] {zero}
+end
+@testset "cyclic" begin
+
+    V = 1:4
+    @test [2,3,4,1] == @tullio A[i] := V[i+1] {cyclic}
+    @test [4,1,2,3] == @tullio A[i] := V[i-1] {cyclic}
+    @test [4,3,2,1] == @tullio A[i] := V[1-i] {cyclic}
+    # @test [4,3,2,1] == @tullio A[1-i] := V[i] {cyclic}
+    @test [10,10,10,10] == @tullio A[i] := V[i+j] (+,j) {cyclic}
+
+    M = [i + 100j for i=1:4, j=1:4]
+    @test circshift(M, (-1,0)) == @tullio B[i,j] := M[i+1,j] {cyclic}
+    @tullio B[i,j] := M[i+k,j-k] (+,k)
+    @test all(B .== 1010)
+
+    X = [1,1,0,0]
+    Y = [1,-1,0,0]
+    @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k]
 
 end
 @static if false # Base.find_package("CuArrays") !== nothing

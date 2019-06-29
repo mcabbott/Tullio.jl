@@ -256,24 +256,30 @@ end
 
 primewalk(ex) = begin # e.g. @macroexpand1 @tullio A[i'] := f(B[i',:,$c] )
     @capture(ex, A_[inds__]) || return ex
-    map!(inds, inds) do i
+    for (d,i) in enumerate(inds)
+        inds[d] = @capture(i, (j_ + k_) | (j_ - k_) ) ?
+            :( 1 + mod($i - 1, size($(arrayfirst(A)),$d)) ) :
+            primetidy(i)
+    end
+    return :( $A[$(inds...)] )
+end
+
+primetidy(i) = begin
         @capture(i, j_') ? Symbol(j,'′') :        # normalise i' to i′
         i == :_ ? 1 :                             # and A[i,_] to A[i,1]
         isdollar(i) ? :(identity($(i.args[1]))) : # trick to protect constants
         i == :(:) ? :(Colon()) :                  # and treat : like a constant
         i
     end
-    return :( $A[$(inds...)] )
-end
 
 isdollar(i) = false
 isdollar(i::Expr) = i.head == :$
 
 rightwalk(store) = ex -> begin
-        @capture(ex, A_[inds__]) || return ex
+        @capture(ex, A_[iraw__]) || return ex
         push!(store.arrays, arrayonly(A))
-        append!(store.rightind, filter(i -> i isa Symbol, inds)) # skips constant indices
-        saveaxes(arrayfirst(A), inds, store)
+        append!(store.rightind, mapreduce(indicesonly, vcat, iraw))
+        saveaxes(arrayfirst(A), iraw, store)
         return ex
     end
 
@@ -283,8 +289,8 @@ leftwalk(store) = ex -> begin
     end
 
 saveaxes(A, inds, store) = begin
-    for (d,i) in enumerate(inds)
-        i isa Symbol || continue
+    for (d,ii) in enumerate(inds)
+    for i in indicesonly(ii)
         if haskey(store.axes, i)
             str = "range of index $i must agree"
             push!(store.checks, :( @assert $(store.axes[i]) == axes($A,$d) $str ))
@@ -292,10 +298,17 @@ saveaxes(A, inds, store) = begin
             store.axes[i] = :( axes($A,$d) )
         end
     end
+    end
     n = length(inds)
     str = "expected a $n-array $A" # already arrayfirst(A)
     push!(store.checks, :( @assert ndims($A) == $n $str ))
 end
+
+indicesonly(n) = Symbol[]
+indicesonly(i::Symbol) = [i]
+indicesonly(ii::Expr) = @capture(ii, (1 + mod((j_+k_) - 1, sz_)) | (1 + mod((j_-k_) - 1, sz_)) ) ? # @capture(ii, (j_ + k_) | (j_ - k_) ) ?
+        vcat(indicesonly(j), indicesonly(k)) :
+        Symbol[]
 
 arrayonly(A::Symbol) = A   # this is for rhs(i,j,k, A,B,C)
 arrayonly(A::Expr) =
@@ -363,7 +376,7 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cuda)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
