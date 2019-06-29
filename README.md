@@ -18,7 +18,38 @@ begin
 end
 ```
 
-It exists to experiment with various things. 
+It exists to experiment with various additions:
+
+## Front
+
+First, almost any function is allowed on the right, 
+and the output element type `T` will be calculated from this expression:
+
+```
+julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
+...
+    T = typeof(rhs(1, 1, C, B, D))
+...
+    @assert axes(C, 1) == axes(D, 1) "range of index i must agree"
+    for j in axes((first(D)).field, 1)
+        for i in axes(C, 1)
+            @inbounds A[i, 1, j] = rhs(i, j, C, B, D)
+        end
+    end
+...
+```
+
+As shown this includes indexing of arrays with other arrays.
+
+Second, 
+
+```
+julia> @pretty @tullio A[i] := B[i] - C[i+1]
+```
+
+## Back
+
+
 First, you can explicitly unroll loops (using [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl))
 
 ```
@@ -70,23 +101,6 @@ julia> @pretty  @tullio A[i] := B[i,j]  (+,j)  {threads}
 ...
 ```
 
-Fourth, the expression on the right need not be just simple arrays, 
-and the output element type `T` will be calculated from this expression:
-
-```
-julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
-...
-    T = typeof(rhs(1, 1, C, B, D))
-...
-    @assert axes(C, 1) == axes(D, 1) "range of index i must agree"
-    for j in axes((first(D)).field, 1)
-        for i in axes(C, 1)
-            @inbounds A[i, 1, j] = rhs(i, j, C, B, D)
-        end
-    end
-...
-```
-
 And finally, I'm trying to learn how to make it write loops for `CuArrays`
 (also using [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl)):
 
@@ -106,6 +120,8 @@ julia> @pretty @tullio A[i,j] = B[i,j,k] {gpu}
     kernel!(A, B)
 ...
 ```
+
+## Installation
 
 This isn't registered, so install like so:
 

@@ -1,5 +1,5 @@
 using Test
-using Tullio, Einsum, LinearAlgebra
+using Tullio, Einsum, LinearAlgebra, OffsetArrays
 
 @info "running tests with $(Threads.nthreads()) threads, Julia $VERSION"
 
@@ -74,6 +74,7 @@ end
     @test A' == @tullio E[a,a'] := A[a′,a]
 
     @test Diagonal(C) == @tullio F[d,d] := C[d] {zero}
+
 end
 @testset "cyclic" begin
 
@@ -92,6 +93,17 @@ end
     X = [1,1,0,0]
     Y = [1,-1,0,0]
     @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k]
+
+end
+@testset "shifted" begin
+
+    V = 1:4
+    @test [2,3,4] == @tullio A[i] := V[i+1]
+
+    @tullio A[i] := V[i-1]  {offset}
+    @test A isa OffsetArray
+    @test length(A) == 4
+    @test A[2] == 1
 
 end
 @static if false # Base.find_package("CuArrays") !== nothing

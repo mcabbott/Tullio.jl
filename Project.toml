@@ -16,7 +16,8 @@ CUDAnative = "be33ccc6-a3ff-5ff2-a52e-74243cff1e17"
 CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae"
 Einsum = "b7d42ee7-0b51-5a75-98ca-779d3107e4c0"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Einsum", "LinearAlgebra"]
+test = ["Test", "Einsum", "LinearAlgebra", "OffsetArrays"]
