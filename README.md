@@ -20,13 +20,13 @@ end
 
 It exists to experiment with various additions:
 
-## Front
+## Surface
 
 First, almost any function is allowed on the right, 
 and the output element type `T` will be calculated from this expression:
 
 ```
-julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
+julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j]/2)
 ...
     T = typeof(rhs(1, 1, C, B, D))
 ...
@@ -39,16 +39,44 @@ julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j])
 ...
 ```
 
-As shown this includes indexing of arrays with other arrays.
+As shown this includes indexing of arrays with other arrays; arrays of arrays are fine too.
 
-Second, 
+Second, shifts of indices are allowed: 
 
 ```
-julia> @pretty @tullio A[i] := B[i] - C[i+1]
+julia> using OffsetArrays
+
+julia> @pretty @tullio A[i] := B[i] / C[i+1]  {offset}
+...
+    local range_i = intersect(axes(B, 1), axes(C, 1) .+ 1)
+...
+    A = OffsetArray{T, 1}(undef, range_i)
+    @inbounds for i in range_i
+        A[i] = rhs(i, B, C)
+    end
+    A
+end
 ```
 
-## Back
+As shown `i` runs over the largest shared range. This would usually have to start at 1, 
+for the output `Array`, but the option `{offset}` uses 
+[OffsetArrays.jl](https://github.com/JuliaArrays/OffsetArrays.jl) for more general ranges.
 
+Alternatively, option `{cyclic}` treats everything modulo array size:
+
+```
+julia> @pretty @tullio A[i] := B[i] * C[i-1]  {cyclic}
+...
+    local rhs(i, B, C) = @inbounds(B[i] * C[1 + mod((i - 1) - 1, size(C, 1))])
+    local range_i = intersect(axes(B, 1), axes(C, 1), 1:typemax(Int))
+...
+    @inbounds for i in range_i
+        A[i] = rhs(i, B, C)
+    end
+end
+```
+
+## Underground
 
 First, you can explicitly unroll loops (using [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl))
 
@@ -145,5 +173,5 @@ Being born:
 * https://github.com/under-Peter/OMEinsum.jl (aims to be differentiable)
 
 Dead:
-* https://github.com/shashi/ArrayMeta.jl (same `(*,i)` notation)
+* https://github.com/shashi/ArrayMeta.jl (same `(*,i)` notation, similar tiles)
 * https://github.com/tkelman/Tokamak.jl (this fork has the readme!)

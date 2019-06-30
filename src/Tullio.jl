@@ -123,7 +123,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     resolveranges(store)
 
-    redind = setdiff(store.rightind, leftraw)
+    redind = setdiff(store.rightind, leftind)
 
     isempty(store.loop) && isempty(store.unroll) ?
         append!(store.loop, redind) :
@@ -318,7 +318,7 @@ saveconstraintsmod(A, inds, store, right=true) = begin
             get!(store.constraints, i, Any[])
             isnothing(ri) || push!(store.constraints[i], ri)
         end
-        if (:cyclic in store.flags)
+        if (:cyclic in store.flags) && !(ex isa Symbol)
             inds[d] = :( 1 + mod($ex - 1, size($A1,$d)) )
         end
     end
@@ -383,51 +383,62 @@ resolveintersect(store) = i ->
 
 indicesonly(n) = Symbol[]
 indicesonly(i::Symbol) = [i]
-indicesonly(ex::Expr) = @capture(ex, (j_ + k_) | (j_ - k_) ) ? vcat(indicesonly(j), indicesonly(k)) :
-        @capture(ex, (s_ * j_ + k_) | (s_ * j_ - k_) ) ? vcat(indicesonly(s), indicesonly(j), indicesonly(k)) :
-        Symbol[]
+indicesonly(ex::Expr) =
+    if @capture(ex, -j_ )
+        return [j]
+    elseif @capture(ex, (s_ * j_) | (-s_ * j_))
+        return vcat(indicesonly(s), indicesonly(j))
+    elseif @capture(ex, (j_ + k_) | (j_ - k_) )
+        return vcat(indicesonly(j), indicesonly(k))
+    elseif @capture(ex, (s_ * j_ + k_) | (s_ * j_ - k_) ) # not sure this will work
+        return vcat(indicesonly(s), indicesonly(j), indicesonly(k))
+    else
+        return Symbol[]
+    end
 
 indexrange(i, ex::Symbol, A, d, cyclic) = :( axes($A, $d) )
 indexrange(i, ex::Expr, A, d, cyclic) = begin
     s, k = indexscaleshift(i, ex)
-    @show i ex s,k
-    s==1 || error("not yet")
-    cyclic && return :(axes($A, $d))
-    return :(axes($A, $d) .- ($k))
+
+    cyclic && return :(axes($A, $d)) # for s=+-1 only!
+
+    if s==1
+        if ispos(k)
+            return :(axes($A, $d) .- ($k)) # also runs fine for k<0
+        else
+            return :(axes($A, $d) .+ $(makepos(k))) # prettier
+        end
+    elseif s==-1
+        return :(axes($A, $d) .- size($A, $d) .+ ($k) .- 1)
+    else
+        error("can't handle $ex yet, sorry")
+    end
 end
-    # if @capture(ex, -i )
-    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- size($A, $d) .- 1)
-    # elseif @capture(ex, (i + k_Int) ) || @capture(ex, (k_Int + i) )
-    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- $k)
-    # elseif @capture(ex, (i - k_Int) ) || @capture(ex, (-k_Int + i) )
-    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .+ $k)
-    # elseif @capture(ex, (-i + k_Int) ) || @capture(ex, (k_Int - i) )
-    #     cyclic ? :(axes($A, $d)) : :(axes($A, $d) .- size($A, $d) .- 1 .+ $k)
-    # else
-    #     @warn "ignoring $ex"
-    # end
 
 indexscaleshift(i, ex) = begin
     ex == i && return 1, 0
-    @capture(ex, -i ) && return -1, 0
+    @capture(ex, -$i ) && return -1, 0
 
-    @capture(ex, $i + k_ )||@capture(ex, k_ + $i ) && return 1, k
-    @capture(ex, $i-k_ )||@capture(ex, -k_+$i ) && return 1, :(-$k)
-    @capture(ex, (-i+k_) | (k_-i) ) && return -1, k
-    @capture(ex, (-i-k_) | (-k_-i) ) && return -1, :(-$k)
+    (@capture(ex, $i + k_ ) || @capture(ex, k_ + $i )) && return 1, k
+    (@capture(ex, $i - k_ ) || @capture(ex, -k_ + $i )) && return 1, :(-$k)
+    (@capture(ex, -$i + k_ ) || @capture(ex, k_ - $i )) && return -1, k
+    (@capture(ex, -$i - k_ ) || @capture(ex, -k_ - $i )) && return -1, :(-$k)
 
-    @capture(ex, s_ * i ) && return s, 0
-    @capture(ex, -s_ * i ) && return :(-$s), 0
-    @capture(ex, (s_ * i + k_) | ( k_ + s_ * i) ) && return s, k
-    @capture(ex, (s_ * i - k_) | ( -k_ + s_ * i) ) && return s, :(-$k)
-    @capture(ex, (-s_ * i + k_) | ( k_ - s_ * i) ) && return :(-$s), k
-    @capture(ex, (-s_ * i - k_) | ( -k_ - s_ * i) ) && return :(-$s), :(-$k)
+    @capture(ex, s_ * $i ) && return s, 0
+    @capture(ex, -s_ * $i ) && return :(-$s), 0
+
+    (@capture(ex, s_ * $i + k_ ) || @capture(ex, k_ + s_ * $i )) && return s, k
+    (@capture(ex, s_ * $i - k_ ) || @capture(ex, -k_ + s_ * $i )) && return s, :(-$k)
+    (@capture(ex, - s_ * $i + k_ ) || @capture(ex, k_ - s_ * $i )) && return :(-$s), k
+    (@capture(ex, - s_ * $i - k_ ) || @capture(ex, -k_ - s_ * $i )) && return :(-$s), :(-$k)
+
     error("confused by $ex, sorry")
 end
 
 isneg(s::Int) = s<0
 isneg(s::Expr) = @capture(s, -σ_)
 isneg(s::Symbol) = false
+ispos(s) = !isneg(s)
 makepos(s::Int) = abs(s)
 makepos(s::Expr) = @capture(s, -σ_) ? σ : s
 makepos(s::Symbol) = s
@@ -520,13 +531,13 @@ recurseloops(ex, store) =
 gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
     [:( threadIdx().x ), :( threadIdx().y ), :( threadIdx().z )][1:n]
 
-
+#===== making loops =====#
 
 """
-    Tullio.@einsum A[i] := B[i]
+    Tullio.@einsum  A[i,j] := B[i] * C[j]
 
-Since this package is a superset of `Einsum.jl`, you can drop that and write `using Tullio: @einsum`
-to use the new macro under the old name.
+Since this package is a superset of `Einsum.jl`, you can drop that and
+write `using Tullio: @einsum` to use the new macro under the old name.
 """
 macro einsum(exs...)
     _tullio(exs...; mod=__module__)

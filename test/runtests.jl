@@ -87,12 +87,12 @@ end
 
     M = [i + 100j for i=1:4, j=1:4]
     @test circshift(M, (-1,0)) == @tullio B[i,j] := M[i+1,j] {cyclic}
-    @tullio B[i,j] := M[i+k,j-k] (+,k)
+    @tullio B[i,j] := M[i+k,j-k] (+,k) {cyclic}
     @test all(B .== 1010)
 
     X = [1,1,0,0]
     Y = [1,-1,0,0]
-    @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k]
+    @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k] {cyclic}
 
 end
 @testset "shifted" begin
@@ -100,10 +100,15 @@ end
     V = 1:4
     @test [2,3,4] == @tullio A[i] := V[i+1]
 
-    @tullio A[i] := V[i-1]  {offset}
+    @tullio A[α] := V[α-1]  {offset}
     @test A isa OffsetArray
-    @test length(A) == 4
+    @test axes(A,1) == 2:5
     @test A[2] == 1
+
+    @tullio B[β] := V[1-β]  {offset}
+    @test B isa OffsetArray
+    @test axes(B,1) == -3:0
+    @test B[-2] == 3
 
 end
 @static if false # Base.find_package("CuArrays") !== nothing
