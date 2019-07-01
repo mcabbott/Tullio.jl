@@ -82,11 +82,11 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     @gensym Tsym Ssym Csym # output elType, Scalar accumulator, per-thread Cache
     @gensym Fsym Gsym Isym Nsym # Function, tile Grid, tile Index, tilesize Ntuple
-    @gensym Ksym # mutating Kernel function
+    @gensym Ksym Rsym # mutating Kernel function, name for Range_i
 
     #===== parse input =====#
 
-    store = (ranges=Dict{Any,Any}(1 => 1), constraints=Dict(),
+    store = (ranges=Dict{Any,Any}(1 => 1), constraints=Dict(), rsym=Rsym,
         flags=Set{Any}(multi ? [:multi] : []),
         redop=Ref{Any}(:+), init=Ref{Any}(:(zero($Tsym))),
         arrays=[], rightind=[], curly=[], checks=[], loop=[], unroll=[],
@@ -113,7 +113,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     if newarray && !(:offset in store.flags)
         for i in leftind
-            push!(store.constraints[i], :( 1:typemax(Int) )) # "some indices appear only on the left ...
+            get!(store.constraints, i, Any[])
+            push!(store.constraints[i], :( 1:typemax(Int) ))
         end
     elseif !newarray
         saveconstraintsmod(Z, leftraw, store, false) # replaces leftwalk
@@ -133,14 +134,16 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     isempty(store.unroll) || UNROLLOK ||
         @warn "can't unroll loops on Julia $VERSION" maxlog=1 _id=hash(leftright)
 
-    isempty(setdiff(leftind, store.rightind)) || !newarray ||
-        error("some indices appear only on the left, this is not allowed with :=")
+    for j in setdiff(leftind, store.rightind)
+        haskey(store.ranges, j) || error("unable to infer range of index $j")
+        push!(store.rightind, j) # I guess right now means correct!
+    end
 
     isempty(setdiff(store.curly, store.rightind)) || error("some indices in {} are not in expression")
 
     if newarray && !(:offset in store.flags) # && !(:zero in store.flags)
         for i in leftind
-            str = "range of index $i must start at one, try {offset}"
+            str = "range of index $i must start at one, try {offset}, using OffsetArrays"
             push!(store.checks, :( @assert 1 == minimum($(store.ranges[i])) $str ))
         end
     end
@@ -289,9 +292,9 @@ end
 #===== parsing expressions =====#
 
 primewalk(ex) = begin # e.g. @macroexpand1 @tullio A[i'] := f(B[i',:,$c] )
+    @capture(ex, j_Symbol') && return Symbol(j,'′') # normalise i' to i′
     @capture(ex, A_[iraw__]) || return ex
     inds = map(iraw) do i
-        @capture(i, j_') ? Symbol(j,'′') :        # normalise i' to i′
         i == :_ ? 1 :                             # and A[i,_] to A[i,1]
         isdollar(i) ? :(identity($(i.args[1]))) : # trick to protect constants
         i == :(:) ? :(Colon()) :                  # and treat : like a constant
@@ -314,7 +317,7 @@ saveconstraintsmod(A, inds, store, right=true) = begin
     for (d,ex) in enumerate(inds)
         for i in indicesonly(ex)
             right && push!(store.rightind, i)
-            ri = indexrange(i, ex, A1, d, :cyclic in store.flags)
+            ri = indexrange(i, ex, A1, d, store)
             get!(store.constraints, i, Any[])
             isnothing(ri) || push!(store.constraints[i], ri)
         end
@@ -375,14 +378,13 @@ resolveintersect(store) = i ->
         res = length(store.constraints[i])==1 ?
             store.constraints[i][1] : # because intersect(1:3) isa Vector, wtf?
             :( intersect($(store.constraints[i]...)) )
-            @gensym Rsym
-        r_i = Symbol(Rsym,:_, i)
+        r_i = Symbol(store.rsym,:_, i) # could in fact generate here, not using rsym elsewhere
         push!(store.checks, :( local $r_i = $res ))
         store.ranges[i] = r_i
     end
 
 indicesonly(n) = Symbol[]
-indicesonly(i::Symbol) = [i]
+indicesonly(i::Symbol) = i == :end ? Symbol[] : [i]
 indicesonly(ex::Expr) =
     if @capture(ex, -j_ )
         return [j]
@@ -396,22 +398,47 @@ indicesonly(ex::Expr) =
         return Symbol[]
     end
 
-indexrange(i, ex::Symbol, A, d, cyclic) = :( axes($A, $d) )
-indexrange(i, ex::Expr, A, d, cyclic) = begin
+indexrange(i, ex::Symbol, A, d, store) = :( axes($A, $d) )
+indexrange(i, ex::Expr, A, d, store) = begin
     s, k = indexscaleshift(i, ex)
+    k = MacroTools.postwalk(x -> x == :end ? :(size($A,$d)) : x, k)
 
-    cyclic && return :(axes($A, $d)) # for s=+-1 only!
+    (:cyclic in store.flags) && return :(axes($A, $d)) # for s=+-1 only!
 
-    if s==1
-        if ispos(k)
-            return :(axes($A, $d) .- ($k)) # also runs fine for k<0
+    if s==1 # meaning i + k
+        if isconst(k, store)
+            if ispos(k)
+                return :(axes($A, $d) .- ($k)) # also runs fine for k<0
+            else
+                return :(axes($A, $d) .+ $(makepos(k))) # prettier
+            end
         else
-            return :(axes($A, $d) .+ $(makepos(k))) # prettier
+            # r_k = Symbol(store.rsym,:_, makepos(k)) # need to ensure this gets defined first!
+            # and that these weaker things come later & are skipped... 3rd category?
+            haskey(store.ranges, makepos(k)) || error("need an explicit range for $(makepos(k))")
+            r_k = store.ranges[makepos(k)]
+            if ispos(k)
+                return :( range(minimum(axes($A, $d))-minimum($r_k), stop=maximum(axes($A, $d))-maximum($r_k)) )
+            else
+                return :( range(minimum(axes($A, $d))+maximum($r_k), stop=maximum(axes($A, $d))+minimum($r_k)) )
+            end
         end
-    elseif s==-1
-        return :(axes($A, $d) .- size($A, $d) .+ ($k) .- 1)
+
+    elseif s==-1 # meaning -i + k
+        if isconst(k, store)
+            return :(axes($A, $d) .- size($A, $d) .+ ($k) .- 1)
+        else
+            # r_k = Symbol(store.rsym,:_, makepos(k))
+    haskey(store.ranges, makepos(k)) || error("need an explicit range for $(makepos(k))")
+            r_k = store.ranges[makepos(k)]
+            if ispos(k)
+                return :( range(-maximum(axes($A, $d))+maximum($r_k), stop=-minimum(axes($A, $d))+minimum($r_k)) )
+            else
+                return :( range(-maximum(axes($A, $d))-minimum($r_k), stop=-minimum(axes($A, $d))-maximum($r_k)) )
+            end
+        end
     else
-        error("can't handle $ex yet, sorry")
+        error("can't handle $ex yet, sorry: only +-$i + stuff")
     end
 end
 
@@ -432,7 +459,7 @@ indexscaleshift(i, ex) = begin
     (@capture(ex, - s_ * $i + k_ ) || @capture(ex, k_ - s_ * $i )) && return :(-$s), k
     (@capture(ex, - s_ * $i - k_ ) || @capture(ex, -k_ - s_ * $i )) && return :(-$s), :(-$k)
 
-    error("confused by $ex, sorry")
+    error("confused about $i inside $ex, sorry")
 end
 
 isneg(s::Int) = s<0
@@ -442,6 +469,19 @@ ispos(s) = !isneg(s)
 makepos(s::Int) = abs(s)
 makepos(s::Expr) = @capture(s, -σ_) ? σ : s
 makepos(s::Symbol) = s
+
+isconst(s::Int, store) = true
+isconst(s::Symbol, store) = !(s in store.rightind)
+isconst(s::Expr, store) = begin
+    res = [true]
+    MacroTools.postwalk(s) do x
+        isdollar(x) && return nothing
+        x isa Symbol || return x
+        x in store.rightind && (res[]=false)
+    end
+    res[]
+end
+
 
 #===== parsing option tuples =====#
 
@@ -467,6 +507,9 @@ savered(store, Tsym) = i ->
 
     elseif i isa Symbol
         unrollpush(store, i)
+    elseif @capture(i, (j_ in r_) | (j_ ∈ r_) | (j_ = r_))
+        unrollpush(store, j)
+        store.ranges[j] = r
     elseif @capture(i, j_ <= m_)
         unrollpush(store, j)
         store.ranges[j] = :( Base.OneTo($m) )
@@ -494,6 +537,9 @@ savecurly(store) = i ->
 
     elseif i isa Symbol
         push!(store.curly, i)
+    elseif @capture(i, (j_ in r_) | (j_ ∈ r_) | (j_ = r_))
+        push!(store.curly, j)
+        store.ranges[j] = r
     elseif @capture(i, j_ <= m_)
         push!(store.curly, j)
         store.ranges[j] = :( Base.OneTo($m) )
@@ -502,7 +548,7 @@ savecurly(store) = i ->
         error("don't know what to do with index $i")
     end
 
-spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s==:cuda ? :gpu : s
+spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s
 
 #===== making loops =====#
 
@@ -553,7 +599,6 @@ end
 
 * allow unrolling of LHS indices too? Then {static}...
 
-* index shifts including reverse should be easy to allow, adjust the ranges... but not yet.
 * allow {zygote} which wraps the whole thing in a function & adds @adjoint?
 
 =#

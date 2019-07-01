@@ -94,8 +94,12 @@ end
     Y = [1,-1,0,0]
     @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k] {cyclic}
 
+    X = [0,1,0,0] # fft(X) == [1, -im, -1, im]
+    @test [1, -im, -1, im] ≈ @tullio K[k] := X[x] *
+        exp(-2π*im * (x-1) * (k-1)/length(X)) (+,x) {cyclic, k ∈ axes(X,1)}
+
 end
-@testset "shifted" begin
+@testset "constant shifts" begin
 
     V = 1:4
     @test [2,3,4] == @tullio A[i] := V[i+1]
@@ -109,6 +113,11 @@ end
     @test B isa OffsetArray
     @test axes(B,1) == -3:0
     @test B[-2] == 3
+
+    @test reverse(V) == @tullio R[k] := V[end+1-k]
+
+    X = [1,0,0,0] # like one-based FFT, without needing cyclic
+    @test [-im, -1, im, 1] ≈ @tullio K[k] := X[x] * exp(-2π*im * x * k/length(X)) {k ∈ axes(X,1)}
 
 end
 @static if false # Base.find_package("CuArrays") !== nothing
