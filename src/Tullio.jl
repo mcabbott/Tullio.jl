@@ -592,6 +592,20 @@ macro vielsum(exs...)
     _tullio(exs...; multi=true, mod=__module__)
 end
 
+#===== piracy =====#
+
+# precisely https://github.com/JuliaLang/julia/pull/32463
+Base.issubset(r::Base.OneTo, s::Base.OneTo) = r.stop <= s.stop
+Base.issubset(r::AbstractUnitRange{<:Integer}, s::AbstractUnitRange{<:Integer}) =
+    first(r) >= first(s) && last(r) <= last(s)
+# more general case, one day https://github.com/JuliaLang/julia/pull/32003
+Base.issubset(r::AbstractRange, s::AbstractRange) = begin
+        for i in r
+            i in s || return false
+        end
+        return true
+    end
+
 
 #= === TODO ===
 
