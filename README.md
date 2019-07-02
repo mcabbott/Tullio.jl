@@ -25,6 +25,12 @@ It exists to experiment with various additions:
 First, almost any function is allowed on the right, 
 and the output element type `T` will be calculated from this expression:
 
+
+<details><summary>
+```julia
+    @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j]/2)`
+```
+</summary>
 ```
 julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j]/2)
 ...
@@ -38,15 +44,15 @@ julia> @pretty @tullio A[i,_,j] := B.field[C[i]] + exp(D[i].field[j]/2)
     end
 ...
 ```
-
+</details>
 As shown this includes indexing of arrays with other arrays; arrays of arrays are fine too.
 
 Second, shifts of indices are allowed: 
 
-```
+<pre>
 julia> using OffsetArrays
 
-julia> @pretty @tullio A[i] := B[i] / C[i+1]  {offset}
+julia> @pretty <b>@tullio A[i] := B[i] / C[i+1]  {offset}</b>
 ...
     local range_i = intersect(axes(B, 1), axes(C, 1) .+ 1)
 ...
@@ -56,7 +62,7 @@ julia> @pretty @tullio A[i] := B[i] / C[i+1]  {offset}
     end
     A
 end
-```
+</pre>
 
 As shown `i` runs over the largest shared range. This would usually have to start at 1, 
 for the output `Array`, but the option `{offset}` uses 
