@@ -94,10 +94,6 @@ end
     Y = [1,-1,0,0]
     @test [1,0,-1,0] == @tullio C[i] := X[i+k] * Y[k] {cyclic}
 
-    X = [0,1,0,0] # fft(X) == [1, -im, -1, im]
-    @test [1, -im, -1, im] ≈ @tullio K[k] := X[x] *
-        exp(-2π*im * (x-1) * (k-1)/length(X)) (+,x) {cyclic, k ∈ axes(X,1)}
-
 end
 @testset "constant shifts" begin
 
@@ -116,8 +112,17 @@ end
 
     @test reverse(V) == @tullio R[k] := V[end+1-k]
 
-    X = [1,0,0,0] # like one-based FFT, without needing cyclic
-    @test [-im, -1, im, 1] ≈ @tullio K[k] := X[x] * exp(-2π*im * x * k/length(X)) {k ∈ axes(X,1)}
+    X = [0,1,0,0] # fft(X) == [1, -im, -1, im]
+    @test [1,-im,-1,im] ≈ @tullio K[k] := X[x] * exp(-2π*im*(x-1)*(k-1)/length(X)) {k ∈ axes(X,1)}
+
+    X = [1,0,0,0]
+    @test [-im,-1,im,1] ≈ @tullio K[k] := X[x] * exp(-2π*im * x * k/length(X)) {k ∈ axes(X,1)}
+
+end
+@testset "variable shifts" begin
+
+    ten = 1:10 # ideally this would not need explicit range for i -- perhaps being first should be enough?
+    @test OffsetArray(6:3:27, 2:9) == @tullio ave[i] := ten[i + j] (+,j in -1:1) {offset, i in 2:9}
 
 end
 @static if false # Base.find_package("CuArrays") !== nothing

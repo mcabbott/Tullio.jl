@@ -369,11 +369,10 @@ resolvestrict(store) = i ->
 
 resolveintersect(store) = i ->
     if haskey(store.ranges, i)
-        for ax in store.constraints[i]
-            issubset(ax, store.ranges[i])
-            str = "range of index $i must fit within given arrays"
-            push!(store.checks, :( @assert issubset($(store.ranges[i]), $ax) $str ))
-        end
+        # for ax in store.constraints[i]
+        #     str = "range of index $i must fit within given arrays"
+        #     push!(store.checks, :( @assert issubset($(store.ranges[i]), $ax) $str ))
+        # end
     else
         res = length(store.constraints[i])==1 ?
             store.constraints[i][1] : # because intersect(1:3) isa Vector, wtf?
@@ -592,6 +591,7 @@ end
 macro vielsum(exs...)
     _tullio(exs...; multi=true, mod=__module__)
 end
+
 
 #= === TODO ===
 
