@@ -86,7 +86,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== parse input =====#
 
-    store = (ranges=Dict{Any,Any}(1 => 1), constraints=Dict(), rsym=Rsym,
+    store = (ranges=Dict{Any,Any}(1 => 1, Isym => Gsym), constraints=Dict(), rsym=Rsym,
         flags=Set{Any}(multi ? [:multi] : []),
         redop=Ref{Any}(:+), init=Ref{Any}(:(zero($Tsym))),
         arrays=[], rightind=[], curly=[], checks=[], loop=[], unroll=[],
@@ -236,41 +236,57 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== output array =====#
 
+    newex = quote end
+
     if newarray && (:offset in store.flags)
-        push!(outex.args, :( $Z = OffsetArrays.OffsetArray{$Tsym,$(length(leftraw))}(undef, $(outranges...)) ))
+        push!(newex.args, :( $Z = OffsetArrays.OffsetArray{$Tsym,$(length(leftraw))}(undef, $(outranges...)) ))
     elseif newarray
-        push!(outex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsizes...)) ))
+        push!(newex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsizes...)) ))
     end
     if :zero in store.flags
-        push!(outex.args, :( $Z .= zero($Tsym) ))
+        push!(newex.args, :( $Z .= zero($Tsym) ))
     end
 
     #===== final loops =====#
 
     leftcurly = intersect(store.curly, leftind) # take order from {}, may be super/subset
     loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
-    ministore = (ranges=store.ranges, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
-
-    ex = recurseloops(rex, ministore)
-
     if store.tilesize[] != 0
-        ex = :( for $Isym in $Gsym; $ex; end )
+        pushfirst!(loopind, Isym) # range Gsym is already in dict
     end
+
+    ministore = (ranges=store.ranges, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
+    loopex = recurseloops(rex, ministore)
+
+    # if store.tilesize[] != 0
+    #     loopex = :( for $Isym in $Gsym; $loopex; end )
+    # end
 
     if isempty(loopind) # scalar output needs a let block in global scope
-        ex = :( let; @inbounds $ex; end )
+        loopex = :( let; @inbounds $loopex; end )
     elseif (:thread in store.flags)
-        ex = :( @inbounds Threads.@threads $ex )
+        loopex = :( @inbounds Threads.@threads $loopex )
     else
-        ex = :( @inbounds $ex )
+        loopex = :( @inbounds $loopex )
     end
 
-    if !(:gpu in store.flags)
-        push!(outex.args, ex) # simple case: just run these loops!
-    else
+    if :forward in store.flags
+        newarray || error("can't use {forward} on in-place operations")
+
+        #===== zygote adjointed function =====#
+
+        push!(newex.args, loopex)
+        push!(newex.args, Z)
+        fex = :( $Ksym(($(store.arrays...),)) = $newex ) # function takes a tuple!
+        push!(outex.args, fex)
+
+        push!(outex.args, :( $Z = Zygote.forwarddiff($Ksym, ($(store.arrays...),)) ))
+
+    elseif :gpu in store.flags
+
         #===== out of body cognition =====#
 
-        fex = :( $Ksym($Z, $(store.arrays...)) = ($ex; Tullio.GPUifyLoops.@synchronize; nothing) )
+        fex = :( $Ksym($Z, $(store.arrays...)) = ($loopex; Tullio.GPUifyLoops.@synchronize; nothing) )
         push!(outex.args, fex)
 
         cuex = :($Ksym($Z::CuArray, $(store.arrays...)) = begin
@@ -281,6 +297,13 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         push!(outex.args, :($Ksym($Z, $(store.arrays...)) )) # make K!(Z) to do the work!
 
         # Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
+
+    else
+        #===== simply run the loops! =====#
+
+        append!(outex.args, newex.args) # first make the output
+
+        push!(outex.args, loopex) # then run.
     end
 
     #===== done! =====#
@@ -531,7 +554,7 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
