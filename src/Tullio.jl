@@ -247,27 +247,39 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         push!(newex.args, :( $Z .= zero($Tsym) ))
     end
 
-    #===== final loops =====#
+    #===== decide on final loops =====#
 
     leftcurly = intersect(store.curly, leftind) # take order from {}, may be super/subset
     loopind = vcat(leftcurly, setdiff(leftind, leftcurly))
     if store.tilesize[] != 0
         pushfirst!(loopind, Isym) # range Gsym is already in dict
     end
-
     ministore = (ranges=store.ranges, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
-    loopex = recurseloops(rex, ministore)
 
-    # if store.tilesize[] != 0
-    #     loopex = :( for $Isym in $Gsym; $loopex; end )
-    # end
+    if :generate in store.flags
+        newarray || error("can't use {generate} on in-place operations")
+        nope = intersect(store.flags, [:thread, :forward, :gpu])
+        isempty(nope) || error("can't use {generate} with $nope")
 
-    if isempty(loopind) # scalar output needs a let block in global scope
-        loopex = :( let; @inbounds $loopex; end )
-    elseif (:thread in store.flags)
-        loopex = :( @inbounds Threads.@threads $loopex )
+        #===== generator instead of nested loops =====#
+        # this is a bit of an ugly hack! Unsure I want it anyway.
+
+        genex = recursegenerator(isempty(redind) ? funwithargs : :($ex; $σ), ministore)
+
+        push!(outex.args, :( $Z = $genex ))
+
     else
-        loopex = :( @inbounds $loopex )
+        #===== nested loops =====#
+
+        loopex = recurseloops(rex, ministore)
+
+        if isempty(loopind) # scalar output needs a let block in global scope
+            loopex = :( let; @inbounds $loopex; end )
+        elseif (:thread in store.flags)
+            loopex = :( @inbounds Threads.@threads $loopex )
+        else
+            loopex = :( @inbounds $loopex )
+        end
     end
 
     if :forward in store.flags
@@ -298,7 +310,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         # Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
 
-    else
+    elseif !(:generate in store.flags)
         #===== simply run the loops! =====#
 
         append!(outex.args, newex.args) # first make the output
@@ -554,7 +566,7 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward, :generate, :generator)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
@@ -570,7 +582,7 @@ savecurly(store) = i ->
         error("don't know what to do with index $i")
     end
 
-spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s
+spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s==:generator ? :generate : s
 
 #===== making loops =====#
 
@@ -594,6 +606,15 @@ recurseloops(ex, store) =
 
     else
         return ex
+    end
+
+recursegenerator(ex, store) =
+    if !isempty(store.loop)
+        i = pop!(store.loop)
+        r = store.ranges[i]
+        return recursegenerator(:( $ex for $i in $r ), store)
+    else
+        return :( collect( $ex ) )
     end
 
 gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
@@ -635,8 +656,6 @@ Base.issubset(r::AbstractRange, s::AbstractRange) = begin
 * actual GPU loops, {gpu}... if limited to 3 loops, and in-place, then perhaps not too hard
 
 * allow unrolling of LHS indices too? Then {static}...
-
-* allow {zygote} which wraps the whole thing in a function & adds @adjoint?
 
 =#
 end # module
