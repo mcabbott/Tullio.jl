@@ -82,7 +82,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     @gensym Tsym Ssym Csym # output elType, Scalar accumulator, per-thread Cache
     @gensym Fsym Gsym Isym Nsym # Function, tile Grid, tile Index, tilesize Ntuple
-    @gensym Ksym Rsym # mutating Kernel function, name for Range_i
+    @gensym Ksym Rsym Usym # mutating Kernel function, name for Range_i, static tUpple
 
     #===== parse input =====#
 
@@ -218,7 +218,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     if isempty(redind)
         #===== no reduction =====#
 
-         rex = :( $Z[$(leftraw...)] = $funwithargs ) # note that leftraw may include constants
+        writeex = :( $Z[$(leftraw...)] = $funwithargs ) # note that leftraw may include constants
+        valex = funwithargs
     else
         #===== reduction loops =====#
 
@@ -233,7 +234,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         ex = recurseloops(ex, store)
         ex = :( $σ = $(store.init[]); $ex; )
 
-        rex = :( $ex; $Z[$(leftraw...)] = $σ )
+        writeex = :( $ex; $Z[$(leftraw...)] = $σ )
+        valex = :( $ex; $σ )
     end
 
     #===== output array =====#
@@ -263,7 +265,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== nested loops =====#
 
-    loopex = recurseloops(rex, ministore)
+    loopex = recurseloops(writeex, ministore)
 
     if isempty(loopind) # scalar output needs a let block in global scope
         loopex = :( let; @inbounds $loopex; end )
@@ -273,7 +275,33 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         loopex = :( @inbounds $loopex )
     end
 
-    if :forward in store.flags
+    if :static in store.flags
+        newarray || error("can't use {static} on in-place operations")
+
+        #===== unrolled static-array output =====#
+
+        # this ignores loopex & newex, and deletes all assertions etc:
+        # empty!(outex.args) # too strong for reductions..
+        # push!(outex.args, :( local $funwithargs = @inbounds $modright ))
+
+        staticranges = try
+            [Base.eval(mod, store.ranges[i]) for i in loopind]
+        catch
+            error("couldn't get all index ranges for {static}")
+        end
+        if length(loopind) ==1
+            ii = loopind[1]
+            vv = [ MacroTools.postwalk(x -> x===ii ? ival : x, valex) for ival in  staticranges[1] ]
+            push!(outex.args, :( $Z = SVector($(vv...)) )) # this is fast!
+        else
+            multitup = Tuple(Iterators.product(staticranges...))
+            # push!(outex.args, :( $Usym = map((($(loopind...),),) -> $valex, $multitup) )) # this map is quite slow
+            push!(outex.args, :( $Usym = ((($(loopind...),),) -> $valex).($multitup) ))
+            ss = map(length, staticranges)
+            push!(outex.args, :( $Z = SArray{Tuple{$(ss...)}}($Usym) ))
+        end
+
+    elseif :forward in store.flags
         newarray || error("can't use {forward} on in-place operations")
 
         #===== zygote adjointed function =====#
@@ -563,7 +591,7 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward, :buffer)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward, :buffer, :static)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
@@ -651,6 +679,8 @@ Base.issubset(r::AbstractRange, s::AbstractRange) = begin
 
 
 #= === TODO ===
+
+* threading and tiles - partition?
 
 * actual GPU loops, {gpu}... if limited to 3 loops, and in-place, then perhaps not too hard
 
