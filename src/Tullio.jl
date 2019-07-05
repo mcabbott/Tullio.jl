@@ -148,6 +148,8 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         end
     end
 
+    !newarray && (:buffer in store.flags) && error("can't use {buffer} on in-place operations")
+
     #===== rhs function, and eltype(Z) =====#
 
     outex = quote end
@@ -165,7 +167,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     else
         push!(outex.args, :( local $Tsym = eltype($Z) ))
     end
-    push!(outex.args, :( $Tsym == Any && @warn "eltype is Any, sorry" maxlog=1 _id=$(hash(right))))
+    # push!(outex.args, :( $Tsym == Any && @warn "eltype is Any, sorry" maxlog=1 _id=$(hash(right))))
 
     #===== tiles =====#
 
@@ -240,6 +242,9 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     if newarray && (:offset in store.flags)
         push!(newex.args, :( $Z = OffsetArrays.OffsetArray{$Tsym,$(length(leftraw))}(undef, $(outranges...)) ))
+    elseif newarray && (:buffer in store.flags)
+        (:offset in store.flags) && error("can't do {buffer, offset} right now")
+        push!(newex.args, :( $Z = Zygote.Buffer(Vector{$Tsym}(undef,0), $(outsizes...)) ))
     elseif newarray
         push!(newex.args, :( $Z = Array{$Tsym,$(length(leftraw))}(undef, $(outsizes...)) ))
     end
@@ -256,30 +261,16 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     end
     ministore = (ranges=store.ranges, loop=copy(loopind), unroll=[], rolln=Ref(0), flags=store.flags)
 
-    if :generate in store.flags
-        newarray || error("can't use {generate} on in-place operations")
-        nope = intersect(store.flags, [:thread, :forward, :gpu])
-        isempty(nope) || error("can't use {generate} with $nope")
+    #===== nested loops =====#
 
-        #===== generator instead of nested loops =====#
-        # this is a bit of an ugly hack! Unsure I want it anyway.
+    loopex = recurseloops(rex, ministore)
 
-        genex = recursegenerator(isempty(redind) ? funwithargs : :($ex; $σ), ministore)
-
-        push!(outex.args, :( $Z = $genex ))
-
+    if isempty(loopind) # scalar output needs a let block in global scope
+        loopex = :( let; @inbounds $loopex; end )
+    elseif (:thread in store.flags)
+        loopex = :( @inbounds Threads.@threads $loopex )
     else
-        #===== nested loops =====#
-
-        loopex = recurseloops(rex, ministore)
-
-        if isempty(loopind) # scalar output needs a let block in global scope
-            loopex = :( let; @inbounds $loopex; end )
-        elseif (:thread in store.flags)
-            loopex = :( @inbounds Threads.@threads $loopex )
-        else
-            loopex = :( @inbounds $loopex )
-        end
+        loopex = :( @inbounds $loopex )
     end
 
     if :forward in store.flags
@@ -289,10 +280,12 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         push!(newex.args, loopex)
         push!(newex.args, Z)
-        fex = :( $Ksym(($(store.arrays...),)) = $newex ) # function takes a tuple!
+        # fex = :( $Ksym(($(store.arrays...),)) = $newex ) # function takes a tuple!
+        fex = :( $Ksym($(store.arrays...)) = $newex ) # function takes a tuple!
         push!(outex.args, fex)
 
-        push!(outex.args, :( $Z = Zygote.forwarddiff($Ksym, ($(store.arrays...),)) ))
+        # push!(outex.args, :( $Z = Zygote.forwarddiff($Ksym, ($(store.arrays...),)) ))
+        push!(outex.args, :( $Z = Zygote.forwarddiff($Ksym, $(store.arrays...)) ))
 
     elseif :gpu in store.flags
 
@@ -310,7 +303,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
         # Base.find_package("CuArrays") == nothing && error("can't use {gpu} without a GPU!")
 
-    elseif !(:generate in store.flags)
+    else
         #===== simply run the loops! =====#
 
         append!(outex.args, newex.args) # first make the output
@@ -320,7 +313,11 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
 
     #===== done! =====#
 
-    push!(outex.args, Z)
+    if (:buffer in store.flags)
+        push!(outex.args, :( copy($Z) )) # not really a copy!
+    else
+        push!(outex.args, Z)
+    end
     esc(outex)
 end
 
@@ -566,7 +563,7 @@ savecurly(store) = i ->
         store.tilesize[] = n
     elseif i in (:tile, :tiles)
         store.tilesize[] = TILESIZE
-    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward, :generate, :generator)
+    elseif i in (:thread, :threads, :zero, :gpu, :cyclic, :strict, :offset, :forward, :buffer)
         push!(store.flags, spellcheck(i))
 
     elseif i isa Symbol
@@ -582,7 +579,7 @@ savecurly(store) = i ->
         error("don't know what to do with index $i")
     end
 
-spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s==:generator ? :generate : s
+spellcheck(s) = s==:threads ? :thread : s==:tiles ? :tile : s
 
 #===== making loops =====#
 
@@ -620,7 +617,7 @@ recursegenerator(ex, store) =
 gpuranges(n) = n>3 ? error("only 3 gpu loops for now") :
     [:( threadIdx().x ), :( threadIdx().y ), :( threadIdx().z )][1:n]
 
-#===== making loops =====#
+#===== alternative name =====#
 
 """
     Tullio.@einsum  A[i,j] := B[i] * C[j]
@@ -637,6 +634,8 @@ macro vielsum(exs...)
 end
 
 #===== piracy =====#
+
+# @static if VERSION < v"1.3"
 
 # precisely https://github.com/JuliaLang/julia/pull/32463
 Base.issubset(r::Base.OneTo, s::Base.OneTo) = r.stop <= s.stop
