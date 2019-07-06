@@ -18,8 +18,8 @@ using Tullio, Einsum, LinearAlgebra, OffsetArrays
     @test C1 == @einsum D1[j,i] = A[i,j] + V[j]
     @test C1 == @tullio D2[j,i] = A[i,j] + V[j]
     @test C1 == @tullio D3[j,i] = A[i,j] + V[j] {thread}
-    @test C1 == @tullio D4[j,i] := A[i,j] + V[j] {tile}
-    @test C1 == @tullio D5[j,i] := A[i,j] + V[j] {tile(5^2),i,j}
+    @test C1 == @tullio D4[j,i] = A[i,j] + V[j] {tile}
+    @test C1 == @tullio D5[j,i] = A[i,j] + V[j] {tile(5^2),i,j}
 
 end
 @testset "reduce" begin
@@ -38,10 +38,6 @@ end
     @test Z1 == @tullio Z7[i,k] := A[i,j] + B[k,j]/2 (+,unroll(3),j)
     @test Z1 == @tullio Z8[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile(100),i,j,k}
     @test Z1 == @tullio Z9[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile,i,k,thread}
-
-end
-@testset "tensorcast notation" begin
-
 
 end
 @testset "types" begin
@@ -176,8 +172,29 @@ else
 end
 @testset "errors" begin
 
+    # index only on the left
+    @test_throws ErrorException Tullio._tullio(:( A[i,j,k] := B[i,j] ))
+
+    # if you give any reduction indices, you must give them all
+    @test_throws ErrorException Tullio._tullio(:( A[i] := B[i,j,k] ),:( (+,j) ))
+    @test_throws ErrorException Tullio._tullio(:( A[i] = B[i,j,k] ),:( (+,j) ))
+    @test_throws ErrorException Tullio._tullio(:( A[i] := B[i,j,k] ),:( (+,unroll,j) ))
+    @test_throws ErrorException Tullio._tullio(:( A[i] := sum(j) ),:( B[i,j,k] ))
+
+    # some indices in {} are not in expression
+    @test_throws ErrorException Tullio._tullio(:( A[i] := B[i,j] ),:( {i,j,k} ))
+    @test_throws ErrorException Tullio._tullio(:( A[i] := B[i,j] ),:( {tile, i,j,k} ))
+
+    # illegal index on the left
     @test_throws ErrorException Tullio._tullio(:( A[i,2] := V[i] ))
     @test_throws ErrorException Tullio._tullio(:( A[1-i] := V[i] ),:( {cyclic} ))
+    @test_throws ErrorException Tullio._tullio(:( A[i,:] := V[i] ))
+
+    V = 1:5
+    # range of index i must start at one
+    @test_throws AssertionError @tullio A[i] := V[i-1]
+    # range of index i must agree
+    @test_throws AssertionError @tullio A[i] := V[i+1] {strict}
 
 end
 
