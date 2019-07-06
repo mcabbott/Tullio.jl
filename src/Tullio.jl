@@ -3,6 +3,7 @@ module Tullio
 export @tullio, @moltullio
 
 using MacroTools, GPUifyLoops, TiledIteration
+# include("capture.jl") # not happy
 
 const UNROLLOK = VERSION >= v"1.2.0-DEV.462"
 const TILESIZE = 1024
@@ -103,7 +104,7 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
         end
     end
 
-    @capture(left, Z_[leftraw__] | [leftraw__] ) ||
+    @capture(left, Z_[leftraw__] ) || @capture(left, [leftraw__] ) ||
         error("can't understand LHS, expected A[i,j,k], got $left")
     isnothing(Z) && @gensym Z
     leftind = reverse(filter(i -> i isa Symbol, leftraw)) # default outer loop variables
@@ -468,11 +469,11 @@ indicesonly(i::Symbol) = i == :end ? Symbol[] : [i]
 indicesonly(ex::Expr) =
     if @capture(ex, -j_ )
         return [j]
-    elseif @capture(ex, (s_ * j_) | (-s_ * j_))
+    elseif @capture(ex, s_ * j_ ) || @capture(ex, -s_ * j_ )
         return vcat(indicesonly(s), indicesonly(j))
-    elseif @capture(ex, (j_ + k_) | (j_ - k_) )
+    elseif @capture(ex, j_ + k_ ) || @capture(ex, j_ - k_ )
         return vcat(indicesonly(j), indicesonly(k))
-    elseif @capture(ex, (s_ * j_ + k_) | (s_ * j_ - k_) ) # not sure this will work
+    elseif @capture(ex, s_ * j_ + k_ )|| @capture(ex, s_ * j_ - k_ ) # not sure this will work
         return vcat(indicesonly(s), indicesonly(j), indicesonly(k))
     else
         return Symbol[]
@@ -587,7 +588,7 @@ savered(store, Tsym) = i ->
 
     elseif i isa Symbol
         unrollpush(store, i)
-    elseif @capture(i, (j_ in r_) | (j_ ∈ r_) | (j_ = r_))
+    elseif @capture(i, j_ in r_ ) || @capture(i, j_ ∈ r_ ) || @capture(i, j_ = r_ )
         unrollpush(store, j)
         store.ranges[j] = r
     elseif @capture(i, j_ <= m_)
@@ -617,7 +618,7 @@ savecurly(store) = i ->
 
     elseif i isa Symbol
         push!(store.curly, i)
-    elseif @capture(i, (j_ in r_) | (j_ ∈ r_) | (j_ = r_))
+    elseif @capture(i, j_ in r_ ) || @capture(i, j_ ∈ r_ ) || @capture(i, j_ = r_ )
         push!(store.curly, j)
         store.ranges[j] = r
     elseif @capture(i, j_ <= m_)
