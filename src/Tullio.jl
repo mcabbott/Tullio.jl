@@ -95,6 +95,14 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     newarray = @capture(leftright, left_ := right_ )
     newarray || @capture(leftright, left_ = right_ ) || error("expected A[] := B[] or A[] = B[], got $ex")
 
+    if @capture(right, sum(redind__)) && containsindexing(after1) # allow same notaton as @reduce!
+        if newarray
+            return _tullio(:($left := $after1), :((+,$(redind...))), after2)
+        else
+            return _tullio(:($left = $after1), :((+,$(redind...))), after2)
+        end
+    end
+
     @capture(left, Z_[leftraw__] | [leftraw__] ) ||
         error("can't understand LHS, expected A[i,j,k], got $left")
     isnothing(Z) && @gensym Z
@@ -112,9 +120,14 @@ function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Mai
     unique!(store.rightind)
 
     if newarray && !(:offset in store.flags)
-        for i in leftind
-            get!(store.constraints, i, Any[])
-            push!(store.constraints[i], :( 1:typemax(Int) ))
+        for i in leftraw
+            if i isa Symbol # then i in leftind
+                get!(store.constraints, i, Any[])
+                push!(store.constraints[i], :( 1:typemax(Int) ))
+            elseif haskey(store.ranges,i) # really just 1
+            else
+                error("can't use index $i on the left, with :=")
+            end
         end
     elseif !newarray
         saveconstraintsmod(Z, leftraw, store, false) # replaces leftwalk
@@ -410,6 +423,14 @@ arrayfirst(A::Expr) =
     elseif @capture(A, f_(B_) )
         return A
     end
+
+containsindexing(s) = false
+containsindexing(v::Vector) = any(containsindexing, v)
+containsindexing(ex::Expr) = begin
+    flag = false
+    MacroTools.postwalk(x -> @capture(x, A_[ijk__]) && (flag=true), ex)
+    flag
+end
 
 #===== range calculation =====#
 

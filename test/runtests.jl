@@ -40,6 +40,10 @@ end
     @test Z1 == @tullio Z9[i,k] := A[i,j] + B[k,j]/2 (+,unroll,j) {tile,i,k,thread}
 
 end
+@testset "tensorcast notation" begin
+
+
+end
 @testset "types" begin
 
     A = reshape(1:12,3,4)
@@ -75,6 +79,11 @@ end
 
     @test Diagonal(C) == @tullio F[d,d] := C[d] {zero}
 
+    G = rand(1:99, 7,7)
+
+    @test sum(G, dims=2) ≈ @tullio H[i] := sum(j) G[i,j]
+    @test_broken sum(G, dims=2) ≈ @tullio H[i] := sum(j) G[i,j] {tile,i,j}
+
 end
 @testset "cyclic" begin
 
@@ -82,7 +91,6 @@ end
     @test [2,3,4,1] == @tullio A[i] := V[i+1] {cyclic}
     @test [4,1,2,3] == @tullio A[i] := V[i-1] {cyclic}
     @test [4,3,2,1] == @tullio A[i] := V[1-i] {cyclic}
-    # @test [4,3,2,1] == @tullio A[1-i] := V[i] {cyclic}
     @test [10,10,10,10] == @tullio A[i] := V[i+j] (+,j) {cyclic}
 
     M = [i + 100j for i=1:4, j=1:4]
@@ -168,7 +176,8 @@ else
 end
 @testset "errors" begin
 
-    @test true
+    @test_throws ErrorException Tullio._tullio(:( A[i,2] := V[i] ))
+    @test_throws ErrorException Tullio._tullio(:( A[1-i] := V[i] ),:( {cyclic} ))
 
 end
 
