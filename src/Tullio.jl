@@ -73,11 +73,11 @@ end
 function _tullio(leftright, after1=nothing, after2=nothing; multi=false, mod=Main)
 
     @capture(leftright, left_ += right_ ) &&
-        return _tullio(:($left = $left + $right); after1=after1, after2=after2, multi=multi)
+        return _tullio(:($left = $left + $right), after1, after2; multi=multi)
     @capture(leftright, left_ -= right_ ) &&
-        return _tullio(:($left = $left - ($right) ); after1=after1, after2=after2, multi=multi)
+        return _tullio(:($left = $left - ($right) ), after1, after2; multi=multi)
     @capture(leftright, left_ *= right_ ) &&
-        return _tullio(:($left = $left * ($right) ); after1=after1, after2=after2, multi=multi)
+        return _tullio(:($left = $left * ($right) ), after1, after2; multi=multi)
 
     leftright = MacroTools.postwalk(primewalk, leftright)
 
@@ -685,20 +685,25 @@ end
 
 #===== piracy =====#
 
-# @static if VERSION < v"1.3"
+@static if VERSION < v"1.3"
 
-# precisely https://github.com/JuliaLang/julia/pull/32463
-Base.issubset(r::Base.OneTo, s::Base.OneTo) = r.stop <= s.stop
-Base.issubset(r::AbstractUnitRange{<:Integer}, s::AbstractUnitRange{<:Integer}) =
-    first(r) >= first(s) && last(r) <= last(s)
-# more general case, one day https://github.com/JuliaLang/julia/pull/32003
-Base.issubset(r::AbstractRange, s::AbstractRange) = begin
-        for i in r
-            i in s || return false
+    # precisely https://github.com/JuliaLang/julia/pull/32463
+    Base.issubset(r::Base.OneTo, s::Base.OneTo) = r.stop <= s.stop
+    Base.issubset(r::AbstractUnitRange{<:Integer}, s::AbstractUnitRange{<:Integer}) =
+        first(r) >= first(s) && last(r) <= last(s)
+    # more general case, one day https://github.com/JuliaLang/julia/pull/32003
+    Base.issubset(r::AbstractRange, s::AbstractRange) = begin
+            for i in r
+                i in s || return false
+            end
+            return true
         end
-        return true
-    end
 
+    # https://github.com/JuliaLang/julia/pull/32628
+    Base.mod(i::Integer, r::Base.OneTo) = mod1(i, last(r))
+    Base.mod(i::Integer, r::AbstractUnitRange{<:Integer}) = mod(i-first(r), length(r)) + first(r)
+
+end
 
 #= === TODO ===
 

@@ -39,7 +39,8 @@ tul3(Z,A,B) = begin
                     @inbounds A[i, j] * A[j, i] + B[i] * B[j]
                 end)
     local T = eltype(Z)
-    tiles = collect(TileIterator((axes(Z)), (250,250)))
+    # tiles = collect(TileIterator((axes(Z)), (250,250)))
+    tiles = TileIterator((axes(Z)), (250,250))
     for t in tiles
 
             for i in t[1]
