@@ -1,0 +1,13 @@
+[deps]
+AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Einsum = "b7d42ee7-0b51-5a75-98ca-779d3107e4c0"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Gaius = "bffe22d1-cb55-4f4e-ac2c-f4dd4bf58912"
+IntelVectorMath = "c8ce9da6-5d36-5c03-b118-5a70151be7bc"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
+NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
+Strided = "5e0ebb24-38b0-5f93-81fe-25c709ecae67"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
