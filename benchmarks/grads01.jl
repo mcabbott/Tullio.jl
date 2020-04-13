@@ -1,11 +1,12 @@
 
+using Tullio
 cd(joinpath(dirname(pathof(Tullio)), "..", "benchmarks"))
 using Pkg; pkg"activate ."
 
 # or
 
 using Pkg; pkg"add LoopVectorization#master"
-using Pkg; pkg"add Strided Einsum IntelVectorMath ForwardDiff Zygote"
+using Pkg; pkg"add Strided Einsum IntelVectorMath ForwardDiff Tracker"
 
 
 ########## an example
@@ -58,9 +59,7 @@ julia> @btime f_tullio($A,$B,$C); # with avx, no threads yet
 julia> @btime f_avx($A,$B,$C);
   179.732 μs (16 allocations: 627.17 KiB)
 
-julia> Tullio.AVX[] = false;
-
-julia> f_tullio(A,B,C) = @tullio s[i] := A[i] * log(B[i,j] / C[j]);
+julia> f_tullio(A,B,C) = @tullio avx=false s[i] := A[i] * log(B[i,j] / C[j]);
 
 julia> @btime f_tullio($A,$B,$C); # without avx
   1.215 ms (3 allocations: 1.80 KiB)
@@ -73,66 +72,62 @@ julia> @btime create109($A,$B,$C); # version below, with unroll=4 (unroll=1 was 
 
 ########## gradients
 
-using Zygote, ForwardDiff
+using Tracker, ForwardDiff
 unfill(x) = x
-Zygote.@adjoint unfill(x) = x, dx -> (collect(dx),) # deal with FillArrays
+unfill(x::TrackedArray) = Tracker.track(unfill, x)
+Tracker.@grad unfill(x) = unfill(Tracker.data(x)), dx -> (collect(dx),) # deal with FillArrays
 
-Tullio.GRAD[] = :Base
-Tullio.AVX[] = false
-f_sym(A,B,C) = @tullio s[i] := A[i] * log(B[i,j] / C[j]);
-Tullio.AVX[] = true
-f_sym_avx(A,B,C) = @tullio s[i] := A[i] * log(B[i,j] / C[j]);
+f_sym(A,B,C) = @tullio grad=Base avx=false s[i] := A[i] * log(B[i,j] / C[j]);
+f_sym_avx(A,B,C) = @tullio grad=Base avx=true s[i] := A[i] * log(B[i,j] / C[j]);
 
-Zygote.gradient(sum∘f_base, A, B, C)[1] ≈ Zygote.gradient(sum∘unfill∘f_sym, A, B, C)[1]
-Zygote.gradient(sum∘f_base, A, B, C)[1] ≈ Zygote.gradient(sum∘unfill∘f_sym_avx, A, B, C)[1]
+Tracker.gradient(sum∘f_base, A, B, C)[1] ≈ Tracker.gradient(sum∘unfill∘f_sym, A, B, C)[1]
+Tracker.gradient(sum∘f_base, A, B, C)[1] ≈ Tracker.gradient(sum∘unfill∘f_sym_avx, A, B, C)[1]
 
-Tullio.GRAD[] = :ForwardDiff
-Tullio.AVX[] = false
-f_fwd(A,B,C) = @tullio s[i] := A[i] * log(B[i,j] / C[j]);
-Tullio.AVX[] = true
-f_fwd_avx(A,B,C) = @tullio s[i] := A[i] * log(B[i,j] / C[j]);
+f_fwd(A,B,C) = @tullio grad=Dual avx=false s[i] := A[i] * log(B[i,j] / C[j]);
+f_fwd_avx(A,B,C) = @tullio grad=Dual avx=false s[i] := A[i] * log(B[i,j] / C[j]);
 
 using ForwardDiff: partials # some weird scope issue? only with avx
 
-Zygote.gradient(sum∘f_base, A, B, C)[1] ≈ Zygote.gradient(sum∘unfill∘f_fwd, A, B, C)[1]
-Zygote.gradient(sum∘f_base, A, B, C)[1] ≈ Zygote.gradient(sum∘unfill∘f_fwd_avx, A, B, C)[1]
+Tracker.gradient(sum∘f_base, A, B, C)[1] ≈ Tracker.gradient(sum∘unfill∘f_fwd, A, B, C)[1]
+Tracker.gradient(sum∘f_base, A, B, C)[1] ≈ Tracker.gradient(sum∘unfill∘f_fwd_avx, A, B, C)[1]
 
 
 ########## gradient times
 
-julia> @btime Zygote.gradient(sum∘f_base, $A, $B, $C);
+julia> @btime Tracker.gradient(sum∘f_base, $A, $B, $C);
   5.895 ms (240093 allocations: 12.22 MiB)
 
-julia> @btime Zygote.gradient(sum∘f_sym, $A, $B, $C);
+julia> @btime Tracker.gradient(sum∘f_sym, $A, $B, $C);
   2.874 ms (51 allocations: 633.92 KiB)
 
-julia> @btime Zygote.gradient(sum∘f_fwd, $A, $B, $C);
+julia> @btime Tracker.gradient(sum∘f_fwd, $A, $B, $C);
   2.918 ms (51 allocations: 633.92 KiB)
 
-julia> @btime Zygote.gradient(sum∘unfill∘f_sym_avx, $A, $B, $C);
+julia> @btime Tracker.gradient(sum∘unfill∘f_sym_avx, $A, $B, $C);
   597.748 μs (46 allocations: 635.56 KiB)
 
-julia> @btime Zygote.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take I" definitions
+julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take I" definitions
   3.382 ms (180046 allocations: 16.18 MiB)
 
-julia> @btime Zygote.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take II" definitions
+julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take II" definitions
   27.043 ms (720346 allocations: 65.96 MiB)
 
-julia> @btime Zygote.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take III" definitions
+julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take III" definitions
   4.197 ms (180057 allocations: 16.18 MiB)
 
-julia> @btime Zygote.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take IV" definitions
+julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take IV" definitions
   3.307 ms (180046 allocations: 16.18 MiB)
 
-  1.029 ms (60046 allocations: 5.81 MiB) # if I comment out partials(res,d) lines
-
-julia> @btime Zygote.gradient(sum∘unfill∘create109, $A, $B, $C); # below, currently identical?
+julia> @btime Tracker.gradient(sum∘unfill∘create109, $A, $B, $C); # below, currently identical?
   3.237 ms (180009 allocations: 16.18 MiB)
+
+  1.029 ms (60046 allocations: 5.81 MiB) # if I comment out partials(res,d) lines
+  246.807 μs (9 allocations: 633.69 KiB) # if I put C[j] = 𝛥C[j] + one(𝒯) instead
+  5.672 ms (300009 allocations: 27.17 MiB) # using mypartials(res, Val(d))
 
 ########## code!
 
-Tullio.VERBOSE[] = true
-@tullio s[i] := A[i] * log(B[i,j] / C[j]);
+@tullio verbose=true grad=Dual s[i] := A[i] * log(B[i,j] / C[j]);
 # using Tullio: storage_type
 storage_type(As...) = Array{Float64}
 
@@ -176,7 +171,11 @@ function apply!109(ℛℰ𝒮::AbstractArray{𝒯}, ::Type{<:Array{<:Union{Float
     nothing
 end
 
-Zygote.@adjoint create109(args...) = (create109(args...), (Δ->∇create109(Δ, args...)))
+create109(A::Tracker.TrackedArray, args...) = Tracker.track(create109, A, args...)
+create109(A, B::Tracker.TrackedArray, args...) = Tracker.track(create109, A, B, args...)
+create109(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track(create109, A, B, args...)
+
+Tracker.@grad create109(args...) = (create109(Tracker.data.(args)...), (Δ->∇create109(Δ, Tracker.data.(args)...)))
 
 function ∇create109(𝛥ℛℰ𝒮, A, B, C)
     𝛥A = fill!(similar(A), 0)
@@ -227,11 +226,18 @@ function ∇apply!109(𝛥A, 𝛥B, 𝛥C, ::Type{<:Array{<:Union{Float32, Float
                 # 𝛥B[i, j] = 𝛥B[i, j] + part[1] * 𝛥ℛℰ𝒮[i]
                 # 𝛥C[j] = 𝛥C[j] + part[2] * 𝛥ℛℰ𝒮[i]
                 # 𝛥A[i] = 𝛥A[i] + part[3] * 𝛥ℛℰ𝒮[i]
+
+                # 𝛥B[i, j] = 𝛥B[i, j] + mypartials(ℛℰ𝒮, Val(1)) * 𝛥ℛℰ𝒮[i]
+                # 𝛥C[j] = 𝛥C[j] + mypartials(ℛℰ𝒮, Val(2)) * 𝛥ℛℰ𝒮[i]
+                # 𝛥A[i] = 𝛥A[i] + mypartials(ℛℰ𝒮, Val(3)) * 𝛥ℛℰ𝒮[i]
             end
         end
 end
 
 s = create109(A, B, C)
 
-Zygote.gradient(sum∘f_base, A, B, C)[1] ≈ Zygote.gradient(sum∘unfill∘create109, A, B, C)[1]
+Tracker.gradient(sum∘f_base, A, B, C)[1] ≈ Tracker.gradient(sum∘unfill∘create109, A, B, C)[1]
 
+
+mypartials(x::Dual{Z,SVec{N,T},D}, m::Int) where {Z,N,T,D} = getfield(getfield(getfield(x, :partials), :values), m)
+mypartials(x::Dual{Z,SVec{N,T},D}, ::Val{m}) where {Z,N,T,D,m} = getfield(getfield(getfield(x, :partials), :values), m)::SVec{N,T}

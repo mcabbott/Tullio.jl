@@ -1,5 +1,5 @@
 
-using Tullio, Test, LinearAlgebra
+using Tullio, Test, LinearAlgebra, OffsetArrays
 # using Tullio: LoopVectorization.@avx, storage_type
 
 Tullio.VERBOSE[] = true
@@ -22,8 +22,11 @@ Tullio.GRAD[] = :Base
     @test A == [i^2 for i in 1:10]
 
     # shifts
-    @tullio B[i] := A[i+5]
-    @test axes(B,1) == -4:5
+    @tullio B[i] := A[2i+1] + A[i]
+    @test axes(B,1) == 1:4 # would be OntTo(5) without OffsetArrays
+
+    @tullio C[i] := A[2i+5]
+    @test axes(C,1) == -2:2 # error without OffsetArrays
 
     # diagonals
     @tullio D[i,i] := trunc(Int, sqrt(A[i]))
@@ -60,13 +63,17 @@ Tullio.GRAD[] = :Base
     @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
     @test H[5] == F
 
+    @tullio J[1,i] := A[i]
+    @test size(J) == (1,10)
+
     # non-unique
     @tullio A2[i] := A[i] + A[i]
     @test A2 == 2 .* A
 
     # scope
-    f(x) = @tullio y[i] := x[i] + i
-    @test f(ones(3)) == 1 .+ (1:3)
+    j = 6
+    f(x) = @tullio y[i] := x[i] + i + $j
+    @test f(ones(3)) == 1 .+ (1:3) .+ j
 
     g(x) = @tullio y := sqrt(x[i])
     @test g(fill(4,5)) == 10
@@ -83,8 +90,12 @@ end
     @test D[3,7] == A[3] + 100
 
     B = zero(A)
-    @tullio B[i] = A[i+5] + 100  # broken!
+    @tullio B[i] = A[i+5] + 100
     @test B == vcat(A[6:end] .+ 100, zeros(Int,5))
+
+    @tullio D[i,i] = A[i-2]
+    @test D[3,3] == 1
+    @test D[1,1] == 101 # was not set to zero
 
     # writing back into same
     @tullio B[i] += B[i] + 10^3
@@ -94,14 +105,19 @@ end
     @test A[1] == 101
 
     # indices in expression
-    @tullio A[i] = 100*i  # broken!
+    @tullio A[i] = 100*i
     @test A[7] == 700
+
+    # shifts on left
+    B = zero(A)
+    @tullio B[2i+1] = A[i]
+    @test B[2+1] == A[1]
+    @test B[2*4+1] == A[4]
 
 end
 
 # To fix:
 # whether you can add *= etc easily, for compat
-# demand ranges start at 1, unless Offs. loaded
 # named creation
 
 @testset "named dimensions" begin

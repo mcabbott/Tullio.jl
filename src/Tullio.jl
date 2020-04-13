@@ -4,12 +4,12 @@ using MacroTools
 
 using LoopVectorization, ForwardDiff
 
-using OffsetArrays
-
 include("macro.jl")
 export @tullio
 
 include("shifts.jl")
+
+# include("names.jl")
 
 include("threads.jl")
 

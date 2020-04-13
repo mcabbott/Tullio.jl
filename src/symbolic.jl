@@ -1,13 +1,11 @@
-# Today's thought -- instead of ForwardDiff, can I just work out symbolically the gradient of the RHS?
-# Could use https://github.com/SciML/ModelingToolkit.jl
-# or else https://github.com/dfdx/XGrad.jl
-# but perhaps not hard to write it out... and use http://www.juliadiff.org/DiffRules.jl/latest/
 
 #========== backward gradient using symbolic derivatives ==========#
 
 using DiffRules
 
 function insert_base_gradient(create, apply!, store)
+    store.verbose && @info "using symbolic gradient for: $create ~ $(store.right[])"
+
     dZ = Symbol(DEL, ZED)
     worker! = Symbol(:∇, apply!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
@@ -26,7 +24,6 @@ function insert_base_gradient(create, apply!, store)
     end
 
     ex = commonsubex(quote $(inbody...) end)
-    # ex = quote $(inbody...) end
     loopex = recurseloops(ex, (loop = loopind, store...))
 
     push!(store.outex, quote
@@ -44,6 +41,11 @@ function insert_base_gradient(create, apply!, store)
         end)
     end
 end
+
+# This could probably use https://github.com/dfdx/XGrad.jl
+# or https://github.com/SciML/ModelingToolkit.jl
+# but seemed simple enough to just write out, using rules from:
+# http://www.juliadiff.org/DiffRules.jl/latest/
 
 symbwalk(targets) = ex -> begin
         @capture(ex, A_[inds__]) && A isa Symbol || return ex

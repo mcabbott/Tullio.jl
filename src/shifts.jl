@@ -16,11 +16,15 @@ subrange(r::AbstractRange, o::Integer) = r .- o
 =#
 function divrange(r::AbstractUnitRange, f::Integer)
     if f > 0
-        a = div(first(r), f, RoundUp)
-        z = div(last(r), f, RoundDown)
+        # a = div(first(r), f, RoundUp) # onnly 1.4 it seems?
+        a = cld(first(r), f)
+        # z = div(last(r), f, RoundDown)
+        z = fld(last(r), f)
     elseif f < 0
-        a = div(last(r), f, RoundUp)
-        z = div(first(r), f, RoundDown)
+        # a = div(last(r), f, RoundUp)
+        a = cld(last(r), f)
+        # z = div(first(r), f, RoundDown)
+        z = fld(first(r), f)
     else
         error("invalid factor $f")
     end

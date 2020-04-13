@@ -2,6 +2,7 @@
 #========== backward gradient using ForwardDiff ==========#
 
 function insert_forward_gradient(create, apply!, store)
+    store.verbose && @info "using ForwardDiff for $create ~ $(store.right[])"
 
     store.epsilonright[] = MacroTools.postwalk(epsilonwalk(store), store.right[])
 
@@ -97,6 +98,7 @@ s1 = SVec{2,Float64}(5.5, 6.6) # SVec{2,Float64}<5.5, 6.6>
 #     2: VecElement{Float64}
 #       value: Float64 6.6
 s1[2]
+s1 |> typeof |> parentmodule # VectorizationBase
 
 @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
 

@@ -103,6 +103,12 @@ git-tree-sha1 = "a4849ec61df9659423cc63b298ed895904ee9743"
 uuid = "f68482b8-f384-11e8-15f7-abe071a5a75f"
 version = "1.0.2"
 
+[[CuArrays]]
+deps = ["AbstractFFTs", "Adapt", "CEnum", "CUDAapi", "CUDAdrv", "CUDAnative", "DataStructures", "GPUArrays", "Libdl", "LinearAlgebra", "MacroTools", "NNlib", "Pkg", "Printf", "Random", "Reexport", "Requires", "SparseArrays", "Statistics", "TimerOutputs"]
+git-tree-sha1 = "e8c55b38dcca955f5aed8ec4479cdc95810db1e1"
+uuid = "3a865a2d-5b23-5a0f-bc46-62713ec82fae"
+version = "2.0.1"
+
 [[DataAPI]]
 git-tree-sha1 = "674b67f344687a88310213ddfa8a2b3c76cc4252"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
@@ -110,9 +116,9 @@ version = "1.1.0"
 
 [[DataStructures]]
 deps = ["InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "73eb18320fe3ba58790c8b8f6f89420f0a622773"
+git-tree-sha1 = "4dead20a1606a60292529023d6eac18a1ef6432e"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.17.11"
+version = "0.17.12"
 
 [[DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -170,6 +176,12 @@ deps = ["CommonSubexpressions", "DiffResults", "DiffRules", "NaNMath", "Random",
 git-tree-sha1 = "869540e4367122fbffaace383a5bdc34d6e5e5ac"
 uuid = "f6369f11-7733-5829-9624-2563aa707210"
 version = "0.10.10"
+
+[[GPUArrays]]
+deps = ["AbstractFFTs", "Adapt", "LinearAlgebra", "Printf", "Random", "Serialization"]
+git-tree-sha1 = "d586762b08dcda13228df8967119b9cb6f22ade5"
+uuid = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
+version = "3.1.0"
 
 [[Gaius]]
 deps = ["LinearAlgebra", "LoopVectorization", "Random", "StructArrays", "UnsafeArrays"]
@@ -243,7 +255,6 @@ uuid = "1fad7336-0346-5a1a-a56f-a06ba010965b"
 version = "0.0.7"
 
 [[LibGit2]]
-deps = ["Printf"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 
 [[Libdl]]
@@ -258,11 +269,11 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[LoopVectorization]]
 deps = ["LinearAlgebra", "OffsetArrays", "SIMDPirates", "SLEEFPirates", "UnPack", "VectorizationBase"]
-git-tree-sha1 = "b810bf9f5bf0f490a3aabe4f4d052a15272d9827"
+git-tree-sha1 = "e49555dbbafc8a996555a12cedb7ec06a2856233"
 repo-rev = "master"
 repo-url = "https://github.com/chriselrod/LoopVectorization.jl.git"
 uuid = "bdcacae8-1622-11e9-2a5c-532679323890"
-version = "0.6.30"
+version = "0.7.0"
 
 [[MKL_jll]]
 deps = ["IntelOpenMP_jll", "Libdl", "Pkg"]
@@ -324,7 +335,7 @@ uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "1.0.1"
 
 [[Pkg]]
-deps = ["Dates", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "UUIDs"]
+deps = ["Dates", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Test", "UUIDs"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [[Printf]]
@@ -339,6 +350,12 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 deps = ["Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
+[[Reexport]]
+deps = ["Pkg"]
+git-tree-sha1 = "7b1d07f411bc8ddb7977ec7f377b97b158514fe0"
+uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "0.2.0"
+
 [[Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "d37400976e98018ee840e0ca4f9d20baa231dc6b"
@@ -350,9 +367,9 @@ uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
 [[SIMDPirates]]
 deps = ["VectorizationBase"]
-git-tree-sha1 = "f37fffd1b1b3dcb5f1f5dab0171f5e33c5144afb"
+git-tree-sha1 = "f5c30cc02b8843fa690a1dd6a4b4242b9336a963"
 uuid = "21efa798-c60a-11e8-04d3-e1a92915a26a"
-version = "0.7.11"
+version = "0.7.13"
 
 [[SLEEFPirates]]
 deps = ["Libdl", "SIMDPirates", "VectorizationBase"]
@@ -424,6 +441,12 @@ git-tree-sha1 = "311765af81bbb48d7bad01fb016d9c328c6ede03"
 uuid = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 version = "0.5.3"
 
+[[Tullio]]
+deps = ["DiffRules", "ForwardDiff", "LoopVectorization", "MacroTools"]
+path = "/Users/me/.julia/dev/Tullio"
+uuid = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
+version = "0.0.1"
+
 [[TupleTools]]
 git-tree-sha1 = "62a7a6cd5a608ff71cecfdb612e67a0897836069"
 uuid = "9d95972d-f1c8-5527-a6e0-b4b365fa01f6"
@@ -448,9 +471,9 @@ version = "1.0.0"
 
 [[VectorizationBase]]
 deps = ["CpuId", "LinearAlgebra"]
-git-tree-sha1 = "952878e0377c3928bb706fc9c9ce20bea5060ff8"
+git-tree-sha1 = "460be50979685f6dce2342a75288c485b6270857"
 uuid = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
-version = "0.10.2"
+version = "0.10.4"
 
 [[Zygote]]
 deps = ["AbstractFFTs", "ArrayLayouts", "DiffRules", "FillArrays", "ForwardDiff", "IRTools", "InteractiveUtils", "LinearAlgebra", "MacroTools", "NNlib", "NaNMath", "Random", "Requires", "SpecialFunctions", "Statistics", "ZygoteRules"]
