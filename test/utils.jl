@@ -30,7 +30,7 @@ using Zygote, ForwardDiff
 
 end
 
-using Tullio: range_expr_walk, divrange, divrange_minus
+using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
 
 @testset "range_expr_walk" begin
 
@@ -68,12 +68,19 @@ using Tullio: range_expr_walk, divrange, divrange_minus
             # evil
             (i -> (2i+1)*3+4, :((2i+1)*3+4)),
             (i -> 3-(-i)÷2, :(3-(-i)÷2)), # needs divrange_minus
-            # (i -> (2i)÷3, :((2i)÷3)), # no method matching divrange(::StepRange{Int64,Int64}, ::Int64)
             ]
             rex, i = range_expr_walk(:($r .+ 0), ex)
             @test issubset(sort(f.(eval(rex))), r)
         end
-        @test divrange_minus(r) == divrange(r, -1)
+        @test minusrange(r) == divrange(r, -1)
+
+        @test issubset(subranges(r, 1:3) .+ 1, r)
+        @test issubset(subranges(r, 1:3) .+ 3, r)
+        @test union(subranges(r, 1:3) .+ 1, subranges(r, 1:3) .+ 3) == r
+
+        @test issubset(addranges(r, 1:3) .- 1, r)
+        @test issubset(addranges(r, 1:3) .- 3, r)
+        @test sort(union(addranges(r, 1:3) .- 1, addranges(r, 1:3) .- 3)) == r
     end
 end
 

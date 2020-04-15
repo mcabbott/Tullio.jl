@@ -65,10 +65,11 @@ function _tullio(exs...; mod=Main)
         arrays = Symbol[],
         scalars = Symbol[],
         cost = Ref{Int}(1),
-    # Index ranges, first constraints then equal/intersect
-        constraints = Dict{Symbol,Set}(),
-        ranges = Dict{Symbol,ExprSym}(),
-    # Version of right with (A[i,j] + 𝜀A′) etc, with dict[:𝜀A′] = A[i,j]
+    # Index ranges: first save all known constraints
+        constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
+        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
+        axisdefs = Expr[],
+    # Version of right with (A[i,j] + 𝜀A′) etc, with dict[:𝜀A′] = :(A[i,j])
         epsilonright = Ref{ExprSym}(),
         epsilondict = Dict{Symbol,Expr}(),
     # Expressions: outex is the main one, sometimes wrapped innto functions.
@@ -133,7 +134,6 @@ parse_options(exs...) = begin
     end
     opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:expr]
 end
-
 
 verboseprint(store) = begin
     foreach(keys(parent(store))) do k
@@ -207,6 +207,8 @@ rightwalk(store) = ex -> begin
         end
         ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
         ex isa Expr && ex.head == :call && ex.args[1] in [:(==)] && push!(store.flags, :noavx)
+        ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx)
+        ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx)
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture(ex, A_[inds__]) || return ex
@@ -234,26 +236,31 @@ arrayonly(A::Expr) =
 
 saveconstraints(A, inds, store, right=true) = begin
     A1 = arrayfirst(A)
-    is = map(enumerate(inds)) do (d,ex)
-        isconst(ex) && return nothing
+    is = Symbol[]
+    foreach(enumerate(inds)) do (d,ex)
+        isconst(ex) && return
         ex isa Symbol || push!(store.flags, :intersect) # ?? might not be right
-        ri, i = range_expr_walk(:(axes($A1,$d)), ex)
-        get!(store.constraints, i, Set{Expr}())
-        isnothing(ri) || push!(store.constraints[i], ri)
-        i
+        range_i, i = range_expr_walk(:(axes($A1,$d)), ex)
+        if i isa Symbol
+            push!(is, i)
+            v = get!(store.constraints, i, Expr[])
+            isnothing(range_i) || push!(v, range_i) # ?? is this ever nothing?
+        elseif i isa Tuple # from things like A[i+j]
+            push!(is, i...)
+            push!(store.pairconstraints, (i..., range_i...))
+        end
     end
-    realis = filter(!isnothing, is)
     if right
-        append!(store.rightind, realis)
+        append!(store.rightind, is)
         if isassigned(store.sharedind)
-            shared = intersect(realis, store.sharedind)
+            shared = intersect(is, store.sharedind) # ?? is this right for multiple indices?
             empty!(store.sharedind)
             append!(store.sharedind, shared)
         else
-            append!(store.sharedind, realis)
+            append!(store.sharedind, is)
         end
     else
-        append!(store.leftind, realis)
+        append!(store.leftind, is)
     end
     n = length(inds)
     str = "expected a $n-array $A1" # already arrayfirst(A)
@@ -293,40 +300,52 @@ dollarwalk(store) = ex -> begin
 
 function index_ranges(store)
 
-    allinds = vcat(store.leftind, store.redind)
-    for i in allinds
-        haskey(store.constraints, i) || error("unable to infer range of index $i")
-    end
+    todo = Set(vcat(store.leftind, store.redind))
 
-    if :intersect in store.flags
-        foreach(resolveintersect(store), allinds)
-    else
-        foreach(resolvestrict(store), allinds)
-    end
-
-end
-
-resolvestrict(store) = i ->
-    for ax in store.constraints[i]
-        if haskey(store.ranges, i)
-            str = "range of index $i must agree"
-            push!(store.outex, :( @assert $(store.ranges[i]) == $ax $str ))
-        else
-            r_i = Symbol(AXIS, i)
-            push!(store.outex, :( local $r_i = $ax ))
-            store.ranges[i] = ax
+    for (i,j,r_i,r_j) in store.pairconstraints
+        if haskey(store.constraints, i) # && i in todo ??
+            resolveintersect(i, store) # use existing knowledge to fix i's range
+            pop!(todo, i)
+            v = get!(store.constraints, j, Expr[]) # and then allow j's range to depend on that
+            push!(v, r_j)
+        elseif haskey(store.constraints, j) # && j in todo
+            resolveintersect(j, store)
+            pop!(todo, j)
+            v = get!(store.constraints, i, Expr[])
+            push!(v, r_i)
         end
     end
 
-resolveintersect(store) = i ->
-    begin
-        res = length(store.constraints[i])==1 ?
-            first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
-            :( intersect($(store.constraints[i]...)) )
-        r_i = Symbol(AXIS, i)
-        push!(store.outex, :( local $r_i = $res ))
-        store.ranges[i] = r_i
+    for i in todo
+        haskey(store.constraints, i) || error("unable to infer range of index $i")
+        # if i in store.sloppyindices # ?? maybe later
+        if :intersect in store.flags
+            resolveintersect(i, store)
+        else
+            resolvestrict(i, store)
+        end
     end
+
+    append!(store.outex, store.axisdefs)
+end
+
+resolvestrict(i, store) = begin
+    res = first(store.constraints[i])
+    r_i = Symbol(AXIS, i)
+    push!(store.axisdefs, :( local $r_i = $res ))
+    for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
+        str = "range of index $i must agree"
+        push!(store.axisdefs, :( @assert $alt == $res $str ))
+    end
+end
+
+resolveintersect(i, store) = begin
+    res = length(store.constraints[i])==1 ?
+        first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
+        :( intersect($(store.constraints[i]...)) )
+    r_i = Symbol(AXIS, i)
+    push!(store.axisdefs, :( local $r_i = $res ))
+end
 
 #========== output array + eltype ==========#
 
@@ -372,7 +391,6 @@ function action_functions(store)
     apply!, create, kernel = Symbol(:💥, rn), Symbol(:💧, rn), Symbol(:🇨🇺, rn)
     # apply!, create, kernel = gensym(:💥), gensym(:💧), gensym(:🇨🇺)
 
-    # axislist = map(i -> Symbol(AXIS, i), store.rightind)
     axisleft = map(i -> Symbol(AXIS, i), store.leftind)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
     axislist = vcat(axisleft, axisred)
@@ -435,7 +453,7 @@ function action_functions(store)
     #===== LoopVectorization =====#
     # if isdefined(store.mod, :LoopVectorization)
     if store.avx != false && !(:noavx in store.flags)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32,Int8}
+        LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
             push!(store.outex, quote
                 function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:Array{<:$LoopVecTypes}}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
@@ -455,13 +473,13 @@ function action_functions(store)
     if isdefined(store.mod, :KernelAbstractions) && isdefined(store.mod, :CuArrays) &&
         v"1.3" <= VERSION < v"1.4" && store.cuda > 0 && !(:noavx in store.flags) # assume it's about as fussy!
 
-        @info "defining KernelAbstractions kernels, but they give wrong answers?" maxlog=3
         push!(store.outex, quote
 
             KernelAbstractions.@kernel function $kernel($ZED::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(axisred...), ) where {$TYP}
-                ($(store.leftind...),) = KernelAbstractions.@index(Global, NTuple)
-                # ($preex; $loopex; $postex)
+                ($(store.leftind...),) = # KernelAbstractions.@index(Global, NTuple)
+                ($(store.leftind...),) = @index(Global, NTuple)
                 $writeex
+                nothing
             end
 #=
 @kernel function matmul_kernel!(a, b, c)
@@ -483,13 +501,16 @@ end
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
                 sizes = map(length, tuple($(axisleft...)))
                 cu_kern!($(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                nothing
             end
 
             # Just for testing today:
             function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:Array}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
+                @info "using KernelAbstractions on CPU"
                 cpu_kern! = $kernel(CPU(), 4)
                 sizes = map(length, tuple($(axisleft...)))
                 cpu_kern!($(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                nothing
             end
 #=
 function matmul!(a, b, c)
@@ -595,7 +616,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
     # if isdefined(store.mod, :LoopVectorization)
     if store.avx != false && !(:noavx in store.flags)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32,Int8}
+        LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
             push!(store.outex, quote
 
@@ -729,35 +750,33 @@ function backward_definitions(create, apply!, store)
     shared = map(i -> Symbol(AXIS, i), store.sharedind)
     nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
 
-    defineranges = map(loopind) do i
-        :( $(Symbol(AXIS, i)) = $(store.ranges[i]) )
-    end
-
     if needgrad
-        push!(store.outex, quote
-            function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
-                $(defineempties...)
-                $(defineranges...)
-                $worker!($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), )
-                # $divide($worker!,
-                #     tuple($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...),),
-                #     tuple($(shared...),), tuple($(nonshared...), ),
-                #     $(COST[] ÷ store.cost[]))
-                return ($(returns...),)
-            end
-        end)
+        if store.threads
+            push!(store.outex, quote
+                function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
+                    $(defineempties...)
+                    $(store.axisdefs...)
+                    $divide($worker!,
+                        tuple($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...),),
+                        tuple($(shared...),), tuple($(nonshared...), ),
+                        $(COST[] ÷ store.cost[]))
+                    return ($(returns...),)
+                end
+            end)
+        else
+            push!(store.outex, quote
+                function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
+                    $(defineempties...)
+                    $(store.axisdefs...)
+                    $worker!($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), )
+                    return ($(returns...),)
+                end
+            end)
+        end
     end
 
     return needgrad
 end
 
-
-# push!(store.outex, quote
-#             $divide($apply!, $(store.leftarray[]),
-#                 tuple($storage_type($(store.leftarray[]), $(store.arrays...)), $(store.arrays...), $(store.scalars...),),
-#                 tuple($(axisleft...),),
-#                 tuple($(axisred...),),
-#                 $(COST[] ÷ store.cost[]))
-#         end)
 
 #========== the end ==========#
