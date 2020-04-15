@@ -395,8 +395,8 @@ end
 function action_functions(store)
 
     rn = abs(rand(Int8))
-    apply!, create, kernel = Symbol(:💥, rn), Symbol(:💧, rn), Symbol(:🇨🇺, rn)
-    # apply!, create, kernel = gensym(:💥), gensym(:💧), gensym(:🇨🇺)
+    apply!, create = Symbol(:💥, rn), Symbol(:💧, rn)
+    # apply!, create = gensym(:💥), gensym(:💧)
 
     axisleft = map(i -> Symbol(AXIS, i), store.leftind)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
@@ -568,26 +568,30 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         isdefined(store.mod, :KernelAbstractions) &&
         isdefined(store.mod, :CuArrays)
 
-        @info "defining KernelAbstractions kernels, but they give wrong answers?" maxlog=3
+        kernel = Symbol(apply!, :🇨🇺)
+        asserts = map(ax -> :(@assert first($ax)==1 "KernelAbstractions can't handle OffsetArrays here"), axouter)
+        sizes = map(ax -> :(length($ax)), axouter)
         push!(store.outex, quote
 
             KernelAbstractions.@kernel function $kernel($(args...),) where {$TYP}
                 ($(outer...),) = @index(Global, NTuple)
-                :(ex1; ex3; ex4; ex6)
+                ($ex1; $ex3; $ex4; $ex6)
             end
 
             function $apply!(::Type{<:CuArray}, $(args...),) where {$TYP}
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
-                sizes = map(length, tuple($(axouter...)))
-                $ACC = cu_kern!($(args...); ndrange=sizes)
+                # types = map(typeof, ($(args...),))
+                # @show types
+                $(asserts...)
+                $ACC = cu_kern!($(args...); ndrange=tuple($(sizes...)))
                 KernelAbstractions.wait($ACC)
             end
 
             # Just for testing really...
             function $apply!(::Type{<:Array}, $(args...),) where {$TYP}
-                cpu_kern! = $kernel(CPU(), 4)
-                sizes = map(length, tuple($(axouter...)))
-                $ACC = cpu_kern!($(args...); ndrange=sizes)
+                cpu_kern! = $kernel(CPU(), Threads.nthreads())
+                $(asserts...)
+                $ACC = cpu_kern!($(args...); ndrange=tuple($(sizes...)))
                 KernelAbstractions.wait($ACC)
             end
 
