@@ -355,9 +355,16 @@ function output_array(store)
         funwithargs = :( $RHS($(store.arrays...), $(store.rightind...)) )
         push!(store.outex, :( $funwithargs = $(store.right[]) ))
 
-        # This just evaluates the first entry, but you could try inference first... run if ::Any?
+        # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
-        push!(store.outex, :( $TYP = typeof($RHS($(store.arrays...), $(allfirst...))) ))
+        push!(store.outex, quote
+            $TYP = first(Base.return_types($RHS, typeof(($(store.arrays...), $(allfirst...)))))
+            $TYP = if Base.isconcretetype($TYP)
+                $TYP
+            else
+                typeof($RHS($(store.arrays...), $(allfirst...)))
+            end
+        end)
 
         # This now checks for OffsetArrays, and allows A[i,1] := ...
         outaxes = map(store.leftraw) do i
@@ -476,7 +483,6 @@ function action_functions(store)
         push!(store.outex, quote
 
             KernelAbstractions.@kernel function $kernel($ZED::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(axisred...), ) where {$TYP}
-                ($(store.leftind...),) = # KernelAbstractions.@index(Global, NTuple)
                 ($(store.leftind...),) = @index(Global, NTuple)
                 $writeex
                 nothing
@@ -500,7 +506,8 @@ end
             function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:CuArray}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
                 sizes = map(length, tuple($(axisleft...)))
-                cu_kern!($(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                $ACC = cu_kern!($ZED, $(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                KernelAbstractions.wait($ACC)
                 nothing
             end
 
@@ -509,7 +516,8 @@ end
                 @info "using KernelAbstractions on CPU"
                 cpu_kern! = $kernel(CPU(), 4)
                 sizes = map(length, tuple($(axisleft...)))
-                cpu_kern!($(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                $ACC = cpu_kern!($ZED, $(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
+                KernelAbstractions.wait($ACC)
                 nothing
             end
 #=
