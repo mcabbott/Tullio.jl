@@ -7,12 +7,15 @@ function insert_base_gradient(create, apply!, store)
     store.verbose && @info "using symbolic gradient for: $create ~ $(store.right[])"
 
     dZ = Symbol(DEL, ZED)
-    worker! = Symbol(:∇, apply!)
+    ∇apply! = Symbol(:∇, apply!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
 
-    loopind = vcat(store.leftind, store.redind)
-    shared = map(i -> Symbol(AXIS, i), store.sharedind)
-    nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
+    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
+
+    # loopind = vcat(store.leftind, store.redind)
+    # shared = map(i -> Symbol(AXIS, i), store.sharedind)
+    # nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
+    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     targets=[]
     MacroTools.postwalk(symbwalk(targets), store.right[])
@@ -22,24 +25,12 @@ function insert_base_gradient(create, apply!, store)
         deltar = simplitimes(drdt, :($dZ[$(store.leftraw...)]))
         :($dt = $dt + $deltar)
     end
+    ex_body = commonsubex(quote $(inbody...) end)
 
-    ex = commonsubex(quote $(inbody...) end)
-    loopex = recurseloops(ex, (loop = loopind, store...))
+    make_many_workers(∇apply!,
+        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store)
 
-    push!(store.outex, quote
-        function $worker!($(gradarrays...), ::Type, $dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), ) where {$TYP}
-            @fastmath @inbounds $loopex
-        end
-    end)
-
-    if AVX[] && !(:noavx in store.flags)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32,Int8}
-        push!(store.outex, quote
-            function $worker!($(gradarrays...), ::Type{<:Array{<:$LoopVecTypes}}, $dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), ) where {$TYP}
-                $LoopVectorization.@avx $loopex
-            end
-        end)
-    end
 end
 
 # This could probably use https://github.com/dfdx/XGrad.jl

@@ -207,8 +207,8 @@ rightwalk(store) = ex -> begin
         end
         ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
         ex isa Expr && ex.head == :call && ex.args[1] in [:(==)] && push!(store.flags, :noavx)
-        ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx)
-        ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx)
+        ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
+        ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture(ex, A_[inds__]) || return ex
@@ -405,12 +405,13 @@ function action_functions(store)
     if :newarray in store.flags
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
+        ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
         if store.threads
             push!(store.outex, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
                     $divide($apply!,
-                        tuple($(store.leftarray[]), $storage_type($(store.leftarray[]), $(store.arrays...)), $(store.arrays...), $(store.scalars...),),
+                        tuple($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...),),
                         tuple($(axisleft...),), tuple($(axisred...),),
                         $(COST[] ÷ store.cost[]))
                     return $(store.leftarray[])
@@ -420,7 +421,7 @@ function action_functions(store)
             push!(store.outex, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
-                    $apply!($(store.leftarray[]), $storage_type($(store.leftarray[]), $(store.arrays...)), $(store.arrays...), $(store.scalars...), $(axislist...), )
+                    $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), )
                     return $(store.leftarray[])
                 end
             end)
@@ -432,110 +433,22 @@ function action_functions(store)
             store.redfun[] == :min ? :(typemin($TYP)) :
             :(zero($TYP))
 
+    ex_init = :( $ACC = $init )
+
+    ex_iter = :( $ACC = $(store.redfun[])($ACC, $(store.right[]) ) )
+
+    ex_write = :( $ZED[$(store.leftraw...)] = $ACC )
+
+    ex_nored = :( $ZED[$(store.leftraw...)] = $(store.right[]) )
+
     if isempty(store.redind)
-        writeex = :( $ZED[$(store.leftraw...)] = $(store.right[]) )
+        make_many_workers(apply!,
+            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            nothing, store.leftind, nothing, Symbol[], ex_nored, nothing, store)
     else
-        ex = :( $ACC = $(store.redfun[])($ACC, $(store.right[]) ) )
-        redloopex = recurseloops(ex, (loop = copy(store.redind), store...))
-        writeex = :( $ACC = $init; $redloopex; $ZED[$(store.leftraw...)] = $ACC )
-    end
-
-    if isempty(store.leftind)
-        preex = :( $ACC = $init )
-        loopex = redloopex
-        postex = :( $ZED[$(store.leftraw...)] = $ACC )
-    else
-        loopex = recurseloops(writeex, (loop=copy(store.leftind), store...))
-        postex, preex = nothing, nothing # these exist to ensure @avx can act directly on a loop
-    end
-
-    #===== basic loops =====#
-    push!(store.outex, quote
-        function $apply!($ZED::AbstractArray{$TYP}, ::Type, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
-            @inbounds ($preex; @fastmath $loopex; $postex)
-            # @inbounds ($preex; $loopex; $postex)
-        end
-    end)
-
-    #===== LoopVectorization =====#
-    # if isdefined(store.mod, :LoopVectorization)
-    if store.avx != false && !(:noavx in store.flags)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32}
-        if store.avx == true
-            push!(store.outex, quote
-                function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:Array{<:$LoopVecTypes}}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
-                    (@inbounds $preex; $LoopVectorization.@avx $loopex; $postex)
-                end
-            end)
-        else
-            push!(store.outex, quote
-                function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:Array{<:$LoopVecTypes}}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
-                    (@inbounds $preex; $LoopVectorization.@avx unroll=$(store.avx) $loopex; $postex)
-                end
-            end)
-        end
-    end
-
-    #===== KernelAbstractions =====#
-    if isdefined(store.mod, :KernelAbstractions) && isdefined(store.mod, :CuArrays) &&
-        v"1.3" <= VERSION < v"1.4" && store.cuda > 0 && !(:noavx in store.flags) # assume it's about as fussy!
-
-        push!(store.outex, quote
-
-            KernelAbstractions.@kernel function $kernel($ZED::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(axisred...), ) where {$TYP}
-                ($(store.leftind...),) = @index(Global, NTuple)
-                $writeex
-                nothing
-            end
-#=
-@kernel function matmul_kernel!(a, b, c)
-    i, j = @index(Global, NTuple)
-
-    # creating a temporary sum variable for matrix multiplication
-    tmp_sum = zero(eltype(c))
-    for k = 1:size(a)[2]
-        tmp_sum += a[i,k] * b[k, j]
-    end
-
-    c[i,j] = tmp_sum
-end
-=#
-            # Rather than a method of apply!, perhaps this should be a method of the thread launcher function?
-            # But CUDA() |> typeof |> parentmodule == KernelAbstractions which I don't want to depend on...
-            # A method like launch(::typeof($apply!), ::Type{<:CuArray}) perhaps?
-            function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:CuArray}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
-                cu_kern! = $kernel(CUDA(), $(store.cuda))
-                sizes = map(length, tuple($(axisleft...)))
-                $ACC = cu_kern!($ZED, $(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
-                KernelAbstractions.wait($ACC)
-                nothing
-            end
-
-            # Just for testing today:
-            function $apply!($ZED::AbstractArray{$TYP}, ::Type{<:Array}, $(store.arrays...), $(store.scalars...), $(axislist...), ) where {$TYP}
-                @info "using KernelAbstractions on CPU"
-                cpu_kern! = $kernel(CPU(), 4)
-                sizes = map(length, tuple($(axisleft...)))
-                $ACC = cpu_kern!($ZED, $(store.arrays...), $(store.scalars...), $(axisred...); ndrange=sizes)
-                KernelAbstractions.wait($ACC)
-                nothing
-            end
-#=
-function matmul!(a, b, c)
-    if size(a)[2] != size(b)[1]
-        println("Matrix size mismatch!")
-        return nothing
-    end
-    if isa(a, Array)
-        kernel! = matmul_kernel!(CPU(),4)
-    else
-        kernel! = matmul_kernel!(CUDA(),256)
-    end
-    kernel!(a, b, c, ndrange=size(c))
-end
-=#
-
-        end)
+        make_many_workers(apply!,
+            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
     #===== gradient hooks =====#
@@ -558,6 +471,7 @@ end
     end
 
     #===== call something =====#
+    ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
     if :newarray in store.flags
         push!(store.outex, quote
             $(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), )
@@ -565,14 +479,14 @@ end
     elseif store.threads
         push!(store.outex, quote
             $divide($apply!,
-                tuple($(store.leftarray[]), $storage_type($(store.leftarray[]), $(store.arrays...)), $(store.arrays...), $(store.scalars...),),
+                tuple($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...),),
                 tuple($(axisleft...),), tuple($(axisred...),),
                 $(COST[] ÷ store.cost[]))
             $(store.leftarray[])
         end)
     else
         push!(store.outex, quote
-            $apply!($(store.leftarray[]), $storage_type($(store.leftarray[]), $(store.arrays...)), $(store.arrays...), $(store.scalars...), $(axislist...),)
+            $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...),)
             $(store.leftarray[])
         end)
     end
@@ -582,7 +496,7 @@ end
     end
 end
 
-#=
+
 """
     make_many_workers(f!, args, ex1, [:i,], ex3, [:k,], ex5, ex6, store)
 
@@ -605,19 +519,18 @@ end
 function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner::Vector{Symbol}, ex5, ex6, store)
 
     ex4 = recurseloops(ex5, inner)
-    ex2 = recurseloops(:(ex3; ex4; ex6), outer)
+    ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
     push!(store.outex, quote
 
         function $apply!(::Type, $(args...),) where {$TYP}
-            @inbounds $ex1
-            @fastmath $ex2
+            @inbounds @fastmath ($ex1; $ex2)
         end
 
     end)
 
     expre, exloop, expost = if isempty(outer)
-        :(ex1; ex3), ex4, ex6
+        :($ex1; $ex3), ex4, ex6
     else
         ex1, ex2, nothing
     end
@@ -628,8 +541,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         if store.avx == true
             push!(store.outex, quote
 
-                function $apply!(:Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
-                    @inbounds $expre
+                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                    $expre
                     $LoopVectorization.@avx $exloop
                     $expost
                 end
@@ -638,8 +551,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         else
             push!(store.outex, quote
 
-                function $apply!(:Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
-                    @inbounds $expre
+                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                    $expre
                     $LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost
                 end
@@ -659,22 +572,28 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         push!(store.outex, quote
 
             KernelAbstractions.@kernel function $kernel($(args...),) where {$TYP}
-                ($(outer...),) = KernelAbstractions.@index(Global, NTuple)
+                ($(outer...),) = @index(Global, NTuple)
                 :(ex1; ex3; ex4; ex6)
             end
 
             function $apply!(::Type{<:CuArray}, $(args...),) where {$TYP}
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
                 sizes = map(length, tuple($(axouter...)))
-                cu_kern!($(args...); ndrange=sizes)
+                $ACC = cu_kern!($(args...); ndrange=sizes)
+                KernelAbstractions.wait($ACC)
             end
 
-            # Just for testing today:
+            # Just for testing really...
             function $apply!(::Type{<:Array}, $(args...),) where {$TYP}
                 cpu_kern! = $kernel(CPU(), 4)
                 sizes = map(length, tuple($(axouter...)))
-                cpu_kern!($(args...); ndrange=sizes)
+                $ACC = cpu_kern!($(args...); ndrange=sizes)
+                KernelAbstractions.wait($ACC)
             end
+
+            # Rather than a method of apply!, perhaps this should be a method of the thread launcher function?
+            # But CUDA() |> typeof |> parentmodule == KernelAbstractions which I don't want to depend on...
+            # Add one new method to my thread-launcher?
 
             # Tullio.newdivide(::typeof($apply!), T::Type{<:CuArray}, args...) = $apply!(T, args...)
 
@@ -691,23 +610,13 @@ recurseloops(ex, list::Vector) =
         ex = :(for $i in $r; $ex; end)
         return recurseloops(ex, list[2:end])
     end
-=#
-recurseloops(ex, storeplus) =
-    if !isempty(storeplus.loop)
-        i = pop!(storeplus.loop)
-        r = Symbol(AXIS, i)
-        ex = :(for $i in $r; $ex; end)
-        return recurseloops(ex, storeplus)
-    else
-        return ex
-    end
 
 #===== define gradient hooks =====#
 
 function backward_definitions(create, apply!, store)
     dZ = Symbol(DEL, ZED)
     ∇create = Symbol(:∇, create)
-    worker! = Symbol(:∇, apply!)
+    ∇apply! = Symbol(:∇, apply!)
     needgrad = false
 
     if isdefined(store.mod, :Zygote)
@@ -759,13 +668,14 @@ function backward_definitions(create, apply!, store)
     nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
 
     if needgrad
+        ST = :($storage_type($(gradarrays...), $(store.arrays...)))
         if store.threads
             push!(store.outex, quote
                 function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
                     $(defineempties...)
                     $(store.axisdefs...)
-                    $divide($worker!,
-                        tuple($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...),),
+                    $divide($∇apply!,
+                        tuple($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
                         tuple($(shared...),), tuple($(nonshared...), ),
                         $(COST[] ÷ store.cost[]))
                     return ($(returns...),)
@@ -776,7 +686,7 @@ function backward_definitions(create, apply!, store)
                 function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
                     $(defineempties...)
                     $(store.axisdefs...)
-                    $worker!($(gradarrays...), $storage_type($(gradarrays...), $(store.arrays...)), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), )
+                    $∇apply!($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), )
                     return ($(returns...),)
                 end
             end)

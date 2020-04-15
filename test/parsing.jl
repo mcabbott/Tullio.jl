@@ -53,8 +53,8 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @test A2 == 2 .* A
 
     # broadcasting
-    @tullio S[i] := sqrt.(M[:,i]) # dot sets :noavx
-    @tullio T[i] := A[i] .+ A[j]  # dot does nothing, except set :noavx
+    @tullio S[i] := sqrt.(M[:,i]) # dot sets :noavx & :nograd
+    @tullio T[i] := A[i] .+ A[j]  # dot does nothing, except set :noavx & :nograd
 
     # scope
     j = 6

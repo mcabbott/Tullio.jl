@@ -11,12 +11,14 @@ function insert_forward_gradient(create, apply!, store)
         # epsilondict = Dict{Symbol,Expr}(),
 
     dZ = Symbol(DEL, ZED)
-    worker! = Symbol(:∇, apply!)
+    ∇apply! = Symbol(:∇, apply!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
 
-    loopind = vcat(store.leftind, store.redind)
-    shared = map(i -> Symbol(AXIS, i), store.sharedind)
-    nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
+    # loopind = vcat(store.leftind, store.redind)
+    # shared = map(i -> Symbol(AXIS, i), store.sharedind)
+    # nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
+    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
+    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     # defineepsilons = map(enumerate(store.epsilondict)) do (d, (Aepsilon,_))
     #     tup = ntuple(i -> i==d ? 1 : 0, length(store.epsilondict))
@@ -33,25 +35,12 @@ function insert_forward_gradient(create, apply!, store)
         # push!(readepsilons, :($Aex = $Aex + $ZED.partials.values[$d] * $dZ[$(store.leftraw...)])) # doesn't work with avx
     end
 
-    ex = :($ZED = $(store.epsilonright[]); $(readepsilons...))
-    loopex = recurseloops(ex, (loop = loopind, store...)) # do this in two steps, to keep $dZ[$(store.leftraw...)] around?
+    ex_iter = :($ZED = $(store.epsilonright[]); $(readepsilons...))
 
-    push!(store.outex, quote
-        function $worker!($(gradarrays...), ::Type, $dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), ) where {$TYP}
-            $(defineepsilons...)
-            @fastmath @inbounds $loopex
-        end
-    end)
+    make_many_workers(∇apply!,
+        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store)
 
-    if AVX[] && !(:noavx in store.flags)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32,Int8}
-        push!(store.outex, quote
-            function $worker!($(gradarrays...), ::Type{<:Array{<:$LoopVecTypes}}, $dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), ) where {$TYP}
-                $(defineepsilons...)
-                $LoopVectorization.@avx $loopex
-            end
-        end)
-    end
     # to special-case dZ::FillArray, you'd need to build a different readepsilons ... loopex
     # Or you'd have to edit it:
     # fillarrayloop = MacroTools.postwalk(loopex) do ex
