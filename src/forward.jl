@@ -115,125 +115,13 @@ d1.partials # Partials{3,Float64}
 d1.partials[1]
 
 partials(d1, 1)
-@inline val(d::Dual) = d.value
-# @inline vals(d::Partials) = d.values
+# @inline val(d::Dual) = d.value
 
 ForwardDiff.can_dual(::Type{<:SVec}) = true
 
-#=
-
-# TAKE ONE -- these explicitly go via scalar Duals, thinking to exploit existing scalar defns.
-for f in [:+, :*, :-, :/]
-    @eval begin
-
-        # dual(number) * svec
-
-        function Base.$f(x::Dual{Z,T,D}, sv::SVec{N}) where {Z,T<:Number,D,N}
-            duals = ntuple(n -> $f(x, sv[n]), N)
-            Dual(svec(val.(duals)), ntuple(d -> svec(partials.(duals, d)), D))
-        end
-        function Base.$f(sv::SVec{N}, x::Dual{Z,T,D}, ) where {Z,T<:Number,D,N}
-            duals = ntuple(n -> $f(sv[n], x), N)
-            Dual(svec(val.(duals)), ntuple(d -> svec(partials.(duals, d)), D))
-        end
-
-        # dual(svec) * svec
-
-        function Base.$f(x::Dual{Z,SVec{N,T},D}, sv::SVec{N}) where {Z,T,D,N}
-            duals = ntuple(N) do n
-                xn = Dual(val(x)[n], ntuple(d -> partials(x,d)[n] ,D))
-                res = $f(xn, sv[n])
-            end
-            Dual(svec(val.(duals)), ntuple(d -> svec(partials.(duals,d)), D))
-        end
-        function Base.$f(sv::SVec{N}, x::Dual{Z,SVec{N,T},D}, ) where {Z,T,D,N}
-            duals = ntuple(N) do n
-                xn = Dual(val(x)[n], ntuple(d -> partials(x,d)[n] ,D))
-                res = $f(sv[n], xn)
-            end
-            Dual(svec(val.(duals)), ntuple(d -> svec(partials.(duals,d)), D))
-        end
-
-        # partials(svec) * svec
-
-        function Base.$f(p::Partials{D,SVec{N,T}}, sv::SVec{N}) where {Z,T,D,N}
-            ps = ntuple(N) do n
-                pn = Partials(ntuple(d -> p[d][n] ,D))
-                res = $f(pn, sv[n])
-            end
-            Partials(ntuple(d -> svec(getindex.(ps,d)), D))
-        end
-        function Base.$f(sv::SVec{N}, p::Partials{D,SVec{N,T}}) where {Z,T,D,N}
-            ps = ntuple(N) do n
-                pn = Partials(ntuple(d -> p[d][n] ,D))
-                res = $f(sv[n], pn)
-            end
-            Partials(ntuple(d -> svec(getindex.(ps,d)), D))
-        end
-
-    end
-end
-
-=#
-#=
-# TAKE TWO -- stay in the land of the SVecs
-
-Base.:+(x::Dual{Z,T,D}, sv::SVec{N}) where {Z,T,D,N} =
-    Dual(val(x) + sv, ntuple(d -> partials(x,d) + zero(sv), D)) # is * zero(sv) wasteful?
-Base.:+(sv::SVec{N}, x::Dual{Z,T,D}) where {Z,T,D,N} =
-    Dual(val(x) + sv, ntuple(d -> partials(x,d) + zero(sv), D))
-
-Base.:*(x::Dual{Z,T,D}, sv::SVec{N}) where {Z,T,D,N} =
-    Dual(val(x) * sv, ntuple(d -> partials(x,d) * sv, D))
-Base.:*(sv::SVec{N}, x::Dual{Z,T,D}) where {Z,T,D,N} =
-    Dual(sv * val(x), ntuple(d -> sv * partials(x,d), D))
-
-Base.:*(p::Partials{D,SVec{N,T}}, sv::SVec{N}) where {Z,T,D,N} =
-    Partials(ntuple(d -> p.values[d] * sv, D))
-Base.:*(sv::SVec{N}, p::Partials{D,SVec{N,T}}) where {Z,T,D,N} =
-    Partials(ntuple(d -> sv * p.values[d], D))
-
-=#
-#=
-# TAKE THREE -- more stable?
-
-function Base.:+(x::Dual{Z,T,D}, sv::SVec{N,S}) where {Z,T,D,N,S}
-    y = x.value + sv # scalar or svec + svec
-    ps = ntuple(d -> partials(x,d) + zero(sv), Val(D))
-    Dual{Z,typeof(y),D}(y, Partials{D,typeof(y)}(ps))
-end
-function Base.:+(sv::SVec{N,S}, x::Dual{Z,T,D}) where {Z,T,D,N,S}
-    y = x.value + sv
-    ps = ntuple(d -> partials(x,d) + zero(sv), Val(D))
-    Dual{Z,typeof(y),D}(y, Partials{D,typeof(y)}(ps))
-end
-
-function Base.:*(x::Dual{Z,T,D}, sv::SVec{N,S}) where {Z,T,D,N,S}
-    y = x.value * sv
-    ps = ntuple(d -> partials(x,d) * sv, Val(D))
-    Dual{Z,typeof(y),D}(y, Partials{D,typeof(y)}(ps))
-end
-function Base.:*(sv::SVec{N,S}, x::Dual{Z,T,D}) where {Z,T,D,N,S}
-    y = sv * x.value
-    ps = ntuple(d -> sv * partials(x,d), Val(D))
-    Dual{Z,typeof(y),D}(y, Partials{D,typeof(y)}(ps))
-end
-
-function Base.:*(p::Partials{D,SVec{N,T}}, sv::SVec{N,S}) where {Z,T,D,N,S}
-    TS = SVec{N,promote_type(T,S)}
-    Partials{D,TS}(ntuple(d -> p.values[d] * sv, Val(D)))
-end
-function Base.:*(sv::SVec{N,S}, p::Partials{D,SVec{N,T}}) where {Z,T,D,N,S}
-    TS = SVec{N,promote_type(T,S)}
-    Partials{D,TS}(ntuple(d -> sv * p.values[d], Val(D)))
-end
-
-=#
-# TAKE FOUR -- avoid typeof(y), these don't cover as many cases, but enough?
-
 @inline function Base.:+(x::Dual{Z,T,D}, sv::SVec{N,S}) where {Z,T<:Number,D,N,S}
     y = x.value + sv
-    ps = ntuple(d -> x.partials.values[d] + zero(sv), Val(D)) # avoiding partials(x.d) didn't help
+    ps = ntuple(d -> x.partials.values[d] + zero(sv), Val(D))
     TS = SVec{N,promote_type(T,S)}
     Dual{Z,TS,D}(y, Partials{D,TS}(ps))
 end
@@ -257,100 +145,13 @@ end
     Dual{Z,TS,D}(y, Partials{D,TS}(ps))
 end
 
-@inline function Base.:*(p::Partials{D,SVec{N,T}}, sv::SVec{N,S}) where {Z,T,D,N,S}
+@inline function Base.:*(p::Partials{D,SVec{N,T}}, sv::SVec{N,S}) where {T,D,N,S}
     TS = SVec{N,promote_type(T,S)}
     Partials{D,TS}(ntuple(d -> p.values[d] * sv, Val(D)))
 end
-@inline function Base.:*(sv::SVec{N,S}, p::Partials{D,SVec{N,T}}) where {Z,T,D,N,S}
+@inline function Base.:*(sv::SVec{N,S}, p::Partials{D,SVec{N,T}}) where {T,D,N,S}
     TS = SVec{N,promote_type(T,S)}
     Partials{D,TS}(ntuple(d -> sv * p.values[d], Val(D)))
 end
 
 #========== the end ==========#
-
-#=
-
-function f1(A, B)
-    d = Dual(0, (1, 0))
-    LoopVectorization.@avx for i in eachindex(B)
-        res = (A[i] + d) * (A[i] + d) # + 1 this breaks it
-        B[i] = partials(res, 1)
-    end
-    B
-end
-f1(collect(1:4), rand(1:99, 4)) # ok!
-f1(collect(1:4), rand(4)) # ok!
-f1(collect(1:4.0), rand(4)) # ok!
-
-function f2(A, B)
-    d = Dual(0, (1, 0))
-    LoopVectorization.@avx for i in eachindex(B)
-        res = log(A[i] + d) * A[i]
-        B[i] = partials(res, 1)
-    end
-    B
-end
-f2(collect(1:4.0), rand(4)) # ok!
-f2(collect(1:4), rand(4)) # ok!
-
-
-function f3(A, B, C)
-    d = Dual(0, (1, 0))
-    d2 = Dual(0, (0, 1))
-    LoopVectorization.@avx for i in eachindex(1)
-        res = log((A[i] + d)/(B[i] + d2)) * (A[i] + d)
-        C[i] = partials(res, 1) + partials(res, 2) * B[i]
-    end
-    C
-end
-f3(collect(1:4.0), ones(4), rand(4))
-
-=#
-
-#=
-
-function plus1(x::Dual{Z,T,D}, sv::SVec{N}) where {Z,T<:Number,D,N} # take I above
-    duals = ntuple(n -> x + sv[n], N)
-    Dual(svec(val.(duals)), ntuple(d -> svec(partials.(duals, d)), D))
-end
-
-plus2(x::Dual{Z,T,D}, sv::SVec{N}) where {Z,T,D,N} = # take II above
-    Dual(val(x) + sv, ntuple(d -> partials(x,d) + zero(sv), D))
-
-function plus3(x::Dual{Z,T,D}, sv::SVec{N,S}) where {Z,T<:Number,D,N,S}
-    TS = SVec{N,promote_type(T,S)}
-    Dual{Z,TS,D}(val(x) + sv, Partials{D,TS}(ntuple(d -> partials(x,d) + zero(sv), Val(D))))
-end
-
-# function plus4(x::Dual{Z,T,D}, sv::SVec{N,T}) where {Z,T,D,N}
-#     Dual{Z,typeof(sv),D}(val(x) + sv, Partials{D,typeof(sv)}(ntuple(d -> partials(x,d) + zero(sv), D)))
-# end
-
-function plus5(x::Dual{Z,T,D}, sv::SVec{N,S}) where {Z,T,D,N,S}
-    res = val(x) + sv
-    Dual{Z,typeof(res),D}(res, Partials{D,typeof(res)}(ntuple(d -> partials(x,d) + zero(sv), Val(D))))
-end
-
-plus1(d1, s1)
-plus2(d1, s1)
-plus3(d1, s1)
-plus5(d1, s1)
-
-@code_warntype plus1(d1, s1) # ok!
-@code_warntype plus2(d1, s1) # Body::Dual{Nothing,SVec{2,Float64},_A} where _A
-@code_warntype plus3(d1, s1) # ok!
-@code_warntype plus5(d1, s1) # ok!
-
-# "plus5" became take III above, check that all are indeed stable:
-
-@code_warntype d1 + s1
-@code_warntype s1 + d1
-
-@code_warntype (d1 + s1) * s1
-@code_warntype s1 * (d1 + s1)
-
-p1 = (d1 + s1).partials
-@code_warntype p1 * s1
-@code_warntype s1 * p1
-
-=#
