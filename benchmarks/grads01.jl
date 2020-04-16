@@ -118,6 +118,10 @@ julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "t
 julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # using "take IV" definitions
   3.307 ms (180046 allocations: 16.18 MiB)
 
+julia> @btime Tracker.gradient(sum∘unfill∘f_fwd_avx, $A, $B, $C); # after removing where Z, https://github.com/chriselrod/LoopVectorization.jl/issues/93
+  1.830 ms (299 allocations: 2.49 MiB)
+# much better, but still far from symbolic 597.748 μs
+
 julia> @btime Tracker.gradient(sum∘unfill∘create109, $A, $B, $C); # below, currently identical?
   3.237 ms (180009 allocations: 16.18 MiB)
 
