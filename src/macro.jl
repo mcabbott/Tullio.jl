@@ -17,20 +17,20 @@ This is a replacement for `@einsum` which understands a bit more syntax.
 
     @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
 
-By default it uses LoopVectorization.jl when it can, and Threads.@spawn for big enough arrays.
+By default it uses LoopVectorization.jl when it can, and `Threads.@spawn` for big enough arrays.
 These options disables both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 
     @tullio  grad=false  C[i,k] := ...
 
-If Zygote.jl/Tracker.jl/Yota.jl are loaded, then it will define gradient hooks for these,
+If Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will define gradient hooks for these,
 unless disabled by `grad=false`. The gradient itself is calculated in one of two ways,
 either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
 
     @tullio  verbose=true
 
-This prints out everythinng the macro knows & generates. You can't always use `@macroexpand1`
-as the gradients need things `eval`uated at top level.
+This prints out everythinng the macro knows & generates. (You can't always use `@macroexpand1`
+as the gradients need things `eval`uated at top level.)
 Options given without an expression change the global defaults, instead of applying just once.
 """
 macro tullio(exs...)
@@ -102,7 +102,7 @@ OPTS = Dict(
     )
 
 VERBOSE = Ref(false)
-THREADS = Ref(false)
+THREADS = Ref(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
@@ -357,10 +357,11 @@ function output_array(store)
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
+        T0 = Symbol(TYP,0)
         push!(store.outex, quote
-            $TYP = first(Base.return_types($RHS, typeof(($(store.arrays...), $(allfirst...)))))
-            $TYP = if Base.isconcretetype($TYP)
-                $TYP
+            $T0 = first(Base.return_types($RHS, typeof(($(store.arrays...), $(allfirst...)))))
+            $TYP = if Base.isconcretetype($T0)
+                $T0
             else
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
@@ -394,7 +395,7 @@ end
 
 function action_functions(store)
 
-    rn = abs(rand(Int8))
+    rn = abs(rand(Int16))
     apply!, create = Symbol(:💥, rn), Symbol(:💧, rn)
     # apply!, create = gensym(:💥), gensym(:💧)
 
@@ -402,6 +403,7 @@ function action_functions(store)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
     axislist = vcat(axisleft, axisred)
 
+    #===== new array =====#
     if :newarray in store.flags
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
@@ -410,10 +412,10 @@ function action_functions(store)
             push!(store.outex, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
-                    $divide($apply!,
-                        tuple($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...),),
+                    $threader($apply!, $ST, $(store.leftarray[]),
+                        tuple($(store.arrays...), $(store.scalars...),),
                         tuple($(axisleft...),), tuple($(axisred...),),
-                        $(COST[] ÷ store.cost[]))
+                        $(BLOCK[] ÷ store.cost[]))
                     return $(store.leftarray[])
                 end
             end)
@@ -428,6 +430,7 @@ function action_functions(store)
         end
     end
 
+    #===== constructing loops =====#
     init = store.redfun[] == :* ? :(one($TYP)) :
             store.redfun[] == :max ? :(typemin($TYP)) :
             store.redfun[] == :min ? :(typemin($TYP)) :
@@ -478,10 +481,10 @@ function action_functions(store)
         end)
     elseif store.threads
         push!(store.outex, quote
-            $divide($apply!,
-                tuple($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...),),
+            $threader($apply!, $ST, $(store.leftarray[]),
+                tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisleft...),), tuple($(axisred...),),
-                $(COST[] ÷ store.cost[]))
+                $(BLOCK[] ÷ store.cost[]))
             $(store.leftarray[])
         end)
     else
@@ -595,11 +598,15 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
                 KernelAbstractions.wait($ACC)
             end
 
-            # Rather than a method of apply!, perhaps this should be a method of the thread launcher function?
-            # But CUDA() |> typeof |> parentmodule == KernelAbstractions which I don't want to depend on...
-            # Add one new method to my thread-launcher?
+            # Perhaps this should be a method of the thread launcher function?
+            # Don't have "args" broken up any further here
+            # At least you will need to circumvent it for CuArrays:
 
-            # Tullio.newdivide(::typeof($apply!), T::Type{<:CuArray}, args...) = $apply!(T, args...)
+            Tullio.threader(::typeof($apply!), T::Type{<:CuArray}, Z::AbstractArray,
+                As::Tuple, Is::Tuple, Js::Tuple, block::Int) = $apply!(T, Z, As..., Is..., Js...)
+
+            Tullio.∇threader(::typeof($apply!), T::Type{<:CuArray},
+                As::Tuple, Is::Tuple, Js::Tuple, block::Int) = $apply!(T, As..., Is..., Js...)
 
         end)
     end
@@ -678,10 +685,10 @@ function backward_definitions(create, apply!, store)
                 function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
                     $(defineempties...)
                     $(store.axisdefs...)
-                    $divide($∇apply!,
-                        tuple($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
+                    $∇threader($∇apply!, $ST,
+                        tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
                         tuple($(shared...),), tuple($(nonshared...), ),
-                        $(COST[] ÷ store.cost[]))
+                        $(BLOCK[] ÷ store.cost[]))
                     return ($(returns...),)
                 end
             end)

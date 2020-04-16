@@ -4,6 +4,8 @@ using Test, Printf
 t0 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t0)
 
+Tullio.BLOCK[] = 20 # use threading even on very small arrays
+
 #===== stuff =====#
 
 t1 = time()
@@ -29,14 +31,14 @@ _gradient(x...) = Tracker.gradient(x...)
 @testset "backward gradients: Tracker" begin include("gradients.jl") end
 
 #===== Yota =====#
-
+#=
 t3 = @elapsed using Yota
 @info @sprintf("Loading Yota took %.1f seconds", t3)
 # Yota.@diffrule unfill(x) x collect(ds)
 
 _gradient(x...) = Yota.grad(x...)[2]
-# @testset "backward gradients: Yota" begin include("gradients.jl") end
-
+@testset "backward gradients: Yota" begin include("gradients.jl") end
+=#
 #===== Zygote =====#
 
 # @info "now loading Zygote..."
