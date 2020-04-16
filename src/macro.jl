@@ -273,7 +273,7 @@ end
 arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
 arrayfirst(A::Expr) =
     # if @capture(A, B_[inds__].field_)
-    if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__]))
+    if (@capture_(A, Binds_.field_) && @capture_(Binds, B_[inds__]))
         return :( first($B).$field )
     elseif @capture_(A, B_[inds__])
         return :( first($B) )

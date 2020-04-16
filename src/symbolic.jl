@@ -140,7 +140,7 @@ function commonsubex(expr::Expr)
 end
 
 commonapply(expr, twice, rules) =
-    MacroTools.prewalk(expr) do ex
+    MacroTools_prewalk(expr) do ex
         ex == expr && return ex
         if ex in keys(twice)
             sy = twice[ex]

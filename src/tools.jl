@@ -20,7 +20,7 @@ macro capture_(ex, pat::Expr)
         _endswithone(pat.args[1]) && _endswithtwo(pat.args[2]) # :( A_[ijk__] )
         _symbolone(pat.args[1]), _symboltwo(pat.args[2])
 
-    elseif pat.head == :. &&
+    elseif pat.head == :. && pat.args[2] isa QuoteNode &&
         _endswithone(pat.args[1]) && _endswithone(pat.args[2].value) # :( A_.field_ )
         _symbolone(pat.args[1]), _symbolone(pat.args[2].value)
 
@@ -68,7 +68,7 @@ _trymatch(ex::Expr, pat::Union{Val{:ref}, Val{:curly}}) = # A_[ijk__] or A_{ijk_
         nothing
     end
 _trymatch(ex::Expr, ::Val{:.}) = # A_.field_
-    if ex.head === :.
+    if ex.head === :. && ex.args[2] isa QuoteNode
         ex.args[1], ex.args[2].value
     else
         nothing
