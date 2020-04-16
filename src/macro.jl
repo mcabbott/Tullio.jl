@@ -141,7 +141,7 @@ verboseprint(store) = begin
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outeval, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
-        foreach(ex -> printstyled(MacroTools.prettify(ex) , "\n", color=:green), r)
+        foreach(ex -> printstyled(MacroTools_prettify(ex) , "\n", color=:green), r)
     end
 end
 
@@ -157,18 +157,18 @@ EPS, DEL = :𝜀, :𝛥
 #========== input parsing ==========#
 
 function parse_input(ex1, ex2, store)
-    ex = @capture(ex1, left_ += right_ ) ? :($left = $left + $right) :
+    ex = @capture_(ex1, left_ += right_ ) ? :($left = $left + $right) :
         ex1
     if !isnothing(ex2)
         ex2 isa Symbol ? (store.redfun[] = ex2) : error("can't understand $ex2 yet")
     end
 
-    newarray = @capture(ex, left_ := right_ )
-    newarray || @capture(ex, left_ = right_ ) ||
+    newarray = @capture_(ex, left_ := right_ )
+    newarray || @capture_(ex, left_ = right_ ) ||
         error("expected A[] := B[] or A[] = B[], got $ex")
     newarray && push!(store.flags, :newarray)
 
-    if @capture_(left, Z_[leftraw__] ) || @capture(left, [leftraw__] )
+    if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
     elseif left isa Symbol
         store.leftscalar[] = left
         leftraw = []
@@ -202,7 +202,9 @@ end
 
 rightwalk(store) = ex -> begin
         # First, note if these are seen:
-        if @capture(ex, A_[inds__].field_) || @capture(ex, A_[inds__][more__])
+        # if @capture(ex, A_[inds__].field_) || @capture(ex, A_[inds__][more__])
+        if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
+            (@capture_(ex, Binds_[more__]) && @capture_(Binds, B_[inds__]))
             push!(store.flags, :noavx)
             push!(store.flags, :nograd)
         end
@@ -270,7 +272,8 @@ end
 
 arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
 arrayfirst(A::Expr) =
-    if @capture(A, B_[inds__].field_)
+    # if @capture(A, B_[inds__].field_)
+    if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__]))
         return :( first($B).$field )
     elseif @capture_(A, B_[inds__])
         return :( first($B) )

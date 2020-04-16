@@ -52,7 +52,7 @@ end
 
 
 epsilonwalk(store) = ex -> begin
-        @capture(ex, A_[inds__]) || return ex
+        @capture_(ex, A_[inds__]) || return ex
         return arrayplusepsilon(A, inds, store)
     end
 

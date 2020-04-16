@@ -7,7 +7,7 @@ if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optle
     @eval Base.Experimental.@optlevel 1
 end
 
-using MacroTools
+# using MacroTools
 
 include("tools.jl")
 
@@ -71,6 +71,11 @@ end
 
 julia> @time (using Tullio; Tullio._tullio(:( A[i] := (1:10)[i+j] + (1:3)[j]) ));
   5.424640 seconds (15.60 M allocations: 783.174 MiB, 4.61% gc time)
+
+# without @capture: another second?
+
+julia> @time (using Tullio; Tullio._tullio(:( A[i] := (1:10)[i+j] + (1:3)[j]) ));
+  4.630637 seconds (11.98 M allocations: 609.563 MiB, 7.71% gc time)
 
 [ Info: Basic tests took 32.7 seconds # on 1.5, 2nd run
 [ Info: Basic tests took 46.2 seconds # on 1.4

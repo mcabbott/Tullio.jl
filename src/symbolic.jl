@@ -39,7 +39,7 @@ end
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
 symbwalk(targets) = ex -> begin
-        @capture(ex, A_[inds__]) && A isa Symbol || return ex
+        @capture_(ex, A_[inds__]) && A isa Symbol || return ex
         deltaex = :($(Symbol(DEL, A))[$(inds...)])
         push!(targets, (deltaex, ex))
         return ex
@@ -49,7 +49,7 @@ leibnitz(s::Number, target) = 0
 leibnitz(s::Symbol, target) = s == target ? 1 : 0
 leibnitz(ex::Expr, target) = begin
     ex == target && return 1
-    @capture(ex, B_[ijk__]) && return 0
+    @capture_(ex, B_[ijk__]) && return 0
     if ex.head == Symbol("'")
         ex.head = :call
         pushfirst!(ex.args, :adjoint)
