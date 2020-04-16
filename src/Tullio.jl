@@ -1,19 +1,24 @@
 module Tullio
 
+export @tullio
+
 using MacroTools
 
-using LoopVectorization, ForwardDiff
+include("tools.jl")
 
 include("macro.jl")
-export @tullio
 
 include("shifts.jl")
 
-# include("names.jl")
-
-include("forward.jl")
-
 include("symbolic.jl")
+
+using LoopVectorization
+
+using Requires
+
+@init @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
+    include("forward.jl")
+end
 
 # Faster loading on Julia 1.5, like https://github.com/JuliaPlots/Plots.jl/pull/2544
 # if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
@@ -23,6 +28,12 @@ include("symbolic.jl")
 # module Fast
 
     include("threads.jl")
+
+    using LoopVectorization: SVec
+    @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
+    @inline Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
+    @inline Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
+    @inline Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
 
     """
         storage_type(adjoint(view(A,...))) == Array{Int,2}
@@ -54,6 +65,7 @@ include("symbolic.jl")
 #     name in [:eval, :include] && continue
 #     @eval import .Fast: $name
 # end
+
 
 """
     Tullio.@einsum  A[i,j] += B[i] * C[j]

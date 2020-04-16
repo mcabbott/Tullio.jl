@@ -89,17 +89,10 @@ s1 = SVec{2,Float64}(5.5, 6.6) # SVec{2,Float64}<5.5, 6.6>
 s1[2]
 s1 |> typeof |> parentmodule # VectorizationBase
 
-@inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
+# @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
 
-# Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
-# Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
-# Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
-@inline Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
-@inline Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
-@inline Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
-
-using ForwardDiff
-using ForwardDiff: Dual, Partials, partials
+using .ForwardDiff
+using .ForwardDiff: Dual, Partials, partials
 
 d1 = Dual(1.23, (4,0,0))
 typeof(d1) # Dual{Nothing,Float64,3}

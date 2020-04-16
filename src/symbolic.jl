@@ -18,7 +18,7 @@ function insert_base_gradient(create, apply!, store)
     axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     targets=[]
-    MacroTools.postwalk(symbwalk(targets), store.right[])
+    MacroTools_postwalk(symbwalk(targets), store.right[])
     unique!(targets)
     inbody = map(targets) do (dt, t)
         drdt = leibnitz(store.right[], t)
@@ -117,7 +117,7 @@ simplipow(x, p) = :($x^$p)
 function commonsubex(expr::Expr)
     seen = Expr[]
     twice = Dict{Expr,Symbol}()
-    MacroTools.postwalk(expr) do ex
+    MacroTools_postwalk(expr) do ex
         if ex in keys(twice)
             return ex
         elseif ex in seen

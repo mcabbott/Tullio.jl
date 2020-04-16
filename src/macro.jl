@@ -168,7 +168,7 @@ function parse_input(ex1, ex2, store)
         error("expected A[] := B[] or A[] = B[], got $ex")
     newarray && push!(store.flags, :newarray)
 
-    if @capture(left, Z_[leftraw__] ) || @capture(left, [leftraw__] )
+    if @capture_(left, Z_[leftraw__] ) || @capture(left, [leftraw__] )
     elseif left isa Symbol
         store.leftscalar[] = left
         leftraw = []
@@ -186,8 +186,8 @@ function parse_input(ex1, ex2, store)
     newarray || saveconstraints(Zed, leftraw, store, false)
     unique!(store.leftind)
 
-    right1 = MacroTools.postwalk(rightwalk(store), right)
-    store.right[] = MacroTools.postwalk(dollarwalk(store), right1)
+    right1 = MacroTools_postwalk(rightwalk(store), right)
+    store.right[] = MacroTools_postwalk(dollarwalk(store), right1)
     unique!(store.scalars)
 
     unique!(store.arrays)
@@ -212,7 +212,7 @@ rightwalk(store) = ex -> begin
         ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
 
         # Second, alter indexing expr. to pull out functions of arrays:
-        @capture(ex, A_[inds__]) || return ex
+        @capture_(ex, A_[inds__]) || return ex
 
         if isnothing(arrayonly(A))
             Anew = Symbol(string("≪", A, "≫"))
@@ -231,7 +231,7 @@ rightwalk(store) = ex -> begin
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
 arrayonly(A::Expr) =
-    if @capture(A, B_[inds__]) || @capture(A, B_.field_)
+    if @capture_(A, B_[inds__]) || @capture_(A, B_.field_)
         return arrayonly(B)
     end # returns nothing from :(f(A)), signal to pull function out.
 
@@ -272,9 +272,9 @@ arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
 arrayfirst(A::Expr) =
     if @capture(A, B_[inds__].field_)
         return :( first($B).$field )
-    elseif @capture(A, B_[inds__])
+    elseif @capture_(A, B_[inds__])
         return :( first($B) )
-    elseif @capture(A, B_.field_)
+    elseif @capture_(A, B_.field_)
         return A
     end
 
@@ -480,6 +480,7 @@ function action_functions(store)
         if backward_definitions(create, apply!, store)
             # If so, calculate ∇create() somehow:
             if store.grad == :Dual
+                isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
                 insert_forward_gradient(create, apply!, store)
             elseif store.grad == :Base
                 insert_base_gradient(create, apply!, store)
