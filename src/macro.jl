@@ -58,6 +58,7 @@ function _tullio(exs...; mod=Main)
         leftind = Symbol[], # vcat(leftind, redind) is the complete list of loop indices
         leftarray = Ref{ExprSym}(),
         leftscalar = Ref{Symbol}(), # only defined for scalar reduction
+        leftnames = Symbol[], # for NamedDims
     # Whole RHS, untouched
         right = Ref{Expr}(),
         rightind = Symbol[],
@@ -174,9 +175,9 @@ function parse_input(ex1, ex2, store)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
-    append!(store.leftraw, leftraw)
+    append!(store.leftraw, tidyleftraw(leftraw, store))
 
-    append!(store.leftind, reverse(filter(i -> i isa Symbol, leftraw))) # outer loop order
+    append!(store.leftind, reverse(filter(i -> i isa Symbol, store.leftraw))) # outer loop order
     !allunique(store.leftind) && newarray && push!(store.flags, :zero)
 
     Zed = isnothing(Z) ? ZED : Z
@@ -295,6 +296,17 @@ dollarwalk(store) = ex -> begin
         ex
     end
 
+tidyleftraw(leftraw, store) = map(leftraw) do i
+    if i isa Expr && i.head == :kw
+        if :newarray in store.flags
+            push!(store.leftnames, i.args[1])
+            return i.args[2]
+        else
+            push!(store.flags, :noavx)
+        end
+    end
+    i
+end
 
 #========== index ranges ==========#
 
@@ -374,6 +386,7 @@ function output_array(store)
             i isa Symbol && return Symbol(AXIS, i)
             error("can't use index $i on LHS for a new array")
         end
+
         if !isdefined(store.mod, :OffsetArrays) # && (:shift in store.flags) # turn off unless needed?
             for r in outaxes
                 r == :(Base.OneTo(1)) && continue
@@ -382,7 +395,13 @@ function output_array(store)
             outaxes = map(r -> :(Base.OneTo($r)), outaxes)
         end
 
-        push!(store.outex, :( $(store.leftarray[]) = similar($(store.arrays[1]), $TYP, ($(outaxes...),)) ))
+        simex = :( similar($(store.arrays[1]), $TYP, ($(outaxes...),)) )
+        if isempty(store.leftnames)
+            push!(store.outex, :( $(store.leftarray[]) = $simex ))
+        else
+            nex = :(tuple($(QuoteNode.(store.leftnames)...)))
+            push!(store.outex, :( $(store.leftarray[]) = NamedDims.NamedDimsArray($simex, $nex) ))
+        end
     end
 
     if :zero in store.flags

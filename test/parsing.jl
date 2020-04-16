@@ -64,6 +64,10 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     g(x) = @tullio y := sqrt(x[i])
     @test g(fill(4,5)) == 10
 
+    # primes, broken!
+    @test_skip A == @tullio P[i′] := A[i']
+    @test_skip A == @tullio P[i'] := A[i′]
+
 end
 
 @testset "in-place" begin
@@ -168,6 +172,7 @@ end
 
     using NamedDims
 
+    # reading
     N = NamedDimsArray(rand(Int8,3,10), (:r, :c))
 
     @tullio A[i,j] := N[i, j] + 100 * (1:10)[j]
@@ -176,6 +181,8 @@ end
     @test_broken A == C'
     @test_broken dimnames(C) == (:_, :_)
 
-    @test_skip @tullio M[row=i, col=j] := (1:3)[i] // (1:7)[j]
+    # writing
+    @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
+    @test dimnames(M) == (:row, :col, :i)
 
 end

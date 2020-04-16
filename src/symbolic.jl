@@ -88,7 +88,7 @@ mydiffrule(f, xs...) = begin
     f == :+ && return map(_->1, xs)
     f == :- && return length(xs)==1 ? -1 : (1,-1)
     f == :^ && return mypowrule(xs...)
-    f == :/ && return mydivrule(xs...)
+    f == :/ || f== :// && return mydivrule(xs...)
     f == :log && return simpliinv(xs...)
     f == :trunc && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
