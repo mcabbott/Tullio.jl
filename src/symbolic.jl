@@ -50,17 +50,17 @@ leibnitz(s::Symbol, target) = s == target ? 1 : 0
 leibnitz(ex::Expr, target) = begin
     ex == target && return 1
     @capture(ex, B_[ijk__]) && return 0
-    # if ex.head == Symbol("'")
-    #     ex.head = :call
-    #     pushfirst!(ex.args, :adjoint)
-    # end
-    ex.head == :call || error("wtf is $ex")
+    if ex.head == Symbol("'")
+        ex.head = :call
+        pushfirst!(ex.args, :adjoint)
+    end
+    ex.head == :call || error("expected a functionn call, got $ex. Use @tullio grad=false if you do not need the gradient.")
     fun = ex.args[1]
     if length(ex.args) == 2 # one-arg function
         fx = mydiffrule(fun, ex.args[2])
         dx = leibnitz(ex.args[2], target)
-        simplitimes(fx, dx)
-    elseif length(ex.args) == 3  # one-arg function
+        return simplitimes(fx, dx)
+    elseif length(ex.args) == 3  # two-arg function
         fx, fy = mydiffrule(fun, ex.args[2:end]...)
         dx = leibnitz(ex.args[2], target)
         dy = leibnitz(ex.args[3], target)
@@ -69,8 +69,8 @@ leibnitz(ex::Expr, target) = begin
         fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target)
         dxs = [leibnitz(x, target) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
-        error("don't know how to handle $ex")
     end
+    error("don't know how to handle $ex. Use @tullio grad=false if you do not need the gradient.")
 end
 
 simplitimes(x::Number, y::Number) = x*y
@@ -95,7 +95,7 @@ mydiffrule(f, xs...) = begin
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
         return DiffRules.diffrule(:SpecialFunctions, f, xs...)
-    error("don't know about $f()")
+    error("no diffrule found for function $f($(join(map(_->"_",xs),", "))). Use @tullio grad=false if you do not need the gradient.")
 end
 
 mydivrule(x, y) = simpliinv(y), :( -$x / ($y * $y) ) # (:(one(x) / y), :(-((x / y) / y)))
@@ -123,8 +123,11 @@ function commonsubex(expr::Expr)
         elseif ex in seen
             twice[ex] = Symbol(string(ex))
             return ex
-        elseif ex isa Expr && ex.head != :ref
+        elseif ex isa Expr && ex.head != :ref # && !(ex.head in [:+, :-, :*])
             push!(seen, ex)
+        # elseif ex isa Expr && ex.head == :ref
+        #     return nothing
+        # trying to prevent pulling out [i+j-1] etc, but needs prewalk, which is worse?
         end
         ex
     end

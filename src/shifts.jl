@@ -41,16 +41,13 @@ minusrange(1:10) == divrange(1:10, -1)
 
 :($(Expr(:$, :c))) |> dump
 
-
 =#
 
 function subranges(r::AbstractUnitRange, s::AbstractRange) # needs a name!
     first(r)-minimum(s) : last(r)-maximum(s)
-    # first(r)-first(s) : last(r)-last(s)
 end
 function addranges(r::AbstractUnitRange, s::AbstractRange) # needs a name!
     first(r)+maximum(s) : last(r)+minimum(s)
-    # first(r)+last(s) : last(r)+first(s)
 end
 #=
 
@@ -128,7 +125,6 @@ function range_expr_walk(r::Expr, ex::Expr)
             #... then use that with given size(A,d) to constrain range of i, and v-v:
             range_a, i_a = range_expr_walk(:($subranges($r, $ax_b)), a)
             range_b, i_b = range_expr_walk(:($subranges($r, $ax_a)), b)
-            # @show ax_a, ax_b range_a range_b
             return (range_a, range_b), (i_a, i_b)
 
         elseif op == :-
