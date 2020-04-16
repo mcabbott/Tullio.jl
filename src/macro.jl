@@ -286,8 +286,9 @@ end
 
 dollarwalk(store) = ex -> begin
         ex isa Expr || return ex
-        if ex.head == :call # cost model for threading:
-            callcost(ex.args[1], store)
+        if ex.head == :call
+            ex.args[1] == :* && ex.args[2] === Int(0) && return false # tidy up dummy arrays!
+            callcost(ex.args[1], store) # cost model for threading
         elseif ex.head == :$ # interpolation of $c things:
             ex.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
             push!(store.scalars, ex.args[1])
@@ -617,17 +618,21 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
                 KernelAbstractions.wait($ACC)
             end
 
-            # Perhaps this should be a method of the thread launcher function?
-            # Don't have "args" broken up any further here
-            # At least you will need to circumvent it for CuArrays:
-
-            Tullio.threader(::typeof($apply!), T::Type{<:CuArray}, Z::AbstractArray,
-                As::Tuple, Is::Tuple, Js::Tuple, block::Int) = $apply!(T, Z, As..., Is..., Js...)
-
-            Tullio.∇threader(::typeof($apply!), T::Type{<:CuArray},
-                As::Tuple, Is::Tuple, Js::Tuple, block::Int) = $apply!(T, As..., Is..., Js...)
-
         end)
+        # Also, bypass "threader" functions to come straight here for CuArrays:
+        @eval store.mod begin
+
+            Tullio.threader(fun!::Function, T::Type{<:CuArray},
+                Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, block::Int) =
+                fun!(T, Z, As..., Is..., Js...)
+
+            Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
+                As::Tuple, Is::Tuple, Js::Tuple, block::Int) =
+                fun!(T, As..., Is..., Js...)
+        end
+        # Could do this, but seems not to complain:
+        # if hasmethod(threader, Tuple{Function, Type{<:Array}, Vararg})
+        # if length(methods(threader)) < 2
     end
 end
 
