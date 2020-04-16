@@ -1,8 +1,9 @@
 
-using Tullio, Test, ForwardDiff
+using Tullio, Test
+
 # using Tullio: LoopVectorization.@avx, storage_type
 #=
-using Tracker
+using Tracker, ForwardDiff
 unfill(x) = x  # gradient of sum returns a FillArrays.Fill
 unfill(x::TrackedArray) = Tracker.track(unfill, x)
 Tracker.@grad unfill(x) = unfill(Tracker.data(x)), dx -> (collect(dx),)
@@ -40,7 +41,7 @@ _gradient = Tracker.gradient
 
 end
 
-
+using ForwardDiff
 using ForwardDiff: partials # scope issue?
 
 @testset "dual" begin

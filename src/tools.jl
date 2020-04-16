@@ -42,8 +42,7 @@ macro capture_(ex, pat::Expr)
     @gensym res
     quote
         $A, $B = nothing, nothing
-        $res = TensorCast._trymatch($ex, Val($H))
-        # $res = _trymatch($ex, Val($H))
+        $res = $_trymatch($ex, Val($H))
         if $res === nothing
             false
         else

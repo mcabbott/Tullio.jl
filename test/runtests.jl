@@ -5,6 +5,7 @@ t0 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t0)
 
 Tullio.BLOCK[] = 20 # use threading even on very small arrays
+@info "testing with $(Threads.nthreads()) threads"
 
 #===== stuff =====#
 
@@ -20,8 +21,11 @@ t1 = time()
 
 #===== Tracker =====#
 
-t2 = @elapsed using Tracker
-@info @sprintf("Loading Tracker took %.1f seconds", t2)
+t2 = @elapsed using ForwardDiff
+@info @sprintf("Loading ForwardDiff took %.1f seconds", t2)
+
+t3 = @elapsed using Tracker
+@info @sprintf("Loading Tracker took %.1f seconds", t3)
 
 unfill(x) = x  # gradient of sum returns a FillArrays.Fill
 unfill(x::TrackedArray) = Tracker.track(unfill, x)
@@ -32,8 +36,8 @@ _gradient(x...) = Tracker.gradient(x...)
 
 #===== Yota =====#
 #=
-t3 = @elapsed using Yota
-@info @sprintf("Loading Yota took %.1f seconds", t3)
+t4 = @elapsed using Yota
+@info @sprintf("Loading Yota took %.1f seconds", t4)
 # Yota.@diffrule unfill(x) x collect(ds)
 
 _gradient(x...) = Yota.grad(x...)[2]
@@ -55,8 +59,8 @@ _gradient(x...) = Zygote.gradient(x...)
 
 #===== ReverseDiff =====#
 
-t4 = @elapsed using ReverseDiff
-@info @sprintf("Loading ReverseDiff took %.1f seconds", t4)
+t6 = @elapsed using ReverseDiff
+@info @sprintf("Loading ReverseDiff took %.1f seconds", t6)
 
 _gradient(f, xs...) = ReverseDiff.gradient(f, xs)
 @testset "backward gradients: ReverseDiff" begin include("gradients.jl") end

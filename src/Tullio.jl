@@ -2,6 +2,11 @@ module Tullio
 
 export @tullio
 
+# Faster loading on Julia 1.5? like https://github.com/JuliaPlots/Plots.jl/pull/2544
+if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
+    @eval Base.Experimental.@optlevel 1
+end
+
 using MacroTools
 
 include("tools.jl")
@@ -20,12 +25,8 @@ using Requires
     include("forward.jl")
 end
 
-# Faster loading on Julia 1.5, like https://github.com/JuliaPlots/Plots.jl/pull/2544
-# if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
-#     @eval Base.Experimental.@optlevel 1
-# end
-# But a few things must be shielded from that:
-# module Fast
+module Fast # shield a few things from from @optlevel 1 above (untimed)
+    # shoud maybe incude range calculators too?
 
     include("threads.jl")
 
@@ -58,13 +59,23 @@ end
     storage_typejoin(A, Bs...) = Base.promote_typejoin(storage_type(A), storage_typejoin(Bs...))
     storage_typejoin(A) = storage_type(A)
 
-# end
-# using .Fast
-# for name in names(Fast, all=true)
-#     startswith(string(name), "#") && continue
-#     name in [:eval, :include] && continue
-#     @eval import .Fast: $name
-# end
+end
+using .Fast
+for name in names(Fast, all=true)
+    startswith(string(name), "#") && continue
+    name in [:eval, :include] && continue
+    @eval import .Fast: $name
+end
+#=
+# on 1.5, this is 0.5s better than without, but 4s better than version with ForwardDiff:
+
+julia> @time (using Tullio; Tullio._tullio(:( A[i] := (1:10)[i+j] + (1:3)[j]) ));
+  5.424640 seconds (15.60 M allocations: 783.174 MiB, 4.61% gc time)
+
+[ Info: Basic tests took 32.7 seconds # on 1.5, 2nd run
+[ Info: Basic tests took 46.2 seconds # on 1.4
+
+=#
 
 
 """
