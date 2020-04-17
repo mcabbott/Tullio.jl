@@ -221,7 +221,6 @@ rightwalk(store) = ex -> begin
             push!(store.outpre, :($Anew = $A))
             A = Anew
         end
-
         # Third, save letter A, and what axes(A) says about indices:
         push!(store.arrays, arrayonly(A))
         inds = primeindices(inds)
@@ -247,10 +246,10 @@ saveconstraints(A, inds, store, right=true) = begin
         if i isa Symbol
             push!(is, i)
             v = get!(store.constraints, i, Expr[])
-            isnothing(range_i) || push!(v, range_i) # ?? is this ever nothing?
+            isnothing(range_i) || push!(v, dollarstrip(range_i)) # ?? is this ever nothing?
         elseif i isa Tuple # from things like A[i+j]
             push!(is, i...)
-            push!(store.pairconstraints, (i..., range_i...))
+            push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
         end
     end
     if right
@@ -297,6 +296,11 @@ dollarwalk(store) = ex -> begin
             push!(store.scalars, ex.args[1])
             return ex.args[1]
         end
+        ex
+    end
+
+dollarstrip(expr) = MacroTools_postwalk(expr) do ex
+        ex isa Expr && ex.head == :$ && return ex.args[1]
         ex
     end
 

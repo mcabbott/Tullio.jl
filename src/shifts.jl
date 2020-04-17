@@ -106,6 +106,7 @@ and a tuple of symbols. The range for `:j` contains `:$(AXIS)i` and v-v.
 """
 function range_expr_walk(r::Expr, ex::Expr)
     ex.head == :kw && return range_expr_kw(r, ex)
+    ex.head == :ref && return (r,nothing) # case of M[I[i], j] with r=size(M,1)
     ex.head == :call || error("not sure what to do with $ex")
     if length(ex.args) == 2
         op, a = ex.args
