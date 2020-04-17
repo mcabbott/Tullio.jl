@@ -1,4 +1,8 @@
 
+#========== adjusting index ranges, runtime ==========#
+
+# This is to get the range of j in A[2i], from axes(A,1):
+
 function divrange(r::AbstractUnitRange, f::Integer)
     if f > 0
         # a = div(first(r), f, RoundUp) # onnly 1.4 it seems?
@@ -15,6 +19,7 @@ function divrange(r::AbstractUnitRange, f::Integer)
     end
     a:z
 end
+
 #=
 divrange(1:10, 2) .* 2
 divrange(0:10, 2) .* 2
@@ -27,70 +32,36 @@ divrange(0:10, -2) .* -2 |> sort
 divrange(0:11, -2) .* -2 |> sort
 =#
 
+# Special case of A[-i]:
+
 function minusrange(r::AbstractRange)
     -last(r):-first(r)
 end
+
 #=
 minusrange(1:11) == divrange(1:11, -1)
 minusrange(1:10) == divrange(1:10, -1)
-
-
-# Given A[2i+3], the range of i is divrange(subrange(axes(A,1), 3), 2)
-
-:(2i+3) |> dump
-
-:($(Expr(:$, :c))) |> dump
-
 =#
 
-function subranges(r::AbstractUnitRange, s::AbstractRange) # needs a name!
+# This is to get the range of j in A[j+k], given axes(A,1) and the range of k
+
+function subranges(r::AbstractUnitRange, s::AbstractRange)
     first(r)-minimum(s) : last(r)-maximum(s)
 end
-function addranges(r::AbstractUnitRange, s::AbstractRange) # needs a name!
+
+function addranges(r::AbstractUnitRange, s::AbstractRange)
     first(r)+maximum(s) : last(r)+minimum(s)
 end
-#=
 
+#=
 issubset(subranges(1:10, 1:3) .+ 1, 1:10)
 issubset(subranges(1:10, 1:3) .+ 3, 1:10)
 
 issubset(addranges(1:10, 1:3) .- 1, 1:10)
 issubset(addranges(1:10, 1:3) .- 3, 1:10)
-
 =#
 
-"""
-    range_unwrap(:(2i+1)) -> :(2 .* AXIS_i .+ 1)
-
-This goes in the opposite direction to `range_expr_walk`, and gives
-the range of values taken by the expression, in terms of `Symbol($AXIS, i)`.
-"""
-range_unwrap(i::Symbol) = Symbol(AXIS, i)
-range_unwrap(ex::Expr) = begin
-    ex.head == :call || error("don't know how to handle $ex")
-    if length(ex.args) == 2
-        op, a = ex.args
-        if op == :-
-            # return :(0 .- $(range_unwrap(a)))
-            return :($minusrange($(range_unwrap(a))))
-        end
-    elseif length(ex.args) == 3
-        op, a, b = ex.args
-        if op == :*
-            a == -1 && return :($minusrange($(range_unwrap(b))))
-            b == -1 && return :($minusrange($(range_unwrap(a))))
-            isconst(a) && return :($a .* $(range_unwrap(b)))
-            isconst(b) && return :($b .* $(range_unwrap(a)))
-        elseif op == :+
-            isconst(a) && return :($a .+ $(range_unwrap(b)))
-            isconst(b) && return :($b .+ $(range_unwrap(a)))
-        elseif op == :-
-            isconst(a) && return :($a .- $(range_unwrap(b)))
-            isconst(b) && return :($(range_unwrap(a)) .- $b)
-        end
-    end
-    error("don't know how to handle $ex, sorry")
-end
+#========== functions used by the macro ==========#
 
 """
     range_expr_walk(:(axes(A,1)), :(2i+1)) -> range, :i
@@ -161,7 +132,7 @@ range_expr_walk(range::Expr, s::Symbol) = range, s
 
 isconst(::Int) = true
 isconst(::Any) = false
-isconst(ex::Expr) = ex.head == :$
+isconst(ex::Expr) = ex.head == :$ # what's returned by range_expr_walk will still contain $
 isconst(s::Symbol) = s === :(:) # for the purposes of saveconstraints setting :intersect
 
 """
@@ -175,3 +146,37 @@ function range_expr_kw(r::Expr, ex::Expr)
     r.args[3] = QuoteNode(ex.args[1])
     range_expr_walk(r, ex.args[2])
 end
+
+"""
+    range_unwrap(:(2i+1)) -> :(2 .* AXIS_i .+ 1)
+
+This goes in the opposite direction to `range_expr_walk`, and gives
+the range of values taken by the expression, in terms of `Symbol($AXIS, i)`.
+"""
+range_unwrap(i::Symbol) = Symbol(AXIS, i)
+range_unwrap(ex::Expr) = begin
+    ex.head == :call || error("don't know how to handle $ex")
+    if length(ex.args) == 2
+        op, a = ex.args
+        if op == :-
+            return :($minusrange($(range_unwrap(a))))
+        end
+    elseif length(ex.args) == 3
+        op, a, b = ex.args
+        if op == :*
+            a == -1 && return :($minusrange($(range_unwrap(b))))
+            b == -1 && return :($minusrange($(range_unwrap(a))))
+            isconst(a) && return :($a .* $(range_unwrap(b)))
+            isconst(b) && return :($b .* $(range_unwrap(a)))
+        elseif op == :+
+            isconst(a) && return :($a .+ $(range_unwrap(b)))
+            isconst(b) && return :($b .+ $(range_unwrap(a)))
+        elseif op == :-
+            isconst(a) && return :($a .- $(range_unwrap(b)))
+            isconst(b) && return :($(range_unwrap(a)) .- $b)
+        end
+    end
+    error("don't know how to handle $ex, sorry")
+end
+
+#========== the end ==========#
