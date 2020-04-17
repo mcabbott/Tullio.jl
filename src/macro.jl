@@ -40,8 +40,9 @@ end
 
 function _tullio(exs...; mod=Main)
 
-    verbose, threads, grad, avx, cuda, ex = parse_options(exs...)
+    opts, ranges, ex = parse_options(exs...)
     isnothing(ex) && return
+    verbose, threads, grad, avx, cuda = opts
 
     store = Store((mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
@@ -57,7 +58,7 @@ function _tullio(exs...; mod=Main)
         leftscalar = Ref{Symbol}(), # only defined for scalar reduction
         leftnames = Symbol[], # for NamedDims
     # Whole RHS, untouched
-        right = Ref{Expr}(),
+        right = Ref{Any}(),
         rightind = Symbol[],
         sharedind = Array{Symbol}(undef, 0), # indices appearing on every RHS array
         arrays = Symbol[],
@@ -73,6 +74,8 @@ function _tullio(exs...; mod=Main)
         outex = ExprSym[],
     ))
 
+    parse_ranges(ranges, store)
+
     parse_input(ex, (:+), store)
 
     index_ranges(store)
@@ -86,7 +89,7 @@ function _tullio(exs...; mod=Main)
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
 
-#========== options ==========#
+#========== options, etc ==========#
 
 OPTS = Dict(
     :verbose => [true, false],
@@ -103,31 +106,45 @@ AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
 
 parse_options(exs...) = begin
-    opts = Dict(:expr => nothing,
+    opts = Dict(
         :verbose => VERBOSE[],
         :threads => THREADS[],
         :grad => GRAD[],
         :avx => AVX[],
         :cuda => CUDA[],
         )
+    expr = nothing
+    ranges = Tuple[]
     for ex in exs
+        # Actual options:
         if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
             ex.args[2] in OPTS[ex.args[1]] || error(string(
             "keyword $(ex.args[1]) accepts values [", join(OPTS[ex.args[1]], ", "), "]"))
             opts[ex.args[1]] = ex.args[2]
+
+        # Ranges specified outside:
+        elseif ex isa Expr && ex.head == :call && ex.args[1] in [:in, :∈]
+            push!(ranges, (ex.args[2], ex.args[3]))
+        elseif ex isa Expr && ex.head == :tuple && ex.args[1] isa Expr && ex.args[1].args[1] in [:in, :∈]
+            for el in ex.args
+                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || error("expected (i ∈ 1:3) but got $el")
+                push!(ranges, (el.args[2], el.args[3]))
+            end
+
+        # The main course!
         elseif ex isa Expr
-            opts[:expr] = ex
+            expr = ex
         else
             error("not sure what to do with input $ex")
         end
     end
-    if isnothing(opts[:expr]) # if run with no expression, it updates global options
+    if isnothing(expr) # if run with no expression, it updates global options
         VERBOSE[] = opts[:verbose]
         THREADS[] = opts[:threads]
         GRAD[] = opts[:grad]
         AVX[] = opts[:avx]
     end
-    opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:expr]
+    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda]), ranges, expr
 end
 
 verboseprint(store) = begin
@@ -141,14 +158,26 @@ end
 
 #========== symbols ==========#
 
-# these just need not to clash with input
-# ᵗᵘˡˡⁱᵒ 𝒵ᵉᵈ, 𝒵ℰ𝒟, 𝜀ᶠʷᵈ, :𝛥ᵇᵏ, :ᵃˣⁱˢ📏, :𝒜ᶜᶜ, :🖐ˢⁱᵈᵉ, :𝒯ʸᵖᵉ
-
 RHS, AXIS = :🖐, :📏
 ZED, TYP, ACC = :ℛℰ𝒮, :𝒯, :𝒜
 EPS, DEL = :𝜀, :𝛥
 
 #========== input parsing ==========#
+
+parse_ranges(ranges, store) = foreach(ranges) do (i,r)
+        push!(store.rightind, i)
+        rs = if r isa Symbol
+            r
+        else
+            s = Symbol(string("≪", r, "≫"))
+            push!(store.outpre, :($s = $r))
+            s
+        end
+        push!(store.scalars, rs)
+        # push!(store.axisdefs, :( $(Symbol(AXIS, i)) = $rs) )
+        v = get!(store.constraints, i, [])
+        push!(v, rs)
+    end
 
 function parse_input(ex1, ex2, store)
     ex = @capture_(ex1, left_ += right_ ) ? :($left = $left + $right) :
@@ -169,14 +198,13 @@ function parse_input(ex1, ex2, store)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
-    append!(store.leftraw, tidyleftraw(leftraw, store))
-
-    append!(store.leftind, reverse(filter(i -> i isa Symbol, store.leftraw))) # outer loop order
+    leftraw1 = tidyleftraw(leftraw, store)
+    append!(store.leftind, reverse(filter(i -> i isa Symbol, leftraw1))) # outer loop order
     !allunique(store.leftind) && newarray && push!(store.flags, :zero)
+    append!(store.leftraw, tidyleftraw2(leftraw1, store))
 
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray[] = Zed
-
     newarray || saveconstraints(Zed, leftraw, store, false)
     unique!(store.leftind)
 
@@ -298,14 +326,23 @@ dollarstrip(expr) = MacroTools_postwalk(expr) do ex
         ex
     end
 
+# there has got to be a tidier way!
 tidyleftraw(leftraw, store) = map(leftraw) do i
     if i isa Expr && i.head == :kw
-        if :newarray in store.flags
+        if :newarray in store.flags # then NamedDims wrapper is put on later
             push!(store.leftnames, i.args[1])
             return i.args[2]
         else
             push!(store.flags, :noavx)
         end
+    end
+    i
+end
+tidyleftraw2(leftraw, store) = map(leftraw) do i
+    if i isa Expr && i.head == :$
+        i.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
+        push!(store.scalars, i.args[1])
+        return i.args[1]
     end
     i
 end
@@ -397,7 +434,11 @@ function output_array(store)
             outaxes = map(r -> :(Base.OneTo($r)), outaxes)
         end
 
-        simex = :( similar($(store.arrays[1]), $TYP, ($(outaxes...),)) )
+        simex = if isempty(store.arrays)
+            :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges
+        else
+            :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
+        end
         if isempty(store.leftnames)
             push!(store.outex, :( $(store.leftarray[]) = $simex ))
         else
@@ -566,7 +607,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         if store.avx == true
             push!(store.outex, quote
 
-                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                function $apply!(::Type{<:AbstractArray{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
                     LoopVectorization.@avx $exloop
                     $expost
@@ -576,7 +617,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         else
             push!(store.outex, quote
 
-                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                function $apply!(::Type{<:AbstractArray{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
                     LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost

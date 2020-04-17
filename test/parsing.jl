@@ -68,6 +68,13 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     g(x) = @tullio y := sqrt(x[i])
     @test g(fill(4,5)) == 10
 
+    # ranges
+    @tullio K[i] := 1  (i ∈ 1:3)
+    @test K == ones(3)
+
+    @tullio L[i,j] := A[i]//j  (j ∈ 1:3, i in 1:10)
+    @test axes(L) == (1:10, 1:3)
+
     # primes, broken!
     @test_skip A == @tullio P[i′] := A[i']
     @test_skip A == @tullio P[i'] := A[i′]
@@ -122,6 +129,9 @@ end
     @test_throws AssertionError @tullio D[i] := A[i] + B[i]
     @tullio D[i] := A[i] + B[i+0] # switches to intersection
     @test axes(D,1) == 1:4
+
+    @tullio L[i] := A[i+j+1]  (j ∈ -1:1)
+    @test axes(L,1) == 1:8
 
     # shifts on left
     E = zero(A)
