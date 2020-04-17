@@ -18,7 +18,7 @@ function insert_base_gradient(create, apply!, store)
     axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     targets=[]
-    MacroTools.postwalk(symbwalk(targets), store.right[])
+    MacroTools_postwalk(symbwalk(targets), store.right[])
     unique!(targets)
     inbody = map(targets) do (dt, t)
         drdt = leibnitz(store.right[], t)
@@ -39,7 +39,7 @@ end
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
 symbwalk(targets) = ex -> begin
-        @capture(ex, A_[inds__]) && A isa Symbol || return ex
+        @capture_(ex, A_[inds__]) && A isa Symbol || return ex
         deltaex = :($(Symbol(DEL, A))[$(inds...)])
         push!(targets, (deltaex, ex))
         return ex
@@ -49,7 +49,7 @@ leibnitz(s::Number, target) = 0
 leibnitz(s::Symbol, target) = s == target ? 1 : 0
 leibnitz(ex::Expr, target) = begin
     ex == target && return 1
-    @capture(ex, B_[ijk__]) && return 0
+    @capture_(ex, B_[ijk__]) && return 0
     if ex.head == Symbol("'")
         ex.head = :call
         pushfirst!(ex.args, :adjoint)
@@ -117,7 +117,7 @@ simplipow(x, p) = :($x^$p)
 function commonsubex(expr::Expr)
     seen = Expr[]
     twice = Dict{Expr,Symbol}()
-    MacroTools.postwalk(expr) do ex
+    MacroTools_postwalk(expr) do ex
         if ex in keys(twice)
             return ex
         elseif ex in seen
@@ -140,7 +140,7 @@ function commonsubex(expr::Expr)
 end
 
 commonapply(expr, twice, rules) =
-    MacroTools.prewalk(expr) do ex
+    MacroTools_prewalk(expr) do ex
         ex == expr && return ex
         if ex in keys(twice)
             sy = twice[ex]

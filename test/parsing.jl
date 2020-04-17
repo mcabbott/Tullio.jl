@@ -34,6 +34,11 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @tullio Z[] := A[i] + A[j]
     @test Z isa Array{Int,0}
 
+    # inner
+    J = repeat(1:3, 4);
+    @tullio G[i,k] := F[i,J[k]]
+    @test G[3,1] == G[3,4] == G[3,7]
+
     # fixed
     @tullio F[i] := D[i,5]
     @test F[5] == 5
@@ -57,9 +62,8 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @tullio T[i] := A[i] .+ A[j]  # dot does nothing, except set :noavx & :nograd
 
     # scope
-    j = 6
-    f(x) = @tullio y[i] := x[i] + i + $j
-    @test f(ones(3)) == 1 .+ (1:3) .+ j
+    f(x,k) = @tullio y[i] := x[i] + i + $k
+    @test f(ones(3),j) == 1 .+ (1:3) .+ j
 
     g(x) = @tullio y := sqrt(x[i])
     @test g(fill(4,5)) == 10
@@ -106,10 +110,14 @@ end
 
     # shifts
     @tullio B[i] := A[2i+1] + A[i]
-    @test axes(B,1) == 1:4 # would be OntTo(5) without OffsetArrays
+    @test axes(B,1) == 1:4 # would be OneTo(4) without OffsetArrays
 
     @tullio C[i] := A[2i+5]
     @test axes(C,1) == -2:2 # error without OffsetArrays
+
+    j = 7 # interpolation
+    @tullio C[i] := A[2i+$j]
+    @test axes(C,1) == -3:1
 
     @test_throws AssertionError @tullio D[i] := A[i] + B[i]
     @tullio D[i] := A[i] + B[i+0] # switches to intersection

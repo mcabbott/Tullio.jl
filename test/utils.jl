@@ -101,7 +101,7 @@ using Tullio: cleave, quarter, productlength
     end
 end
 
-#=
+using Tullio: @capture_
 
 @testset "capture_ macro" begin
     EXS  = [:(A[i,j,k]),  :(B{i,2,:}),  :(C.dee), :(fun(5)),   :(g := h+i),        :(k[3] += l[4]), :([m,n,0]) ]
@@ -132,4 +132,3 @@ end
 
 end
 
-=#

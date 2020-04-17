@@ -151,25 +151,26 @@ end
                 for r = 1:2
                     s += X[i, r] * Y[j, r] * Z[k, r]
                 end
-                @test_broken isapprox(A[i, j, k], A1[i, j, k] + s) # ?? I don't know!
+                @test_broken isapprox(A[i, j, k], A1[i, j, k] + s) # ?? This is again about how I treat +=, which I'm not sure is desirable.
                 # @test isapprox(B[i, j, k], B1[i, j, k] + s)
             end
         end
     end
 
 end
-#=
+
 @testset "scalar += dot" begin
 
     x = randn(10)
     y = randn(10)
     k0 = randn()
     k = k0
-    @einsum k += x[i] * y[i]  # scalar += ??
-    @test isapprox(k, k0 + dot(x, y))
+    @test_skip @einsum k += x[i] * y[i]  avx=false  verbose=true # also some RES scope problem?
+    @test_broken isapprox(k, k0 + dot(x, y))
+    isapprox(k, 10*k0 + dot(x, y)) # Tullio re-writes += to k = k + x[i] * y[i], then k is in every term. Not really sure that's a great idea. ??
 
 end
-=#
+
 #=
 @testset "test *= operator" begin
 
@@ -200,14 +201,14 @@ end
     @test isapprox(k, k0 * dot(x, y))
 end
 =#
-#=
+
 @testset "Test offsets" begin
     X = randn(10)
 
     # without preallocation
-    @einsum A[i] := X[i + 5]  # here I return an offsetarray ??
-    @test size(A) == (5,)
-    @test all(A .== X[6:end])
+    @einsum A[i] := X[i + 5]
+    @test_broken size(A) == (5,) # here Tullio returns an OffsetArray
+    @test_broken all(A .== X[6:end])
 
     # with preallocation
     B = zeros(10)
@@ -222,16 +223,18 @@ end
 
     # without preallocation
     # @einsum A[i] := X[i + :offset] # error on 1.0
-    # @test size(A) == (5,)
-    # @test all(A .== X[6:end])
+    @einsum A[i] := X[i + $offset]  # here Tullio returns an OffsetArray
+    @test_broken size(A) == (5,)
+    @test_broken all(A .== X[6:end])
 
     # with preallocation
     B = zeros(10)
     # @einsum B[i] = X[i + :offset] # error on 1.0
-    # @test size(B) == (10,)
-    # @test all(B[1:5] .== X[6:end])
+    @einsum B[i] = X[i + $offset]
+    @test size(B) == (10,)
+    @test all(B[1:5] .== X[6:end])
 end
-=#
+
 #=
 @testset "Test adding/subtracting constants" begin
     k = 5
@@ -272,16 +275,19 @@ end
 @testset "Test indexing with a constant" begin
     A = randn(10, 2)
     j = 2
-    # @einsum B[i] := A[i, :j] # error on 1.0
-    # @test all(B .== A[:, j])
+    # @einsum B[i] := A[i, :j] # error on Julia 1.0, i.e. this broke at some point in Einsum.jl
+    @einsum B[i] := A[i, $j]   # Tullio's notation
+    @test all(B .== A[:, j])
     @einsum C[i] := A[i, 1]
     @test all(C .== A[:, 1])
 
     D = zeros(10, 3)
     # @einsum D[i, 1] = A[i, :j]
-    # @test isapprox(D[:, 1], A[:, j])
+    @einsum D[i, 1] = A[i, $j]
+    @test isapprox(D[:, 1], A[:, j])
     # @einsum D[i, :j] = A[i, :j]
-    # @test isapprox(D[:, j], A[:, j])
+    @test_skip @einsum D[i, $j] = A[i, $j]  # ?? dollar on LHS doesn't work right now
+    @test_skip @test isapprox(D[:, j], A[:, j])
 end
 
 @testset "Better type inference on allocating arrays" begin
@@ -311,3 +317,72 @@ end
     @test c isa Array{Int,0}
 
 end
+
+#========== some extra things from issues not tests ==========#
+
+@testset "shifts, issue 6" begin
+    # https://github.com/ahwillia/Einsum.jl/issues/6
+    # discussion of things which there were attempts to make work
+
+    A = zeros(10);
+    X = randn(10);
+    Y = randn(10);
+    @einsum A[j] = X[j]*Y[j+3]
+    @test isapprox(A, X.*[Y[4:end];zeros(3)])
+
+    @einsum A2[j] := X[j+3]
+    @test axes(A2,1) == -2:7
+
+    offset = 3
+    @einsum A3[j] := X[j+$offset]
+    @test axes(A3,1) == -2:7
+
+    @einsum A5[i] := X[i-5]
+    @test size(A5) == (10,)
+    @test_broken all(A5[6:end] .== X[1:5]) # not true in Tullio's conventions
+
+    @einsum A6[i] := X[i+3]*X[i-3]
+    # @test size(A) == (7,) # that can't make sense
+    # @test isapprox(A[4:7], X[7:end].*X[1:4])
+
+end
+@testset "shifts, issue 12" begin
+    # https://github.com/ahwillia/Einsum.jl/pull/12
+
+    B = collect(1:10)
+
+    # "produce errors?" -- no!
+    A = zeros(5)
+    @einsum A[i] = B[i+5]
+    intersect(axes(A, 1), axes(B, 1) .- 5) # legal indices 1:5
+    @test A[1] == 6
+
+    A = zeros(5)
+    @einsum A[i] = B[i-5] #
+    intersect(axes(A, 1), axes(B, 1) .+ 5) # empty range, so nothing changed
+    @test all(A .== 0)
+
+    # "legal?" -- yes!
+    A = zeros(10)
+    @einsum A[i] = B[i+5]
+    @test A == [6, 7, 8, 9, 10, 0, 0, 0, 0, 0]
+
+    A = zeros(10)
+    @einsum A[i] = B[i-5]
+    @test A == [0, 0, 0, 0, 0, 1, 2, 3, 4, 5]
+
+#=
+    # "Side note. This is silly, but would be kind of cool to support this:"
+
+    B = collect(1:10)
+    A = zeros(10)
+    @einsum A[i] = B[i>>5]
+    A == [6, 7, 8, 9, 10, 1, 2, 3, 4, 5]
+
+    @einsum A[i] = B[i<<2]
+    A == [3, 4, 5, 6, 7, 8, 9, 10, 1, 2]
+
+    # Cyclic indices would be neat but this isn't the notation
+=#
+end
+

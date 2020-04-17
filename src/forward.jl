@@ -4,7 +4,7 @@
 function insert_forward_gradient(create, apply!, store)
     store.verbose && @info "using ForwardDiff for $create ~ $(store.right[])"
 
-    store.epsilonright[] = MacroTools.postwalk(epsilonwalk(store), store.right[])
+    store.epsilonright[] = MacroTools_postwalk(epsilonwalk(store), store.right[])
 
         # # Version of right with (A[i,j] + 𝜀A′) etc, with dict[:𝜀A′] = A[i,j]
         # epsilonright = Ref{ExprSym}(),
@@ -43,7 +43,7 @@ function insert_forward_gradient(create, apply!, store)
 
     # to special-case dZ::FillArray, you'd need to build a different readepsilons ... loopex
     # Or you'd have to edit it:
-    # fillarrayloop = MacroTools.postwalk(loopex) do ex
+    # fillarrayloop = MacroTools_postwalk(loopex) do ex
     #     x == :($dZ[$(store.leftraw...)]) ? :($dZ.val) : ex  # ??
     # end
     # And you'd have to make storage_type not trip on this.
@@ -52,7 +52,7 @@ end
 
 
 epsilonwalk(store) = ex -> begin
-        @capture(ex, A_[inds__]) || return ex
+        @capture_(ex, A_[inds__]) || return ex
         return arrayplusepsilon(A, inds, store)
     end
 
@@ -89,17 +89,10 @@ s1 = SVec{2,Float64}(5.5, 6.6) # SVec{2,Float64}<5.5, 6.6>
 s1[2]
 s1 |> typeof |> parentmodule # VectorizationBase
 
-@inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
+# @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
 
-# Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
-# Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
-# Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
-@inline Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
-@inline Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
-@inline Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
-
-using ForwardDiff
-using ForwardDiff: Dual, Partials, partials
+using .ForwardDiff
+using .ForwardDiff: Dual, Partials, partials
 
 d1 = Dual(1.23, (4,0,0))
 typeof(d1) # Dual{Nothing,Float64,3}
