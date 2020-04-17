@@ -5,12 +5,10 @@ version = "0.0.1"
 
 [deps]
 DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
-LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [compat]
 DiffRules = "1"
-LoopVectorization = "0.6.30, 0.7"
 Requires = "1"
 julia = "1.3"
 

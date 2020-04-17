@@ -1,3 +1,4 @@
+#========== storage ==========#
 
 mutable struct Store store::NamedTuple end
 Base.parent(x::Store) = getfield(x, :store)
@@ -17,8 +18,8 @@ This is a replacement for `@einsum` which understands a bit more syntax.
 
     @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
 
-By default it uses LoopVectorization.jl when it can, and `Threads.@spawn` for big enough arrays.
-These options disables both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
+By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays.
+The options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 
     @tullio  grad=false  C[i,k] := ...
 
@@ -42,12 +43,8 @@ function _tullio(exs...; mod=Main)
     verbose, threads, grad, avx, cuda, ex = parse_options(exs...)
     isnothing(ex) && return
 
-    store = Store((mod = mod,
-        verbose = verbose,
-        threads = threads,
-        grad = grad,
-        avx = avx,
-        cuda = cuda,
+    store = Store((mod = mod, verbose = verbose,
+        threads = threads, grad = grad, avx = avx, cuda = cuda,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         upop = Ref{Symbol}(:(=)), # allow *=  for @einsum compat, not yet done
@@ -70,9 +67,6 @@ function _tullio(exs...; mod=Main)
         constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
-    # Version of right with (A[i,j] + 𝜀A′) etc, with dict[:𝜀A′] = :(A[i,j])
-        epsilonright = Ref{ExprSym}(),
-        epsilondict = Dict{Symbol,Expr}(),
     # Expressions: outex is the main one, sometimes wrapped innto functions.
         outpre = ExprSym[], # things never to be inside function
         outeval = ExprSym[], # things already @eval-ed at top level for gradient.
@@ -566,15 +560,15 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         ex1, ex2, nothing
     end
 
-    # if isdefined(store.mod, :LoopVectorization)
-    if store.avx != false && !(:noavx in store.flags)
+    if store.avx != false && !(:noavx in store.flags) &&
+        isdefined(store.mod, :LoopVectorization)
         LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
             push!(store.outex, quote
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
-                    $LoopVectorization.@avx $exloop
+                    LoopVectorization.@avx $exloop
                     $expost
                 end
 
@@ -584,7 +578,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
-                    $LoopVectorization.@avx unroll=$(store.avx) $exloop
+                    LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost
                 end
 
