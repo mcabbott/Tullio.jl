@@ -43,12 +43,8 @@ function _tullio(exs...; mod=Main)
     verbose, threads, grad, avx, cuda, ex = parse_options(exs...)
     isnothing(ex) && return
 
-    store = Store((mod = mod,
-        verbose = verbose,
-        threads = threads,
-        grad = grad,
-        avx = avx,
-        cuda = cuda,
+    store = Store((mod = mod, verbose = verbose,
+        threads = threads, grad = grad, avx = avx, cuda = cuda,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         upop = Ref{Symbol}(:(=)), # allow *=  for @einsum compat, not yet done
@@ -71,9 +67,6 @@ function _tullio(exs...; mod=Main)
         constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
-    # Version of right with (A[i,j] + 𝜀A′) etc, with dict[:𝜀A′] = :(A[i,j])
-        epsilonright = Ref{ExprSym}(),
-        epsilondict = Dict{Symbol,Expr}(),
     # Expressions: outex is the main one, sometimes wrapped innto functions.
         outpre = ExprSym[], # things never to be inside function
         outeval = ExprSym[], # things already @eval-ed at top level for gradient.
