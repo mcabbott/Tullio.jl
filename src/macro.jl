@@ -1,3 +1,4 @@
+#========== storage ==========#
 
 mutable struct Store store::NamedTuple end
 Base.parent(x::Store) = getfield(x, :store)
@@ -17,8 +18,8 @@ This is a replacement for `@einsum` which understands a bit more syntax.
 
     @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
 
-By default it uses LoopVectorization.jl when it can, and `Threads.@spawn` for big enough arrays.
-These options disables both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
+By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays.
+The options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 
     @tullio  grad=false  C[i,k] := ...
 
@@ -566,15 +567,15 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         ex1, ex2, nothing
     end
 
-    # if isdefined(store.mod, :LoopVectorization)
-    if store.avx != false && !(:noavx in store.flags)
+    if store.avx != false && !(:noavx in store.flags) &&
+        isdefined(store.mod, :LoopVectorization)
         LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
             push!(store.outex, quote
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
-                    $LoopVectorization.@avx $exloop
+                    LoopVectorization.@avx $exloop
                     $expost
                 end
 
@@ -584,7 +585,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...),) where {$TYP}
                     $expre
-                    $LoopVectorization.@avx unroll=$(store.avx) $exloop
+                    LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost
                 end
 

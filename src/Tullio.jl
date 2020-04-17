@@ -4,9 +4,9 @@ export @tullio
 
 # Faster loading on Julia 1.5? maybe 0.5 sec...
 # https://github.com/JuliaPlots/Plots.jl/pull/2544
-if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
-    @eval Base.Experimental.@optlevel 1
-end
+# if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
+#     @eval Base.Experimental.@optlevel 1
+# end
 
 include("tools.jl")
 
@@ -16,26 +16,34 @@ include("shifts.jl")
 
 include("symbolic.jl")
 
+include("forward.jl")
+
 using Requires
 
-@init @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-    include("forward.jl")
+function __init__()
+    @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
+
+        # some missing definitions, should live SLEEFpirates?
+        using .LoopVectorization: SVec
+        @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
+        @inline Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
+        @inline Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
+        @inline Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
+
+        @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
+            # dual numbers + svec, should live in PaddedMatricesForwardDiff?
+            # (And where would the conditional loading go, still here?)
+            include("avxdual.jl")
+        end
+
+    end
 end
 
-using LoopVectorization
-
-module Fast # shield a few things from from @optlevel 1 above (untimed)
+# module Fast # shield a few things from from @optlevel 1 above (untimed)
     # shoud maybe incude range calculators too?
 
     include("threads.jl")
-    export BLOCK, callcost, threader, ∇threader
-
-    # # temporarily here, should live upstream
-    using LoopVectorization: SVec
-    @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
-    @inline Base.inv(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> inv(sv[n]), N))
-    @inline Base.sqrt(sv::SVec{N,<:Integer}) where {N} = svec(ntuple(n -> sqrt(sv[n]), N))
-    @inline Base.trunc(T::Type, sv::SVec{N}) where {N} = svec(ntuple(n -> trunc(T, sv[n]), N))
+    # export BLOCK, callcost, threader, ∇threader
 
     """
         storage_type(adjoint(view(A,...))) == Array{Int,2}
@@ -53,11 +61,11 @@ module Fast # shield a few things from from @optlevel 1 above (untimed)
     storage_typejoin(A, Bs...) = Base.promote_typejoin(storage_type(A), storage_typejoin(Bs...))
     storage_typejoin(A) = storage_type(A)
 
-    export storage_type, storage_typejoin
+#     export storage_type, storage_typejoin
 
-end
+# end
 
-using .Fast
+# using .Fast
 
 """
     Tullio.@einsum  A[i,j] += B[i] * C[j]
