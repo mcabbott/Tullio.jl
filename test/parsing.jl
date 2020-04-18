@@ -53,7 +53,7 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @tullio J[1,i] := A[i]
     @test size(J) == (1,10)
 
-    # non-unique
+    # non-unique arrays
     @tullio A2[i] := A[i] + A[i]
     @test A2 == 2 .* A
 
@@ -86,21 +86,19 @@ end
     A = [i^2 for i in 1:10]
     D = similar(A, 10, 10)
 
-    # in-place
     @tullio D[i,j] = A[i] + 100
     @test D[3,7] == A[3] + 100
 
-    B = zero(A)
-    @tullio B[i] = A[i+5] + 100
-    @test B == vcat(A[6:end] .+ 100, zeros(Int,5))
-
-    @tullio D[i,i] = A[i-2]
-    @test D[3,3] == 1
-    @test D[1,1] == 101 # was not set to zero
+    # sum and +=
+    B = copy(A);
+    D .= 3;
+    @tullio B[i] += D[i,j]
+    @test_broken B[1] = A[1] + 30 # currently 10*A[1] + 30
 
     # writing back into same
+    B = copy(A)
     @tullio B[i] += B[i] + 10^3
-    @test B[6] == 10^3
+    @test B[6] == 2 * A[6] + 10^3
 
     @tullio A[i] = A[i] + 100
     @test A[1] == 101
@@ -108,6 +106,12 @@ end
     # indices in expression
     @tullio A[i] = 100*i
     @test A[7] == 700
+
+    # fixed on left
+    j = 3
+    @tullio D[$j,i] = 99
+    @test D[j,j] == 99
+    @test D[1,1] != 0
 
 end
 
@@ -132,12 +136,6 @@ end
 
     @tullio L[i] := A[i+j+1]  (j ∈ -1:1)
     @test axes(L,1) == 1:8
-
-    # shifts on left
-    E = zero(A)
-    @tullio E[2i+1] = A[i]
-    @test E[2+1] == A[1]
-    @test E[2*4+1] == A[4]
 
     # negative
     @test eachindex(@tullio F[i] := A[-1i]) == -10:-1
@@ -175,6 +173,22 @@ end
     @test_throws LoadError @eval @tullio I[i,j] := A[i+j] # under-specified
 
     # in-place
+    E = zero(A)
+    @tullio E[i] = A[i+5] + 100
+    @test E == vcat(A[6:end] .+ 100, zeros(Int,5))
+
+    M = fill(pi/2, 10, 10)
+    @tullio M[i,i] = A[i-2]
+    @test M[3,3] == A[1]
+    @test M[1,1] == pi/2 # was not set to zero
+
+    # shifts on left
+    E = zero(A)
+    @tullio E[2i+1] = A[i]
+    @test E[2+1] == A[1]
+    @test E[2*4+1] == A[4]
+
+    # non-constant
     @tullio I[i,j] := 0 * A[i+j] + 0 * B[j]
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS

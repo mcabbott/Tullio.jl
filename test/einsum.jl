@@ -4,7 +4,7 @@ using LinearAlgebra # dot
 # using Einsum
 using Tullio: @einsum
 
-Tullio.AVX[] = false
+# @tullio avx=false
 
 @testset "Test that vars in Main aren't overwritten by einsum" begin
     i = -1
@@ -207,7 +207,7 @@ end
 
     # without preallocation
     @einsum A[i] := X[i + 5]
-    @test_broken size(A) == (5,) # here Tullio returns an OffsetArray
+    @test_broken size(A) == (5,)  # here Tullio returns an OffsetArray
     @test_broken all(A .== X[6:end])
 
     # with preallocation
@@ -235,14 +235,16 @@ end
     @test all(B[1:5] .== X[6:end])
 end
 
-#=
+
 @testset "Test adding/subtracting constants" begin
     k = 5
     X = randn(10)
 
     # without preallocation
-    @einsum A[i] := X[i] + k   # ?? these don't work inside a testset, scope issues?
+    @einsum A[i] := X[i] + k
+    @einsum A[i] := X[i] + $k  # Tullio prefers $k, it becomes a function argument
     @einsum B[i] := X[i] - k
+    @einsum B[i] := X[i] - $k
     @test isapprox(A, X .+ k)
     @test isapprox(B, X .- k)
 
@@ -260,18 +262,22 @@ end
 
     # without preallocation
     @einsum A[i] := X[i] * k
+    @einsum A[i] := X[i] * $k  # Tullio prefers $k, it becomes a function argument
     @einsum B[i] := X[i] / k
+    @einsum B[i] := X[i] / $k
     @test isapprox(A, X .* k)
     @test isapprox(B, X ./ k)
 
     # with preallocation
     C, D = zeros(10), zeros(10)
     @einsum C[i] = X[i] * k
+    @einsum C[i] = X[i] * $k
     @einsum D[i] = X[i] / k
+    @einsum D[i] = X[i] / $k
     @test isapprox(C, X .* k)
     @test isapprox(D, X ./ k)
 end
-=#
+
 @testset "Test indexing with a constant" begin
     A = randn(10, 2)
     j = 2
@@ -286,8 +292,8 @@ end
     @einsum D[i, 1] = A[i, $j]
     @test isapprox(D[:, 1], A[:, j])
     # @einsum D[i, :j] = A[i, :j]
-    @test_skip @einsum D[i, $j] = A[i, $j]  # ?? dollar on LHS doesn't work right now
-    @test_skip @test isapprox(D[:, j], A[:, j])
+    @einsum D[i, $j] = A[i, $j]
+    @test isapprox(D[:, j], A[:, j])
 end
 
 @testset "Better type inference on allocating arrays" begin
@@ -385,4 +391,6 @@ end
     # Cyclic indices would be neat but this isn't the notation
 =#
 end
+
+@tullio avx=true
 
