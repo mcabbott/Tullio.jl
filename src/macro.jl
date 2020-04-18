@@ -223,6 +223,7 @@ function parse_input(ex1, ex2, store)
 end
 
 rightwalk(store) = ex -> begin
+        @nospecialize ex
         # First, note if these are seen:
         # if @capture(ex, A_[inds__].field_) || @capture(ex, A_[inds__][more__])
         if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
@@ -309,6 +310,7 @@ primeindices(inds) = map(inds) do ex
 end
 
 dollarwalk(store) = ex -> begin
+        @nospecialize ex
         ex isa Expr || return ex
         if ex.head == :call
             ex.args[1] == :* && ex.args[2] === Int(0) && return false # tidy up dummy arrays!
@@ -321,7 +323,7 @@ dollarwalk(store) = ex -> begin
         ex
     end
 
-dollarstrip(expr) = MacroTools_postwalk(expr) do ex
+dollarstrip(expr) = MacroTools_postwalk(expr) do @nospecialize ex
         ex isa Expr && ex.head == :$ && return ex.args[1]
         ex
     end

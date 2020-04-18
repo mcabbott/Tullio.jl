@@ -117,7 +117,7 @@ simplipow(x, p) = :($x^$p)
 function commonsubex(expr::Expr)
     seen = Expr[]
     twice = Dict{Expr,Symbol}()
-    MacroTools_postwalk(expr) do ex
+    MacroTools_postwalk(expr) do @nospecialize ex
         if ex in keys(twice)
             return ex
         elseif ex in seen
@@ -140,7 +140,7 @@ function commonsubex(expr::Expr)
 end
 
 commonapply(expr, twice, rules) =
-    MacroTools_prewalk(expr) do ex
+    MacroTools_prewalk(expr) do @nospecialize ex
         ex == expr && return ex
         if ex in keys(twice)
             sy = twice[ex]
