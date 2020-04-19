@@ -4,9 +4,9 @@ This is roughly a re-write of the [`Einsum.@einsum`](https://github.com/ahwillia
 ```julia
 @tullio C[i,j] := A[i,k] * B[k,j]
 ```
-and writes loops which fill in the matrix `C`, by summing the right hand side at all possible values of free index `k`. It differs in several ways:
+and writes loops which fill in the matrix `C`, by summing the right hand side at all possible values of free index `k`. The differences are:
 
-1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. Shifts result in indices running over the intersection of ranges inferred, rather than demanding that they agree.
+1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. Shifts result in indices running over the intersection of ranges inferred (rather than demanding agreement).
 
 2. It should be faster, by using [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) on large arrays, and by using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. It's unlikely to match [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) at matrix multiplication, but aims to be useful on operations like `S[i] := P[i,j] * log(Q[i,j] / R[j])`.
 
@@ -40,8 +40,8 @@ A = [abs2(i - 11) for i in 1:21]
 # Downsample -- range of i is that allowed by both terms:
 @tullio D[i] := (A[2i] + A[2i+1])/2  # 1:10 == intersect(1:10, 0:10)
 
-# Shifts -- range of i specified by dummy array:
-@tullio M[i,j] := A[i+j-1] + 0*(1:7)[i]  # j in 1:15
+# Shifts -- range of i calculated in terms of that given for j:
+@tullio M[i,j] := A[i+j-1]  (j in 1:15)
 
 using OffsetArrays # Convolve a filter:
 K = OffsetArray([1,-1,2,-1,1], -2:2)
@@ -51,9 +51,9 @@ using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x) + (0*S[k])
 
-# Acces to fields & arrays -- this uses `axes(first(N).c, 1)`
+# Access to fields & arrays -- this uses `axes(first(N).c, 1)`
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
-@tullio T[i,j] := (N[i].a //1, N[i].c[j])
+@tullio T[i,j] := (N[i].a // 1, N[i].c[j])
 ```
 
 Derivatives & GPU:
@@ -85,10 +85,13 @@ Back-end friends & relatives:
 
 * [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, but can do many things not covered by this. 
 
-* [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) is a pure-Julia BLAS.
+* [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) is a pure-Julia BLAS, using that.
 
 * [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl) and [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) generate GPU-compatable kernels.
 
+* [ThreadsX.jl](https://github.com/tkf/ThreadsX.jl) does threaded reductions, and much else.
+
+* [Strided.jl](https://github.com/Jutho/Strided.jl) does multi-threaded broadcasting.
 
 Front-end near-lookalikes:
 

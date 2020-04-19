@@ -27,6 +27,7 @@ If Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will define gradient 
 unless disabled by `grad=false`. The gradient itself is calculated in one of two ways,
 either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
+You can use `Tullio.@printgrad` to show the symbolic output.
 
     @tullio  verbose=true
 
