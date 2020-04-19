@@ -48,9 +48,8 @@ function _tullio(exs...; mod=Main)
         threads = threads, grad = grad, avx = avx, cuda = cuda,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
-        upop = Ref{Symbol}(:(=)), # allow *=  for @einsum compat, not yet done
-        redfun = Ref{Symbol}(:+), # reduce by * not + etc, also not done
         redind = Symbol[],
+        redfun = Ref{Symbol}(:+), # no way to set this just yet
     # Everything writes into leftarray[leftraw...], sometimes with a generated name.
         leftraw = Any[],
         leftind = Symbol[], # vcat(leftind, redind) is the complete list of loop indices
@@ -76,7 +75,7 @@ function _tullio(exs...; mod=Main)
 
     parse_ranges(ranges, store)
 
-    parse_input(ex, (:+), store)
+    parse_input(ex, store)
 
     index_ranges(store)
 
@@ -159,7 +158,7 @@ end
 #========== symbols ==========#
 
 RHS, AXIS = :🖐, :📏
-ZED, TYP, ACC = :ℛℰ𝒮, :𝒯, :𝒜
+ZED, TYP, ACC, KEEP = :ℛℰ𝒮, :𝒯, :𝒜, :𝒾𝓃𝒾𝓉
 EPS, DEL = :𝜀, :𝛥
 
 #========== input parsing ==========#
@@ -179,17 +178,16 @@ parse_ranges(ranges, store) = foreach(ranges) do (i,r)
         push!(v, rs)
     end
 
-function parse_input(ex1, ex2, store)
-    ex = @capture_(ex1, left_ += right_ ) ? :($left = $left + $right) :
-        ex1
-    if !isnothing(ex2)
-        ex2 isa Symbol ? (store.redfun[] = ex2) : error("can't understand $ex2 yet")
-    end
+function parse_input(expr, store)
 
-    newarray = @capture_(ex, left_ := right_ )
-    newarray || @capture_(ex, left_ = right_ ) ||
-        error("expected A[] := B[] or A[] = B[], got $ex")
-    newarray && push!(store.flags, :newarray)
+    if @capture_(expr, left_ += right_ )
+        push!(store.flags, :plusequals)
+    elseif @capture_(expr, left_ := right_ )
+        push!(store.flags, :newarray)
+    elseif @capture_(expr, left_ = right_ )
+    else error("can't understand input, expected A[] := B[], A[] = B[], or A[] += B[], got $ex")
+    end
+    newarray = expr.head == :(:=)
 
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
     elseif left isa Symbol
@@ -478,8 +476,8 @@ function action_functions(store)
                     $sofar
                     $threader($apply!, $ST, $(store.leftarray[]),
                         tuple($(store.arrays...), $(store.scalars...),),
-                        tuple($(axisleft...),), tuple($(axisred...),),
-                        $(BLOCK[] ÷ store.cost[]))
+                        tuple($(axisleft...),), tuple($(axisred...),);
+                        block=$(BLOCK[] ÷ store.cost[]), keep=nothing)
                     return $(store.leftarray[])
                 end
             end)
@@ -487,7 +485,7 @@ function action_functions(store)
             push!(store.outex, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
-                    $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), )
+                    $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), nothing)
                     return $(store.leftarray[])
                 end
             end)
@@ -496,17 +494,34 @@ function action_functions(store)
 
     #===== constructing loops =====#
     init = store.redfun[] == :* ? :(one($TYP)) :
-            store.redfun[] == :max ? :(typemin($TYP)) :
-            store.redfun[] == :min ? :(typemin($TYP)) :
-            :(zero($TYP))
+        store.redfun[] == :max ? :(typemin($TYP)) :
+        store.redfun[] == :min ? :(typemin($TYP)) :
+        :(zero($TYP))
 
-    ex_init = :( $ACC = $init )
+    # Right now this would allow *= only with reduction * too. Could separate them:
+    # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
+    # But then keep=true can't be used for blocking, which wants to continue the same as acc.
+
+    ex_init = :( $ACC = ifelse($KEEP === nothing, $init, $ZED[$(store.leftraw...)]) )
+    # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] )
 
     ex_iter = :( $ACC = $(store.redfun[])($ACC, $(store.right[]) ) )
 
     ex_write = :( $ZED[$(store.leftraw...)] = $ACC )
 
-    ex_nored = :( $ZED[$(store.leftraw...)] = $(store.right[]) )
+    # ex_nored = :( $ZED[$(store.leftraw...)] = $(store.right[]) )
+    # ex_nored = quote
+    #     if $KEEP === nothing # avx doesn't like this if statement
+    #         $ZED[$(store.leftraw...)] = $(store.right[])
+    #     else
+    #         $ZED[$(store.leftraw...)] = $(store.redfun[])($ZED[$(store.leftraw...)] ,$(store.right[]))
+    #     end
+    # end
+    ex_nored = :(
+        $ZED[$(store.leftraw...)] = $KEEP === nothing ?
+        $(store.right[]) :
+        $(store.redfun[])($ZED[$(store.leftraw...)] ,$(store.right[]))
+        )
 
     if isempty(store.redind)
         make_many_workers(apply!,
@@ -540,6 +555,7 @@ function action_functions(store)
 
     #===== call something =====#
     ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
+    keep = (:plusequals in store.flags) ? :true : :nothing
     if :newarray in store.flags
         push!(store.outex, quote
             $(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), )
@@ -548,13 +564,13 @@ function action_functions(store)
         push!(store.outex, quote
             $threader($apply!, $ST, $(store.leftarray[]),
                 tuple($(store.arrays...), $(store.scalars...),),
-                tuple($(axisleft...),), tuple($(axisred...),),
-                $(BLOCK[] ÷ store.cost[]))
+                tuple($(axisleft...),), tuple($(axisred...),);
+                block = $(BLOCK[] ÷ store.cost[]), keep = $keep)
             $(store.leftarray[])
         end)
     else
         push!(store.outex, quote
-            $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...),)
+            $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), $keep)
             $(store.leftarray[])
         end)
     end
@@ -572,7 +588,7 @@ This makes several functions of this form,
 decorated as necessary with `@inbouds` or `@avx` etc,
 and with appropriate `storage_type` as the first argument.
 ```
-f!(::Type, args...) where {T}
+f!(::Type, args..., keep=nothing) where {T}
     ex1
     ex2 = (for i in axis_i
         ex3
@@ -591,7 +607,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
     push!(store.outex, quote
 
-        function $apply!(::Type, $(args...),) where {$TYP}
+        function $apply!(::Type, $(args...), $KEEP=nothing) where {$TYP}
             @inbounds @fastmath ($ex1; $ex2)
         end
 
@@ -609,7 +625,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         if store.avx == true
             push!(store.outex, quote
 
-                function $apply!(::Type{<:AbstractArray{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
                     LoopVectorization.@avx $exloop
                     $expost
@@ -619,7 +635,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         else
             push!(store.outex, quote
 
-                function $apply!(::Type{<:AbstractArray{<:$LoopVecTypes}}, $(args...),) where {$TYP}
+                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
                     LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost
@@ -641,25 +657,25 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         sizes = map(ax -> :(length($ax)), axouter)
         push!(store.outex, quote
 
-            KernelAbstractions.@kernel function $kernel($(args...),) where {$TYP}
+            KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
                 ($(outer...),) = @index(Global, NTuple)
                 ($ex1; $ex3; $ex4; $ex6)
             end
 
-            function $apply!(::Type{<:CuArray}, $(args...),) where {$TYP}
+            function $apply!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
                 # types = map(typeof, ($(args...),))
                 # @show types
                 $(asserts...)
-                $ACC = cu_kern!($(args...); ndrange=tuple($(sizes...)))
+                $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
                 KernelAbstractions.wait($ACC)
             end
 
             # Just for testing really...
-            function $apply!(::Type{<:Array}, $(args...),) where {$TYP}
+            function $apply!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
                 cpu_kern! = $kernel(CPU(), Threads.nthreads())
                 $(asserts...)
-                $ACC = cpu_kern!($(args...); ndrange=tuple($(sizes...)))
+                $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
                 KernelAbstractions.wait($ACC)
             end
 
@@ -668,12 +684,12 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         @eval store.mod begin
 
             Tullio.threader(fun!::Function, T::Type{<:CuArray},
-                Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, block::Int) =
-                fun!(T, Z, As..., Is..., Js...)
+                Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+                fun!(T, Z, As..., Is..., Js..., keep)
 
             Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-                As::Tuple, Is::Tuple, Js::Tuple, block::Int) =
-                fun!(T, As..., Is..., Js...)
+                As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+                fun!(T, As..., Is..., Js..., keep)
         end
         # Could do this, but seems not to complain:
         # if hasmethod(threader, Tuple{Function, Type{<:Array}, Vararg})
@@ -756,8 +772,8 @@ function backward_definitions(create, apply!, store)
                     $(store.axisdefs...)
                     $∇threader($∇apply!, $ST,
                         tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
-                        tuple($(shared...),), tuple($(nonshared...), ),
-                        $(BLOCK[] ÷ store.cost[]))
+                        tuple($(shared...),), tuple($(nonshared...), );
+                        block=$(BLOCK[] ÷ store.cost[]))
                     return ($(returns...),)
                 end
             end)
@@ -766,7 +782,7 @@ function backward_definitions(create, apply!, store)
                 function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
                     $(defineempties...)
                     $(store.axisdefs...)
-                    $∇apply!($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), )
+                    $∇apply!($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), nothing)
                     return ($(returns...),)
                 end
             end)

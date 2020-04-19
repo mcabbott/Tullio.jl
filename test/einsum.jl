@@ -151,26 +151,29 @@ end
                 for r = 1:2
                     s += X[i, r] * Y[j, r] * Z[k, r]
                 end
-                @test_broken isapprox(A[i, j, k], A1[i, j, k] + s) # ?? This is again about how I treat +=, which I'm not sure is desirable.
+                @test isapprox(A[i, j, k], A1[i, j, k] + s)
                 # @test isapprox(B[i, j, k], B1[i, j, k] + s)
             end
         end
     end
 
 end
-
+#=
 @testset "scalar += dot" begin
 
     x = randn(10)
     y = randn(10)
     k0 = randn()
     k = k0
-    @test_skip @einsum k += x[i] * y[i]  avx=false  verbose=true # also some RES scope problem?
-    @test_broken isapprox(k, k0 + dot(x, y))
-    isapprox(k, 10*k0 + dot(x, y)) # Tullio re-writes += to k = k + x[i] * y[i], then k is in every term. Not really sure that's a great idea. ??
+    @einsum k += x[i] * y[i]
+    @test isapprox(k, k0 + dot(x, y))
+
+    # @tullio k += x[i] * y[i]  verbose=true
+    # immediately says  @assert ndims(ℛℰ𝒮) == 0 "expected a 0-array ℛℰ𝒮"
+    # thinks of += as in-place... do I special-case this?
 
 end
-
+=#
 #=
 @testset "test *= operator" begin
 

@@ -93,7 +93,7 @@ end
     B = copy(A);
     D .= 3;
     @tullio B[i] += D[i,j]
-    @test_broken B[1] = A[1] + 30 # currently 10*A[1] + 30
+    @test B[1] == A[1] + 30
 
     # writing back into same
     B = copy(A)
