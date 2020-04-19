@@ -4,7 +4,6 @@
 using DiffRules
 
 function insert_base_gradient(create, apply!, store)
-    store.verbose && @info "using symbolic gradient for: $create ~ $(store.right[])"
 
     dZ = Symbol(DEL, ZED)
     ∇apply! = Symbol(:∇, apply!)
@@ -12,9 +11,6 @@ function insert_base_gradient(create, apply!, store)
 
     nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
 
-    # loopind = vcat(store.leftind, store.redind)
-    # shared = map(i -> Symbol(AXIS, i), store.sharedind)
-    # nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
     axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     targets=[]
@@ -56,6 +52,16 @@ leibnitz(ex::Expr, target) = begin
     end
     ex.head == :call || error("expected a functionn call, got $ex. Use @tullio grad=false if you do not need the gradient.")
     fun = ex.args[1]
+    if fun == :log # catch log(a*b) and especially log(a/b)
+        arg = ex.args[2]
+        if arg isa Expr && arg.args[1] == :*
+            newex = :(log($(arg.args[2])) + log($(arg.args[3])))
+            return leibnitz(newex, target)
+        elseif arg isa Expr && arg.args[1] == :/
+            newex = :(log($(arg.args[2])) - log($(arg.args[3])))
+            return leibnitz(newex, target)
+        end
+    end
     if length(ex.args) == 2 # one-arg function
         fx = mydiffrule(fun, ex.args[2])
         dx = leibnitz(ex.args[2], target)
@@ -77,6 +83,14 @@ simplitimes(x::Number, y::Number) = x*y
 simplitimes(x::Number, y) = x==0 ? 0 : x==1 ? y : x==-1 ? :(-$y) : :($x * $y)
 simplitimes(x, y::Number) = y==0 ? 0 : y==1 ? x : y==-1 ? :(-$x) : :($y * $x)
 simplitimes(x, y) = :($y * $x)
+# simplitimes(x, y) = begin # not worth the hassle, but .e.g.  @printgrad  1/sqrt(z)  z
+#     if x isa Expr && y isa Expr && x.head == y.head == :call
+#         x.args[1] == y.args[1] == :* && return Expr(:call, :*, x.args[2:end]..., y.args[2:end]...)
+#         x.args[1] == :/ && y.args[1] == :* && return :(*($(x.args[2]), $(y.args[2:end]...))/$(x.args[3]))
+#         y.args[1] == :/ && x.args[1] == :* && return :(*($(y.args[2]), $(x.args[2:end]...))/$(y.args[3]))
+#     end
+#     :($y * $x)
+# end
 
 simpliplus(x::Number, y::Number) = x + y
 simpliplus(x::Number, y) = x==0 ? y : :($x + $y)
@@ -88,9 +102,13 @@ mydiffrule(f, xs...) = begin
     f == :+ && return map(_->1, xs)
     f == :- && return length(xs)==1 ? -1 : (1,-1)
     f == :^ && return mypowrule(xs...)
-    f == :/ || f== :// && return mydivrule(xs...)
+    f == :/ && return mydivrule(xs...)
+    f == :// && return mydivrule(xs...)
+    f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
+    f == :sqrt && return mysqrtrule(xs...)
     f == :trunc && return map(_->0, xs)
+    f == :round && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
@@ -98,17 +116,37 @@ mydiffrule(f, xs...) = begin
     error("no diffrule found for function $f($(join(map(_->"_",xs),", "))). Use @tullio grad=false if you do not need the gradient.")
 end
 
-mydivrule(x, y) = simpliinv(y), :( -$x / ($y * $y) ) # (:(one(x) / y), :(-((x / y) / y)))
+# Goals of these rules, besides correctness, are:
+# 1. don't cause promotion of Float32, e.g. by factors (1/2)
+# 2. make it easy for commonsubex(), e.g. by re-using inv(x)
+
+mydivrule(x, y) = begin # (:(one(x) / y), :(-((x / y) / y)))
+    invy = simpliinv(y)
+    invy, :( -($x) * $invy * $invy )
+end
 mydivrule(x, y::Integer) = (y==1 ? 1 : 1//y), 0
 mydivrule(x, y::Number) = (y==1 ? 1 : :(one($TYP)/$y)), 0
 
+mydivrule(x::Number, y) = 0, :((-$x)*inv($y)*inv($y))
+mydivrule(x::Number, y::Number) = 0, 0
+mydivrule(x::Number, y::Integer) = 0, 0
+
+mysqrtrule(x::Number) = sqrt(x)
+mysqrtrule(x) = :(inv(sqrt($x))/2)
+
+simpliinv(x) = :(inv($x))
+simpliinv(x::Integer) = :(1//$x)
 simpliinv(x::Expr) = if x.head == :call && x.args[1] == :/
         :($(x.args[3]) / $(x.args[2]))
     else
-        :(one($TYP) / $x)
+        :(inv($x))
     end
 
-mypowrule(x, p) = simplitimes(p, simplipow(x, simpliplus(p, -1))), simplitimes(simplipow(x,p), :(log($x)))
+mypowrule(x, p) = begin
+    dx = simplitimes(p, simplipow(x, simpliplus(p, -1)))
+    dp = simplitimes(simplipow(x,p), :(log($x)))
+    dx, dp
+end
 
 simplipow(x::Number, p::Number) = x^p
 simplipow(x, p::Number) = p==1 ? x : p==2 ? :($x*$x) : :($x^$p)
@@ -149,5 +187,90 @@ commonapply(expr, twice, rules) =
         end
         ex
     end
+
+"""
+    Tullio.@printgrad log(x/y) x y
+
+Prints the symbolic gradient, showing `∂f/∂x` and `∂f/∂y` for `f=log(x/y)`.
+Useful to check that simplifications, and common subexpression elimination,
+are working OK for a given RHS.
+"""
+macro printgrad(exs...)
+    printgrad(exs...)
+end
+
+function printgrad(ex::Expr, ts::Symbol...)
+    out = quote end
+    for t in ts
+        df = leibnitz(ex, t)
+        dt = Symbol(:δ, t) # Symbol("∂f_∂", t)
+        push!(out.args, :($dt = $df))
+    end
+    done = filter(x -> !(x isa LineNumberNode), commonsubex(out).args)
+    map(println, done)
+    nothing
+end
+
+#=
+
+using Tullio: @printgrad
+
+@printgrad  x * y * z   x y z
+@printgrad  x * (y * z)   x y z
+@printgrad  x + y * z   x y z
+
+@printgrad  1/x   x
+@printgrad  x^-1   x   # could make inv(x) for CSE
+@printgrad  inv(x)   x
+@printgrad  sqrt(x)   x
+@printgrad  1/sqrt(x)   x
+@printgrad  inv(sqrt(x))   x
+@printgrad  x/sqrt(y)   x y
+
+@printgrad  sqrt(x*y)   x y
+@printgrad  sqrt(x) * sqrt(y)   x y # worse than line above
+
+@printgrad  1/sqrt(x*y)   x y       # could use repeated CSE
+
+@printgrad  x/sqrt(y*z)   x y z     # could use repeated CSE
+@printgrad  x/(sqrt(y)*sqrt(z))   x y z
+@printgrad  x*inv(sqrt(y))*inv(sqrt(z))   x y z
+
+@printgrad  x/2   x
+@printgrad  x/y   x y
+
+@printgrad  x^2   x
+@printgrad  (x*y)^2   x y
+@printgrad  (x+y)^3   x y
+@printgrad  x^y   x y
+@printgrad  log(x)^2   x
+
+@printgrad  log(x)   x
+@printgrad  log(x/2)   x
+@printgrad  log(2x)   x
+@printgrad  log(k*x)   x
+
+@printgrad  x*log(y)   x y
+
+@printgrad  log(x*y)   x y
+@printgrad  log(x) + log(y)   x y  # better, now used for log(x*y)
+
+@printgrad  log(x/y)   x y
+@printgrad  log(x*inv(y))   x y
+@printgrad  log(x)-log(y)   x y    # much better, now used for log(x/y)
+
+@printgrad  log(x/y) * z   x y z
+@printgrad  (log(x) - log(y)) * z   x y z
+@printgrad  log(x)*z - log(y)* z   x y z
+
+@printgrad  exp(2x)   x)
+@printgrad  exp(x/y)   x y
+@printgrad  exp((x-y)^2/2)   x y
+
+@printgrad  exp(x) * y   x y
+@printgrad  exp(x) / 2y   x y
+
+=#
+
 
 #========== the end ==========#
