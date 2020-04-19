@@ -16,6 +16,8 @@ include("symbolic.jl")
 
 include("forward.jl")
 
+include("einsum.jl")
+
 #========== ⚜️ ==========#
 
 """
@@ -23,6 +25,8 @@ include("forward.jl")
     storage_type(A, B, C) == Array{Int,N} where N
 
 Recursively unwraps wrappers, and combines with `promote_type`.
+(Used as the trait to send CuArray to KernelAbstractions
+and Array{Float or Int} to LoopVectorization.)
 """
 function storage_type(A::AbstractArray)
     P = parent(A)
@@ -33,19 +37,6 @@ storage_type(A, Bs...) = Base.promote_type(storage_type(A), storage_type(Bs...))
 
 storage_typejoin(A, Bs...) = Base.promote_typejoin(storage_type(A), storage_typejoin(Bs...))
 storage_typejoin(A) = storage_type(A)
-
-"""
-    Tullio.@einsum  A[i,j] += B[i] * C[j]
-
-Since this package is almost superset of `Einsum.jl`, you can probable drop that and
-write `using Tullio: @einsum` to use the new macro under the old name. Differences:
-* Constants need dollar signs like `A[i,1,\$c] + \$d`, as the macro creates a function
-  which may not run in the caller's scope.
-* Updating `A` with weird things like `*=` won't work.
-"""
-macro einsum(exs...)
-    _tullio(exs...; mod=__module__)
-end
 
 #========== ⚜️ ==========#
 

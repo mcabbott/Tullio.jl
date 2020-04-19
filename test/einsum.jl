@@ -174,11 +174,17 @@ end
 
 end
 =#
-#=
+
 @testset "test *= operator" begin
 
-    A1[:] = A[:]
-    B1[:] = B[:]
+    A = randn(5, 6, 7)
+    B = randn(5, 6, 7)
+    A1 = copy(A)
+    B1 = copy(B)
+
+    X = randn(5, 2)
+    Y = randn(6, 2)
+    Z = randn(7, 2)
 
     @einsum A[i, j, k]  *= X[i, r] * Y[j, r] * Z[k, r]
     # @einsimd B[i, j, k] *= X[i, r] * Y[j, r] * Z[k, r]
@@ -203,7 +209,7 @@ end
     @einsum k *= x[i] * y[i]
     @test isapprox(k, k0 * dot(x, y))
 end
-=#
+
 
 @testset "Test offsets" begin
     X = randn(10)
