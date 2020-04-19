@@ -130,9 +130,11 @@ end
     @tullio C[i] := A[2i+$j]
     @test axes(C,1) == -3:1
 
-    @test_throws AssertionError @tullio D[i] := A[i] + B[i]
+    @test_throws Exception @tullio D[i] := A[i] + B[i]
     @tullio D[i] := A[i] + B[i+0] # switches to intersection
     @test axes(D,1) == 1:4
+
+    @test_throws Exception @tullio M[i,j] := A[i+0]/A[j]  (i ∈ 2:5, j ∈ 2:5) # intersection for i but not j
 
     @tullio L[i] := A[i+j+1]  (j ∈ -1:1)
     @test axes(L,1) == 1:8
@@ -194,11 +196,6 @@ end
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
 
 end
-
-
-# To fix:
-# whether you can add *= etc easily, for compat
-# named creation, A[i=i] := ...
 
 @testset "named dimensions" begin
 

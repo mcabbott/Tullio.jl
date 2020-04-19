@@ -66,6 +66,7 @@ function _tullio(exs...; mod=Main)
         cost = Ref{Int}(1),
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
+        shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
     # Expressions: outex is the main one, sometimes wrapped innto functions.
@@ -263,14 +264,15 @@ saveconstraints(A, inds, store, right=true) = begin
     is = Symbol[]
     foreach(enumerate(inds)) do (d,ex)
         isconst(ex) && return
-        ex isa Symbol || push!(store.flags, :intersect) # ?? might not be right
         range_i, i = range_expr_walk(:(axes($A1,$d)), ex)
         if i isa Symbol
             push!(is, i)
+            ex isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, Expr[])
             isnothing(range_i) || push!(v, dollarstrip(range_i)) # ?? is this ever nothing?
         elseif i isa Tuple # from things like A[i+j]
             push!(is, i...)
+            push!(store.shiftedind, i...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
         end
     end
@@ -370,8 +372,7 @@ function index_ranges(store)
 
     for i in todo
         haskey(store.constraints, i) || error("unable to infer range of index $i")
-        # if i in store.sloppyindices # ?? maybe later
-        if :intersect in store.flags
+        if i in store.shiftedind
             resolveintersect(i, store)
         else
             resolvestrict(i, store)
