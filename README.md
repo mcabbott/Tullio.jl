@@ -41,15 +41,15 @@ A = [abs2(i - 11) for i in 1:21]
 @tullio D[i] := (A[2i] + A[2i+1])/2  # 1:10 == intersect(1:10, 0:10)
 
 # Shifts -- range of i calculated in terms of that given for j:
-@tullio M[i,j] := A[i+j-1]  (j in 1:15)
+@tullio M[i,j] := A[i+j-1]  (j in 1:15)  # i in 1:7
 
 using OffsetArrays # Convolve a filter:
 K = OffsetArray([1,-1,2,-1,1], -2:2)
-@tullio C[i] := A[i+j] * K[j]  # indices 3:19
+@tullio C[i] := A[i+j] * K[j]  # j ∈ -2:2 ⇒ i ∈ 3:19
 
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
-fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x) + (0*S[k])
+fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 
 # Access to fields & arrays -- this uses `axes(first(N).c, 1)`
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
