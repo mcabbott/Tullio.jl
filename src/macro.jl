@@ -411,7 +411,7 @@ function output_array(store)
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
         push!(store.outex, quote
-            $T0 = first(Base.return_types($RHS, typeof(($(store.arrays...), $(allfirst...)))))
+            $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
             $TYP = if Base.isconcretetype($T0)
                 $T0
             else
