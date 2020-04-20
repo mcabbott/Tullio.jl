@@ -63,6 +63,8 @@ issubset(addranges(1:10, 1:3) .- 3, 1:10)
 
 #========== functions used by the macro ==========#
 
+@nospecialize
+
 """
     range_expr_walk(:(axes(A,1)), :(2i+1)) -> range, :i
 
@@ -178,5 +180,7 @@ range_unwrap(ex::Expr) = begin
     end
     error("don't know how to handle $ex, sorry")
 end
+
+@specialize
 
 #========== the end ==========#

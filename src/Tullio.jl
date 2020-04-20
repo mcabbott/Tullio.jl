@@ -4,19 +4,24 @@ module Tullio
 
 export @tullio
 
+@nospecialize
+
 include("tools.jl")
 
 include("macro.jl")
-
-include("shifts.jl")
-
-include("threads.jl")
 
 include("symbolic.jl")
 
 include("forward.jl")
 
 include("einsum.jl")
+
+@specialize
+
+include("shifts.jl")
+
+include("threads.jl")
+
 
 #========== ⚜️ ==========#
 
@@ -34,6 +39,7 @@ function storage_type(A::AbstractArray)
 end
 storage_type(A) = typeof(A)
 storage_type(A, Bs...) = Base.promote_type(storage_type(A), storage_type(Bs...))
+storage_type() = AbstractArray
 
 storage_typejoin(A, Bs...) = Base.promote_typejoin(storage_type(A), storage_typejoin(Bs...))
 storage_typejoin(A) = storage_type(A)
