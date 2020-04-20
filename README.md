@@ -8,9 +8,9 @@ and writes loops which fill in the matrix `C`, by summing the right hand side at
 
 1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. Shifts result in indices running over the intersection of ranges inferred (rather than demanding agreement).
 
-2. It should be faster, by using [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) on large arrays, and by using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. It's unlikely to match [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) at matrix multiplication, but aims to be useful on operations like `S[i] := P[i,j] * log(Q[i,j] / R[j])`.
+2. It calculates gradients for reverse-mode auto-differentiation, by making a second pass with either a symbolic derivative of the right hand side, or else using `(A[i,k] + ϵA) * (B[k,j] + ϵB)` with dual numbers `ϵA, ϵB`. 
 
-3. It calculates gradients for reverse-mode auto-differentiation, by making a second pass with either a symbolic derivative of the right hand side, or else using `(A[i,k] + ϵA) * (B[k,j] + ϵB)` with dual numbers `ϵA, ϵB`. 
+3. It should be faster, by using [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) on large arrays, and by using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. It's unlikely to match [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) at matrix multiplication, but aims to be useful on operations like `S[i] := P[i,j] * log(Q[i,j] / R[j])`.
 
 4. It uses [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) to write a GPU version, slightly experimentally.
 
@@ -59,14 +59,13 @@ N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 Derivatives & GPU:
 
 ```julia
-using Tullio, CuArrays, KernelAbstractions
+using Tullio, Tracker, CuArrays, KernelAbstractions
 A = rand(3,40); B = rand(40,500);
 cA = cu(A); cB = cu(B);
 
 mul(A,B) = @tullio C[i,k] := A[i,j] * B[j,k]
 cC = mul(cA,cB) 
 
-using Tracker
 ΔA = Tracker.gradient((A,B) -> sum(identity, mul(A,B)), cA, cB)[1]
 collect(ΔA) ≈ ones(size(A*B)) * B'
 
@@ -83,7 +82,7 @@ cA0 = cu(A0); cB0 = cu(B0);
 
 Back-end friends & relatives:
 
-* [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, but can do many things not covered by this. 
+* [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, if available. 
 
 * [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) is a pure-Julia BLAS, using that.
 
