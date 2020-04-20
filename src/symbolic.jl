@@ -54,7 +54,7 @@ leibnitz(ex::Expr, target) = begin
     fun = ex.args[1]
     if fun == :log # catch log(a*b) and especially log(a/b)
         arg = ex.args[2]
-        if arg isa Expr && arg.args[1] == :*
+        if arg isa Expr && arg.args[1] == :* && length(arg.args) == 3
             newex = :(log($(arg.args[2])) + log($(arg.args[3])))
             return leibnitz(newex, target)
         elseif arg isa Expr && arg.args[1] == :/

@@ -132,3 +132,52 @@ using Tullio: @capture_
 
 end
 
+using Tullio: leibnitz
+using ForwardDiff
+
+@testset "symbolic gradients" begin
+
+    @testset "ex = $ex" for ex in [
+        :(x*y + 1/z),
+        :(x*y + z*x*z^2),
+        :((x/y)^2 + inv(z)),
+        :((x+2y)^z),
+        :(1/(x+1) + 33/(22y) -4/(z/4)),
+        :(inv(x+y) + z^(-2)),
+
+        :(sqrt(x) + 1/sqrt(y+2z)),
+        :(inv(sqrt(x)*sqrt(y)) + sqrt(2*inv(z))),
+
+        :(log(x/y) - log(z+2)),
+        :(log(x*y*z) - 33y),
+
+        :(2exp(x*y*z)),
+        :(exp((x-y)^2/2)/z),
+    ]
+
+        dfdx = leibnitz(ex, :x)
+        dfdy = leibnitz(ex, :y)
+        dfdz = leibnitz(ex, :z)
+
+        @eval f_(x,y,z) = $ex
+        @eval f_x(x,y,z) = $dfdx
+        @eval f_y(x,y,z) = $dfdy
+        @eval f_z(x,y,z) = $dfdz
+
+        xyz = rand(Float32, 3)
+
+        # check correctness
+        gx, gy, gz = ForwardDiff.gradient(xyz -> f_(xyz...), xyz)
+        @test f_x(xyz...) ≈ gx
+        @test f_y(xyz...) ≈ gy
+        @test f_z(xyz...) ≈ gz
+
+        # don't accidentally make Float64
+        @test 0f0 + f_x(xyz...) isa Float32
+        @test 0f0 + f_y(xyz...) isa Float32
+        @test 0f0 + f_z(xyz...) isa Float32
+
+    end
+
+end
+
