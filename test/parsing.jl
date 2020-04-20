@@ -71,13 +71,23 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     # ranges
     @tullio K[i] := 1  (i ∈ 1:3)
     @test K == ones(3)
+    @test axes(K,1) === Base.OneTo(3) # literal 1:3
 
-    @tullio L[i,j] := A[i]//j  (j ∈ 1:3, i in 1:10)
-    @test axes(L) == (1:10, 1:3)
+    @tullio L[i,j] := A[i]//j  (j ∈ 2:3, i in 1:10)
+    @test axes(L) == (1:10, 2:3)
 
     # primes, broken!
     @test_skip A == @tullio P[i′] := A[i']
     @test_skip A == @tullio P[i'] := A[i′]
+
+    # non-numeric array
+    @tullio Y[i] := (ind=i, val=A[i])
+    @test Y[2] === (ind = 2, val = 4)
+
+    # name leaks
+    Z = @tullio [i] := A[i] + 1
+    @test Z == A .+ 1
+    @test !isdefined(@__MODULE__, Tullio.ZED)
 
 end
 

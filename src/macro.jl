@@ -75,9 +75,9 @@ function _tullio(exs...; mod=Main)
         outex = ExprSym[],
     ))
 
-    parse_ranges(ranges, store)
-
     parse_input(ex, store)
+
+    parse_ranges(ranges, store)
 
     index_ranges(store)
 
@@ -165,21 +165,6 @@ EPS, DEL = :𝜀, :𝛥
 
 #========== input parsing ==========#
 
-parse_ranges(ranges, store) = foreach(ranges) do (i,r)
-        push!(store.rightind, i)
-        rs = if r isa Symbol
-            r
-        else
-            s = Symbol(string("≪", r, "≫"))
-            push!(store.outpre, :($s = $r))
-            s
-        end
-        push!(store.scalars, rs)
-        # push!(store.axisdefs, :( $(Symbol(AXIS, i)) = $rs) )
-        v = get!(store.constraints, i, [])
-        push!(v, rs)
-    end
-
 function parse_input(expr, store)
 
     if @capture_(expr, left_ += right_ )
@@ -232,7 +217,8 @@ rightwalk(store) = ex -> begin
             push!(store.flags, :nograd)
         end
         ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
-        ex isa Expr && ex.head == :call && ex.args[1] in [:(==)] && push!(store.flags, :noavx)
+        ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
+        ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
         ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
         ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
 
@@ -350,6 +336,38 @@ tidyleftraw2(leftraw, store) = map(leftraw) do i
     i
 end
 
+function parse_ranges(ranges, store) # now runs after parse_input
+    for (i,r) in ranges
+        push!(store.rightind, i)
+        v = get!(store.constraints, i, [])
+        if r isa Expr && r.head == :call && r.args[1] == :(:) && length(r.args) == 3
+            # for a literal range, write OneTo(10) or 0:9 directly into constraints
+            if r.args[2] == 1 && r.args[3] isa Integer
+                push!(v, :(Base.OneTo($(r.args[3]))))
+                continue
+            elseif r.args[2] isa Integer && r.args[3] isa Integer
+                push!(v, r)
+                continue
+            end
+        end
+        # for axes(A,2) where A is already available, just save it
+        if r isa Expr && r.head == :call && r.args[1] == :axes && r.args[2] in store.arrays
+            push!(v, r)
+            continue
+        end
+        # for anything else, treat it as a scalar argument
+        if r isa Symbol
+            push!(store.scalars, r)
+            push!(v, r)
+        else
+            s = Symbol(string("≪", r, "≫"))
+            push!(store.outpre, :($s = $r))
+            push!(store.scalars, s)
+        end
+    end
+    unique!(store.rightind)
+end
+
 #========== index ranges ==========#
 
 function index_ranges(store)
@@ -428,7 +446,7 @@ function output_array(store)
             error("can't use index $i on LHS for a new array")
         end
 
-        if !isdefined(store.mod, :OffsetArrays) # && (:shift in store.flags) # turn off unless needed?
+        if !isdefined(store.mod, :OffsetArrays) # && (:shift in store.flags) # turn off unless needed??
             for r in outaxes
                 r == :(Base.OneTo(1)) && continue
                 push!(store.outex, :(@assert first($r) == 1 "to allow indices not starting at 1, OffsetArrays must be visible in the caller's module"))
@@ -437,7 +455,8 @@ function output_array(store)
         end
 
         simex = if isempty(store.arrays)
-            :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges
+            # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
+            :( similar([], $TYP, tuple($(outaxes...))) )
         else
             :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
         end
@@ -476,7 +495,7 @@ function action_functions(store)
             push!(store.outex, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
-                    $threader($apply!, $ST, $(store.leftarray[]),
+                    $threader($apply!, $ST, $(store.leftarray[]),  # this code is dulicated below, can't I re-use it??
                         tuple($(store.arrays...), $(store.scalars...),),
                         tuple($(axisleft...),), tuple($(axisred...),);
                         block=$(BLOCK[] ÷ store.cost[]), keep=nothing)
@@ -505,20 +524,12 @@ function action_functions(store)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
     ex_init = :( $ACC = ifelse($KEEP === nothing, $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] )
+    # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] ) # both OK, ifelse is tidier!
 
     ex_iter = :( $ACC = $(store.redfun[])($ACC, $(store.right[]) ) )
 
     ex_write = :( $ZED[$(store.leftraw...)] = $ACC )
 
-    # ex_nored = :( $ZED[$(store.leftraw...)] = $(store.right[]) )
-    # ex_nored = quote
-    #     if $KEEP === nothing # avx doesn't like this if statement
-    #         $ZED[$(store.leftraw...)] = $(store.right[])
-    #     else
-    #         $ZED[$(store.leftraw...)] = $(store.redfun[])($ZED[$(store.leftraw...)] ,$(store.right[]))
-    #     end
-    # end
     ex_nored = :(
         $ZED[$(store.leftraw...)] = $KEEP === nothing ?
         $(store.right[]) :
@@ -559,9 +570,13 @@ function action_functions(store)
     ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
     if :newarray in store.flags
-        push!(store.outex, quote
-            $(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), )
-        end)
+        if store.leftarray[] != ZED
+            push!(store.outex, :($(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), ) ))
+        elseif isassigned(store.leftscalar)
+             push!(store.outex, :($(store.leftscalar[]) = getindex($create($(store.arrays...), $(store.scalars...), ) )))
+        else # case of [i,j] := ... with no name given
+            push!(store.outex, :( $create($(store.arrays...), $(store.scalars...), ) ))
+        end
     elseif store.threads
         push!(store.outex, quote
             $threader($apply!, $ST, $(store.leftarray[]),
@@ -575,10 +590,6 @@ function action_functions(store)
             $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), $keep)
             $(store.leftarray[])
         end)
-    end
-
-    if isassigned(store.leftscalar)
-        push!(store.outex, :($(store.leftscalar[]) = $(store.leftarray[])[]))
     end
 end
 
@@ -769,7 +780,7 @@ function backward_definitions(create, apply!, store)
         ST = :($storage_type($(gradarrays...), $(store.arrays...)))
         if store.threads
             push!(store.outex, quote
-                function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
+                function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                     $(defineempties...)
                     $(store.axisdefs...)
                     $∇threader($∇apply!, $ST,
@@ -781,7 +792,7 @@ function backward_definitions(create, apply!, store)
             end)
         else
             push!(store.outex, quote
-                function $∇create($dZ, $(store.arrays...), $(store.scalars...), )
+                function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                     $(defineempties...)
                     $(store.axisdefs...)
                     $∇apply!($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), nothing)
