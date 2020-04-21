@@ -1,32 +1,27 @@
 using Test
 
-using Tullio: storage_type, storage_typejoin
-using Zygote, ForwardDiff
+using Tullio: storage_type, promote_storage
+using ForwardDiff, FillArrays
 
 @testset "storage_type" begin
 
     @test storage_type(rand(2), rand(2,3)) == Array{Float64,N} where N
-    @test storage_type(rand(2), rand(Float32, 2)) == Array{Float64,1}
-    @test_broken storage_type(rand(2), rand(Float32, 2,2)) == Array{Float64,N} where N # not good!
+    @test storage_type(rand(2), rand(Float32, 2)) == Vector{Float64}
+    @test storage_type(rand(2), rand(Float32, 2,2)) == Array{Float64,N} where N
 
     Base.promote_type(Matrix{Int}, Vector{Int}) == Array{Int64,N} where N
     Base.promote_type(Matrix{Int}, Matrix{Int32}) == Matrix{Int64}
     Base.promote_type(Matrix{Int}, Vector{Int32}) == Array # != Array{Int64,N} where N
+    promote_storage(Matrix{Int}, Vector{Int32}) == Array{Int64,N} where N
 
-    @test storage_type(rand(2), 1:3) == AbstractArray{T,1} where T
-    @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2)) == Array{T,1} where T
-    @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2,3)) == Array
-    @test storage_type(rand(2), Zygote.FillArrays.Fill(1.0, 2,2)) == AbstractArray{Float64,N} where N
+    @test storage_type(rand(2), 1:3) == Vector{Float64}
+    @test storage_type(rand(Int,2), 1:3) == Vector{Int}
+    @test storage_type(1:3.0, 1:3) <: AbstractRange{Float64}
 
-
-    storage_typejoin(rand(2), rand(2,3)) == Array{Float64,N} where N
-    storage_typejoin(rand(2), rand(Float32, 2)) == Array{T,1} where T
-    storage_typejoin(rand(2), rand(Float32, 2,2)) == Array
-
-    storage_typejoin(rand(2), 1:3) == AbstractArray{T,1} where T
-    storage_typejoin(rand(2), fill(ForwardDiff.Dual(1,0),2)) == Array{T,1} where T
-    storage_typejoin(rand(2), fill(ForwardDiff.Dual(1,0),2,3)) == Array
-    storage_typejoin(rand(2), Zygote.FillArrays.Fill(1.0, 2,2)) == AbstractArray{Float64,N} where N
+    @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2)) == Vector{ForwardDiff.Dual{Nothing,Float64,1}}
+    @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2,3)) == Array{ForwardDiff.Dual{Nothing,Float64,1}}
+    @test storage_type(rand(2), FillArrays.Fill(1.0, 2,2)) == AbstractArray{Float64,N} where N
+    @test storage_type(rand(2), FillArrays.Fill(true, 2,2)) == AbstractArray
 
 end
 

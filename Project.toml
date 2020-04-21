@@ -13,6 +13,7 @@ Requires = "1"
 julia = "1.3"
 
 [extras]
+FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NamedDims = "356022a1-0364-5f58-8944-0da4b18d706f"
@@ -25,4 +26,4 @@ Yota = "cd998857-8626-517d-b929-70ad188a48f0"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
-test = ["Test", "ForwardDiff", "LinearAlgebra", "NamedDims", "OffsetArrays", "Printf", "ReverseDiff", "Tracker", "Yota", "Zygote"]
+test = ["Test", "FillArrays", "ForwardDiff", "LinearAlgebra", "NamedDims", "OffsetArrays", "Printf", "ReverseDiff", "Tracker", "Yota", "Zygote"]
