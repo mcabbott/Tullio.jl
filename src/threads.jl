@@ -23,6 +23,7 @@ callcost(sy, store) =
 Calling `f!(T, Z,A,B, 1:5,1:6, 1:7, nothing)` should do the work.
 But if there are enough elements (meaning `5*6*7 > 100`)
 then this will call `f!` many times in different threads.
+(`block=nothing` turns the whole thing off.)
 
 The first tuple of ranges are supposed to be safe to thread over,
 probably the axes of the output `Z`.
@@ -36,7 +37,7 @@ and in this case the spawning budget is `nthreads()`.
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
 function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block::Int, keep=nothing)
-    if Threads.nthreads() == 1
+    if isnothing(block) || Threads.nthreads() == 1
         fun!(T, Z, As..., Is..., Js..., keep)
     elseif length(Is) >= 1
         thread_halves(fun!, T, (Z, As...), Is, Js, block, 2*Threads.nthreads(), keep)
@@ -58,7 +59,7 @@ of dividing up the other ranges into blocks disjoint in every index,
 and giving those to different threads.
 """
 function ∇threader(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple; block::Int)
-    if Threads.nthreads() == 1
+    if isnothing(block) || Threads.nthreads() == 1
         fun!(T, As..., Is..., Js...)
     elseif length(Is) >= 1
         thread_halves(fun!, T, As, Is, Js, block, 2*Threads.nthreads())

@@ -480,6 +480,7 @@ function action_functions(store)
 
     rn = abs(rand(Int16))
     apply!, create = Symbol(:💥, rn), Symbol(:💧, rn)
+    # apply!, create = Symbol(:𝔅𝔞𝔫𝔤, rn), Symbol(:𝔑𝔢𝔴, rn)
     # apply!, create = gensym(:💥), gensym(:💧)
 
     axisleft = map(i -> Symbol(AXIS, i), store.leftind)
@@ -766,9 +767,12 @@ function backward_definitions(create, apply!, store)
         needgrad = true
     end
 
-    defineempties = map(A -> :(($(Symbol(DEL, A))) = fill!(similar($A), 0)), store.arrays)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
+    # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
+    defineempties = map((A,dA) -> :($dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0)), store.arrays, gradarrays)
+    # append!(defineempties, map((x,dx) -> :($dx = zero(Base.promote_type(typeof($x), $TYP))), store.scalars, gradscalars))
     returns = vcat(gradarrays, )
+    # returns = vcat(gradarrays, gradscalars)
 
     # loop order may as well be the same as before?
     loopind = vcat(store.leftind, store.redind)

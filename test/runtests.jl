@@ -1,11 +1,12 @@
 
 using Test, Printf
 
+@info "Testing with $(Threads.nthreads()) threads"
+
 t0 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t0)
 
 Tullio.BLOCK[] = 20 # use threading even on very small arrays
-@info "testing with $(Threads.nthreads()) threads"
 
 #===== stuff =====#
 
@@ -21,8 +22,7 @@ t1 = time()
 
 #===== Tracker =====#
 
-t2 = @elapsed using ForwardDiff
-@info @sprintf("Loading ForwardDiff took %.1f seconds", t2)
+using ForwardDiff
 
 t3 = @elapsed using Tracker
 @info @sprintf("Loading Tracker took %.1f seconds", t3)

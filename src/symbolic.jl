@@ -8,6 +8,7 @@ function insert_base_gradient(create, apply!, store)
     dZ = Symbol(DEL, ZED)
     ∇apply! = Symbol(:∇, apply!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
+    # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
     nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
 
@@ -15,6 +16,7 @@ function insert_base_gradient(create, apply!, store)
 
     targets=[]
     MacroTools_postwalk(symbwalk(targets), store.right[])
+    # append!(targets, scalars)
     unique!(targets)
     inbody = map(targets) do (dt, t)
         drdt = leibnitz(store.right[], t)
@@ -25,6 +27,7 @@ function insert_base_gradient(create, apply!, store)
 
     make_many_workers(∇apply!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store)
 
 end
