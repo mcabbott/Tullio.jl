@@ -493,26 +493,17 @@ function action_functions(store)
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
         ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
-        if store.threads
-            push!(store.outeval, quote
-                function $create($(store.arrays...), $(store.scalars...), )
-                    $sofar
-                    $threader($apply!, $ST, $(store.leftarray[]),  # this code is dulicated below, can't I re-use it??
-                        tuple($(store.arrays...), $(store.scalars...),),
-                        tuple($(axisleft...),), tuple($(axisred...),);
-                        block=$(BLOCK[] ÷ store.cost[]), keep=nothing)
-                    return $(store.leftarray[])
-                end
-            end)
-        else # no threads
-            push!(store.outeval, quote
-                function $create($(store.arrays...), $(store.scalars...), )
-                    $sofar
-                    $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), nothing)
-                    return $(store.leftarray[])
-                end
-            end)
-        end
+        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
+        push!(store.outeval, quote
+            function $create($(store.arrays...), $(store.scalars...), )
+                $sofar
+                $threader($apply!, $ST, $(store.leftarray[]),
+                    tuple($(store.arrays...), $(store.scalars...),),
+                    tuple($(axisleft...),), tuple($(axisred...),);
+                    block=$block, keep=nothing)
+                return $(store.leftarray[])
+            end
+        end)
     end
 
     #===== constructing loops =====#
@@ -573,17 +564,13 @@ function action_functions(store)
         else # case of [i,j] := ... with no name given
             push!(store.outex, :( $create($(store.arrays...), $(store.scalars...), ) ))
         end
-    elseif store.threads
+    else
+        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
         push!(store.outex, quote
             $threader($apply!, $ST, $(store.leftarray[]),
                 tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisleft...),), tuple($(axisred...),);
-                block = $(BLOCK[] ÷ store.cost[]), keep = $keep)
-            $(store.leftarray[])
-        end)
-    else
-        push!(store.outex, quote
-            $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), $keep)
+                block = $block, keep = $keep)
             $(store.leftarray[])
         end)
     end
@@ -697,7 +684,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
                 fun!(T, Z, As..., Is..., Js..., keep)
 
             Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-                As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+                As::Tuple, Is::Tuple, Js::Tuple; block=0) =
                 fun!(T, As..., Is..., Js..., keep)
         # end
         # Could do this, but seems not to complain:
@@ -778,28 +765,18 @@ function backward_definitions(create, apply!, store)
 
     if needgrad
         ST = :($storage_type($(gradarrays...), $(store.arrays...)))
-        if store.threads
-            push!(store.outeval, quote
-                function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
-                    $(defineempties...)
-                    $(store.axisdefs...)
-                    $∇threader($∇apply!, $ST,
-                        tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
-                        tuple($(shared...),), tuple($(nonshared...), );
-                        block=$(BLOCK[] ÷ store.cost[]))
-                    return ($(returns...),)
-                end
-            end)
-        else
-            push!(store.outeval, quote
-                function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
-                    $(defineempties...)
-                    $(store.axisdefs...)
-                    $∇apply!($ST, $(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...), $(shared...), $(nonshared...), nothing)
-                    return ($(returns...),)
-                end
-            end)
-        end
+        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
+        push!(store.outeval, quote
+            function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+                $(defineempties...)
+                $(store.axisdefs...)
+                $∇threader($∇apply!, $ST,
+                    tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
+                    tuple($(shared...),), tuple($(nonshared...), );
+                    block = $block)
+                return ($(returns...),)
+            end
+        end)
     end
 
     return needgrad

@@ -36,7 +36,7 @@ and in this case the spawning budget is `nthreads()`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block::Int, keep=nothing)
+function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block, keep=nothing)
     if isnothing(block) || Threads.nthreads() == 1
         fun!(T, Z, As..., Is..., Js..., keep)
     elseif length(Is) >= 1
@@ -58,7 +58,7 @@ to all output arrays. If there are none, then it takes a second strategy
 of dividing up the other ranges into blocks disjoint in every index,
 and giving those to different threads.
 """
-function ∇threader(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple; block::Int)
+function ∇threader(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple; block)
     if isnothing(block) || Threads.nthreads() == 1
         fun!(T, As..., Is..., Js...)
     elseif length(Is) >= 1
