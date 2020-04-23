@@ -6,7 +6,8 @@ using Test, Printf
 t0 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t0)
 
-Tullio.BLOCK[] = 20 # use threading even on very small arrays
+Tullio.BLOCK[] = 32 # use threading even on small arrays
+Tullio.MINIBLOCK[] = 32
 
 #===== stuff =====#
 
@@ -19,6 +20,23 @@ t1 = time()
 @info @sprintf("Basic tests took %.1f seconds", time()-t1)
 
 @testset "internal pieces" begin include("utils.jl") end
+
+@testset "matrix multiplication" begin
+    # size 200 is big enough to test block_halves even with MINIBLOCK = 64^3
+    @testset "size $N, elements $T" for N in [2, 20, 200], T in [1:99, Float32, Float64, ComplexF64]
+        for f in [identity, adjoint]
+            A = f(rand(T, N,N));
+            B = f(rand(T, N,N));
+            @test A * B ≈ @tullio C[i,k] := A[i,j] * B[j,k]
+        end
+        if N < 200
+            X = rand(T, N,N+1);
+            Y = rand(T, N+1,N+2);
+            Z = rand(T, N+2,N+1);
+            @test X * Y * Z ≈ @tullio C[a,d] := X[a,b] * Y[b,c] * Z[c,d]
+        end
+    end
+end
 
 #===== Tracker =====#
 
@@ -45,12 +63,8 @@ _gradient(x...) = Yota.grad(x...)[2]
 =#
 #===== Zygote =====#
 
-# @info "now loading Zygote..."
-# t0 = time()
 t5 = @elapsed using Zygote
 @info @sprintf("Loading Zygote took %.1f seconds", t5)
-# @info @sprintf("Loading Zygote took %.1f or perhaps %.1f seconds", t5, time()-t0)
-# @info @sprintf("  ... done! Only took %.1f seconds!", t5)
 
 Zygote.@adjoint unfill(x) = x, dx -> (collect(dx),)
 

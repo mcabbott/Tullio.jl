@@ -1,12 +1,14 @@
 
 #========== cost "model" ==========#
 
-BLOCK = Ref(5001)
-# matmul: 1_000 < length < 10_000
-# batchmul: 1_000 < length < 27_000
-# log: crossover about length 10_000
+BLOCK = Ref(2^19)
+# matmul: crossover about 70x70 on my laptop, 70^3 = 343_000, log2(70^3) = 18.3, but only 30% effect at 100^3=10^6
+# batchmul: crossover between 20 & 30, log2(20^4) == 17.3, log2(30^4) == 19.6
+# contract01: 1500 * 100, length 15_000, doesn't want threading
+# cosine01: block 65_536, not sure if it wants
+# log: vector crossover about length 10_000
 
-COSTS = Dict(:* => 1, :/ => 2, :log => 1, :exp => 1) # plus 1 initially
+COSTS = Dict(:* => 0, :/ => 2, :log => 10, :exp => 10) # plus 1 initially
 
 callcost(sy, store) =
     if haskey(COSTS, sy)
@@ -28,24 +30,26 @@ then this will call `f!` many times in different threads.
 The first tuple of ranges are supposed to be safe to thread over,
 probably the axes of the output `Z`.
 It will subdivide the longest until either there are too few elements,
-or it has spent its spawning budget, `2*nthreads()`.
+or it has spent its spawning budget, `nthreads()`.
 
 For a scalar reduction the first tuple will be empty, and `length(Z)==1`.
-Then it divides up the other axes, each accumulating in its own copy of `Z`,
-and in this case the spawning budget is `nthreads()`.
+Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block, keep=nothing)
-    if isnothing(block) || Threads.nthreads() == 1
+function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple; block, keep=nothing)
+    Is = map(UnitRange, I0s)
+    Js = map(UnitRange, J0s)
+    if isnothing(block)
         fun!(T, Z, As..., Is..., Js..., keep)
     elseif length(Is) >= 1
-        thread_halves(fun!, T, (Z, As...), Is, Js, block, 2*Threads.nthreads(), keep)
+        thread_halves(fun!, T, (Z, As...), Is, Js, block, Threads.nthreads(), keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
         thread_scalar(fun!, T, Z, As, Js, block, Threads.nthreads(), keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
+    nothing
 end
 
 """
@@ -58,33 +62,65 @@ to all output arrays. If there are none, then it takes a second strategy
 of dividing up the other ranges into blocks disjoint in every index,
 and giving those to different threads.
 """
-function ∇threader(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple; block)
-    if isnothing(block) || Threads.nthreads() == 1
+function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple; block)
+    Is = map(UnitRange, I0s)
+    Js = map(UnitRange, J0s)
+    if isnothing(block)
         fun!(T, As..., Is..., Js...)
     elseif length(Is) >= 1
-        thread_halves(fun!, T, As, Is, Js, block, 2*Threads.nthreads())
+        thread_halves(fun!, T, As, Is, Js, block, Threads.nthreads())
     else
-        thread_quarters(fun!, T, As, Js, block, 2*Threads.nthreads())
+        thread_quarters(fun!, T, As, Js, block, Threads.nthreads())
+    end
+    nothing
+end
+
+
+function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, block::Int, spawns::Int, keep=nothing)
+    if spawns >= 2 && productlength(Is,Js) > block && productlength(Is) > 2
+        I1s, I2s = cleave(Is, maybe32divsize(T))
+        Base.@sync begin
+            Threads.@spawn thread_halves(fun!, T, As, I1s, Js, block, div(spawns,2), keep)
+            Threads.@spawn thread_halves(fun!, T, As, I2s, Js, block, div(spawns,2), keep)
+        end
+    else
+        block_halves(fun!, T, As, Is, Js, keep)
+        # @info "thread_halves on $(Threads.threadid())" Is Js
+        # fun!(T, As..., Is..., Js..., keep)
+    end
+    nothing
+end
+
+const MINIBLOCK = Ref(64^3) # 2x quicker matmul at size 1000
+
+function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, keep=nothing)
+    if productlength(Is,Js) <= MINIBLOCK[]
+        return fun!(T, As..., Is..., Js..., keep)
+    elseif maximumlength(Is) > maximumlength(Js)
+        I1s, I2s = cleave(Is)
+        block_halves(fun!, T, As, I1s, Js, keep)
+        block_halves(fun!, T, As, I2s, Js, keep)
+    else
+        J1s, J2s = cleave(Js)
+        block_halves(fun!, T, As, Is, J1s, keep)
+        block_halves(fun!, T, As, Is, J2s, true)
     end
 end
 
-function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, block::Int, spawns::Int, keep=nothing)
-    if productlength(Is,Js) <= block || productlength(Is) <= 2 || spawns < 2
-        # @info "thread_halves on $(Threads.threadid())" Is Js
-        return fun!(T, As..., Is..., Js..., keep)
-    else
-        I1s, I2s = cleave(Is)
-        # if spawns >= 2
-            Base.@sync begin
-                Threads.@spawn thread_halves(fun!, T, As, I1s, Js, block, div(spawns,2), keep)
-                Threads.@spawn thread_halves(fun!, T, As, I2s, Js, block, div(spawns,2), keep)
-            end
-        # else
-        #     thread_halves(fun!, T, As, I1s, Js, block, 0)
-        #     thread_halves(fun!, T, As, I2s, Js, block, 0)
-        # end
-    end
+
+#=
+
+Tullio.MINIBLOCK[] = 1
+Z = zeros(Int, 13,17);
+cnt = 0
+f!(::Type, Z, i, j, keep) = begin
+    global cnt
+    Z[i,j] .= (global cnt+=1)
 end
+Tullio.block_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), nothing)
+Z
+
+=#
 
 function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, block::Int, spawns::Int, keep=nothing)
     if productlength(Js) <= block || spawns < 2
@@ -103,13 +139,14 @@ function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js:
             Z .+= Z1 .+ Z2
         end
     end
+    nothing
 end
 
 function thread_quarters(fun!::Function, T::Type, As::Tuple, Js::Tuple, block::Int, spawns::Int)
     if productlength(Js) <= block || count(r -> length(r)>=2, Js) < 2 || spawns < 4
         return fun!(T, As..., Js...)
     else
-        Q11, Q12, Q21, Q22 = quarter(Js)
+        Q11, Q12, Q21, Q22 = quarter(Js, maybe32divsize(T))
         Base.@sync begin
             Threads.@spawn thread_quarters(fun!, T, As, Q11, block, div(spawns,4))
             Threads.@spawn thread_quarters(fun!, T, As, Q22, block, div(spawns,4))
@@ -119,46 +156,53 @@ function thread_quarters(fun!::Function, T::Type, As::Tuple, Js::Tuple, block::I
             Threads.@spawn thread_quarters(fun!, T, As, Q21, block, div(spawns,4))
         end
     end
+    nothing
 end
 
 productlength(Is::Tuple) = prod(length.(Is))
 productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
 
+maximumlength(Is::Tuple) = max(length.(Is)...)
+maximumlength(::Tuple{}) = 0
+
+maybe32divsize(::Type{<:AbstractArray{T}}) where T<:Number = 32 ÷ sizeof(T)
+maybe32divsize(::Type) = 4
+
 """
     cleave((1:10, 1:20, 5:15)) -> lo, hi
 Picks the longest of a tuple of ranges, and divides that one in half.
 """
-function cleave(ranges::Tuple{Vararg{<:AbstractUnitRange,N}}, step::Int=4) where {N}
-    c::Int, long::Int = 0, 0
-    ntuple(Val(N)) do i
-        li = length(ranges[i])
-        if li > long
-            c = i
-            long = li
-        end
-    end
-    cleft = if long >= 2*step
-        minimum(ranges[c]) - 1 + step * div(long, step * 2)
+function cleave(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
+    longest = foldl((l,r) -> length(l) >= length(r) ? l : r, ranges; init=1:0)
+    c = foldl((l,i) -> ranges[i]==longest ? i : l, ntuple(identity, N); init=0)
+
+    cleft = if length(longest) >= 2*step
+        minimum(longest) - 1 + step * div(length(longest), step * 2)
     else
-        minimum(ranges[c]) - 1 + div(long, 2)
+        minimum(longest) - 1 + div(length(longest), 2)
     end
     alpha = ntuple(Val(N)) do i
         ri = ranges[i]
-        ifelse(i == c,  minimum(ri):cleft, minimum(ri):maximum(ri))
+        i == c ? (minimum(ri):cleft) : (minimum(ri):maximum(ri))
     end
     beta = ntuple(Val(N)) do i
         ri = ranges[i]
-        ifelse(i == c, cleft+1:maximum(ri), minimum(ri):maximum(ri))
+        i == c ? (cleft+1:maximum(ri)) : (minimum(ri):maximum(ri))
     end
     return alpha, beta
 end
 cleave(::Tuple{}, n::Int=4) = (), ()
 
+#=
+@btime Tullio.cleave((1:100, 1:50, 50:90)) # was OK
+@code_warntype Tullio.cleave((1:100, 1:50, 50:90), 4)
+=#
+
 """
     quarter((1:10, 1:20, 3:4)) -> Q11, Q12, Q21, Q22
 Picks the longest two ranges, divides each in half, and returns the four quadrants.
 """
-function quarter(ranges::Tuple{Vararg{<:AbstractUnitRange,N}}, step::Int=4) where {N}
+function quarter(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
     c::Int, long::Int = 0, 0
     ntuple(Val(N)) do i
         li = length(ranges[i])
