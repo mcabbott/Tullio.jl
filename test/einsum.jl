@@ -250,17 +250,17 @@ end
     X = randn(10)
 
     # without preallocation
-    @einsum A[i] := X[i] + k
-    @einsum A[i] := X[i] + $k  # Tullio prefers $k, it becomes a function argument
-    @einsum B[i] := X[i] - k
+    # @einsum A[i] := X[i] + k
+    @einsum A[i] := X[i] + $k  # Tullio requires $k, it becomes a function argument
+    # @einsum B[i] := X[i] - k
     @einsum B[i] := X[i] - $k
     @test isapprox(A, X .+ k)
     @test isapprox(B, X .- k)
 
     # with preallocation
     C, D = zeros(10), zeros(10)
-    @einsum C[i] = X[i] + k
-    @einsum D[i] = X[i] - k
+    @einsum C[i] = X[i] + $k
+    @einsum D[i] = X[i] - $k
     @test isapprox(C, X .+ k)
     @test isapprox(D, X .- k)
 end
@@ -270,18 +270,18 @@ end
     X = randn(10)
 
     # without preallocation
-    @einsum A[i] := X[i] * k
-    @einsum A[i] := X[i] * $k  # Tullio prefers $k, it becomes a function argument
-    @einsum B[i] := X[i] / k
+    # @einsum A[i] := X[i] * k
+    @einsum A[i] := X[i] * $k  # Tullio requires $k, it becomes a function argument
+    # @einsum B[i] := X[i] / k
     @einsum B[i] := X[i] / $k
     @test isapprox(A, X .* k)
     @test isapprox(B, X ./ k)
 
     # with preallocation
     C, D = zeros(10), zeros(10)
-    @einsum C[i] = X[i] * k
+    # @einsum C[i] = X[i] * k
     @einsum C[i] = X[i] * $k
-    @einsum D[i] = X[i] / k
+    # @einsum D[i] = X[i] / k
     @einsum D[i] = X[i] / $k
     @test isapprox(C, X .* k)
     @test isapprox(D, X ./ k)

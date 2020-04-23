@@ -69,10 +69,10 @@ function _tullio(exs...; mod=Main)
         shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
-    # Expressions: outex is the main one, sometimes wrapped innto functions.
-        outpre = ExprSym[], # things never to be inside function
-        outeval = ExprSym[], # things already @eval-ed at top level for gradient.
-        outex = ExprSym[],
+    # Expressions:
+        outpre = ExprSym[],  # preliminary steps, never put inside a function,
+        outeval = ExprSym[], # functions to be @eval-ed at top level,
+        outex = ExprSym[],   # expressions in or out, plus final application.
     ))
 
     parse_input(ex, store)
@@ -86,6 +86,8 @@ function _tullio(exs...; mod=Main)
     action_functions(store)
 
     verbose && verboseprint(store)
+
+    @eval store.mod begin $(store.outeval...) end
 
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
@@ -423,8 +425,7 @@ end
 function output_array(store)
     if :newarray in store.flags
 
-        funwithargs = :( $RHS($(store.arrays...), $(store.rightind...)) )
-        push!(store.outex, :( $funwithargs = $(store.right[]) ))
+        push!(store.outex, :( $RHS($(store.arrays...), $(store.rightind...)) = $(store.right[]) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
@@ -493,7 +494,7 @@ function action_functions(store)
         empty!(store.outex)
         ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
         if store.threads
-            push!(store.outex, quote
+            push!(store.outeval, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
                     $threader($apply!, $ST, $(store.leftarray[]),  # this code is dulicated below, can't I re-use it??
@@ -504,7 +505,7 @@ function action_functions(store)
                 end
             end)
         else # no threads
-            push!(store.outex, quote
+            push!(store.outeval, quote
                 function $create($(store.arrays...), $(store.scalars...), )
                     $sofar
                     $apply!($ST, $(store.leftarray[]), $(store.arrays...), $(store.scalars...), $(axislist...), nothing)
@@ -558,12 +559,6 @@ function action_functions(store)
             elseif store.grad == :Base
                 insert_base_gradient(create, apply!, store)
             end
-
-            # Need to run Zygote.@adjoint etc. at top level, and it must see create() etc.
-            # (Maybe only for Zygote? Not sure ??)
-            @eval store.mod begin $(store.outex...) end
-            append!(store.outeval, store.outex) # keep these for verbose printing
-            empty!(store.outex)
         end
     end
 
@@ -619,7 +614,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
-    push!(store.outex, quote
+    push!(store.outeval, quote
 
         function $apply!(::Type, $(args...), $KEEP=nothing) where {$TYP}
             @inbounds @fastmath ($ex1; $ex2)
@@ -637,7 +632,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         isdefined(store.mod, :LoopVectorization)
         LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
-            push!(store.outex, quote
+            push!(store.outeval, quote
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
@@ -647,7 +642,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
             end)
         else
-            push!(store.outex, quote
+            push!(store.outeval, quote
 
                 function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
@@ -669,7 +664,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         kernel = Symbol(apply!, :🇨🇺)
         asserts = map(ax -> :(@assert first($ax)==1 "KernelAbstractions can't handle OffsetArrays here"), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
-        push!(store.outex, quote
+        push!(store.outeval, quote
 
             KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
                 ($(outer...),) = @index(Global, NTuple)
@@ -693,9 +688,9 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
                 KernelAbstractions.wait($ACC)
             end
 
-        end)
-        # Also, bypass "threader" functions to come straight here for CuArrays:
-        @eval store.mod begin
+        # end)
+        # # Also, bypass "threader" functions to come straight here for CuArrays:
+        # @eval store.mod begin
 
             Tullio.threader(fun!::Function, T::Type{<:CuArray},
                 Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
@@ -704,10 +699,11 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
             Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
                 As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
                 fun!(T, As..., Is..., Js..., keep)
-        end
+        # end
         # Could do this, but seems not to complain:
         # if hasmethod(threader, Tuple{Function, Type{<:Array}, Vararg})
         # if length(methods(threader)) < 2
+        end)
     end
 end
 
@@ -730,7 +726,7 @@ function backward_definitions(create, apply!, store)
     needgrad = false
 
     if isdefined(store.mod, :Zygote)
-        push!(store.outex, quote
+        push!(store.outeval, quote
             Zygote.@adjoint $create(args...) = $create(args...), Δ -> $∇create(Δ, args...)
         end)
         needgrad = true
@@ -738,7 +734,7 @@ function backward_definitions(create, apply!, store)
 
     if  isdefined(store.mod, :Yota)
         for (n,A) in enumerate(store.arrays)
-            push!(store.outex, quote
+            push!(store.outeval, quote
                 Yota.@diffrule  $create($(store.arrays...), $(store.scalars...))  $A  $∇create(dZ, $(store.arrays...), $(store.scalars...))[$n]
             end)
         end
@@ -746,7 +742,7 @@ function backward_definitions(create, apply!, store)
     end
 
     if isdefined(store.mod, :Tracker)
-        push!(store.outex, quote
+        push!(store.outeval, quote
             $create(A::Tracker.TrackedArray, args...) = Tracker.track($create, A, args...)
             $create(A, B::Tracker.TrackedArray, args...) = Tracker.track($create, A, B, args...)
             $create(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track($create, A, B, args...)
@@ -757,7 +753,7 @@ function backward_definitions(create, apply!, store)
     end
 
     if isdefined(store.mod, :ReverseDiff) # https://github.com/JuliaDiff/ReverseDiff.jl/pull/123
-        push!(store.outex, quote
+        push!(store.outeval, quote
             $create(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, args...)
             $create(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, B, args...)
             $create(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, B, args...)
@@ -783,7 +779,7 @@ function backward_definitions(create, apply!, store)
     if needgrad
         ST = :($storage_type($(gradarrays...), $(store.arrays...)))
         if store.threads
-            push!(store.outex, quote
+            push!(store.outeval, quote
                 function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                     $(defineempties...)
                     $(store.axisdefs...)
@@ -795,7 +791,7 @@ function backward_definitions(create, apply!, store)
                 end
             end)
         else
-            push!(store.outex, quote
+            push!(store.outeval, quote
                 function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                     $(defineempties...)
                     $(store.axisdefs...)
