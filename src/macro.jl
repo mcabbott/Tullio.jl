@@ -70,9 +70,9 @@ function _tullio(exs...; mod=Main)
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
     # Expressions:
-        outpre = ExprSym[],  # preliminary steps, never put inside a function,
         outeval = ExprSym[], # functions to be @eval-ed at top level,
-        outex = ExprSym[],   # expressions in or out, plus final application.
+        outpre = ExprSym[],  # preliminary steps, never put inside a function,
+        outex = ExprSym[],   # the rest!
     ))
 
     parse_input(ex, store)
@@ -229,7 +229,7 @@ rightwalk(store) = ex -> begin
 
         if isnothing(arrayonly(A))
             Anew = Symbol(string("≪", A, "≫"))
-            push!(store.outpre, :($Anew = $A))
+            push!(store.outpre, :(local $Anew = $A))
             A = Anew
         end
         # Third, save letter A, and what axes(A) says about indices:
@@ -278,7 +278,7 @@ saveconstraints(A, inds, store, right=true) = begin
     end
     n = length(inds)
     str = "expected a $n-array $A1" # already arrayfirst(A)
-    push!(store.outpre, :( @assert ndims($A1) == $n $str ))
+    push!(store.outpre, :( ndims($A1) == $n || error($str) ))
 end
 
 arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
@@ -408,7 +408,7 @@ resolvestrict(i, store) = begin
     push!(store.axisdefs, :( local $r_i = $res ))
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
-        push!(store.axisdefs, :( @assert $alt == $res $str ))
+        push!(store.axisdefs, :( $alt == $res || error($str) ))
     end
 end
 
@@ -450,7 +450,7 @@ function output_array(store)
         if !isdefined(store.mod, :OffsetArrays) # && (:shift in store.flags) # turn off unless needed??
             for r in outaxes
                 r == :(Base.OneTo(1)) && continue
-                push!(store.outex, :(@assert first($r) == 1 "to allow indices not starting at 1, OffsetArrays must be visible in the caller's module"))
+                push!(store.outex, :( first($r) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
             end
             outaxes = map(r -> :(Base.OneTo($r)), outaxes)
         end
@@ -462,10 +462,10 @@ function output_array(store)
             :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
         end
         if isempty(store.leftnames)
-            push!(store.outex, :( $(store.leftarray[]) = $simex ))
+            push!(store.outex, :( local $(store.leftarray[]) = $simex ))
         else
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
-            push!(store.outex, :( $(store.leftarray[]) = NamedDims.NamedDimsArray($simex, $nex) ))
+            push!(store.outex, :( local $(store.leftarray[]) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
     end
 
@@ -649,7 +649,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         isdefined(store.mod, :CuArrays)
 
         kernel = Symbol(apply!, :🇨🇺)
-        asserts = map(ax -> :(@assert first($ax)==1 "KernelAbstractions can't handle OffsetArrays here"), axouter)
+        asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         push!(store.outeval, quote
 
