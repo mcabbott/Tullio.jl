@@ -27,6 +27,11 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @tullio F[i,j] := E[i].c[j] # also :noavx
     @test F == (1:10) .* [1 2 3]
 
+    # arrays of tuples
+    Y = [(i,i^2,i^3) for i in 1:10]
+    @tullio W[i,j] := Y[i][j]
+    @test W[9,3] == 9^3
+
     # scalar
     @tullio S := A[i]/2
     @test S ≈ sum(A)/2

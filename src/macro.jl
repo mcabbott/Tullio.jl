@@ -275,7 +275,7 @@ saveconstraints(A, inds, store, right=true) = begin
     is = Symbol[]
     foreach(enumerate(inds)) do (d,ex)
         isconst(ex) && return
-        range_i, i = range_expr_walk(:(axes($A1,$d)), ex)
+        range_i, i = range_expr_walk(length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d)), ex)
         if i isa Symbol
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
@@ -300,8 +300,13 @@ saveconstraints(A, inds, store, right=true) = begin
         append!(store.leftind, is)
     end
     n = length(inds)
-    str = "expected a $n-array $A1" # already arrayfirst(A)
-    push!(store.outpre, :( ndims($A1) == $n || error($str) ))
+    if n==1
+        str = "expected a 1-array $A1, or a tuple"
+        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || error($str) ))
+    else
+        str = "expected a $n-array $A1" # already arrayfirst(A)
+        push!(store.outpre, :( ndims($A1) == $n || error($str) ))
+    end
 end
 
 arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
