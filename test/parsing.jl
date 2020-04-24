@@ -69,12 +69,15 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @test g(fill(4,5)) == 10
 
     # ranges
-    @tullio K[i] := i^2  (i ∈ 1:3)
+    @tullio K[i] := i^2  (i ∈ 1:3) # :noavx because isempty(store.arrays)
     @test K == (1:3).^2
     @test axes(K,1) === Base.OneTo(3) # literal 1:3
 
     @tullio L[i,j] := A[i]//j  (j ∈ 2:3, i in 1:10)
     @test axes(L) == (1:10, 2:3)
+
+    @tullio N[i,j] := A[i]/j  (j in axes(K,1))  (i in axes(A,1)) # K not an argument
+    @test N ≈ A ./ (1:3)'
 
     # primes, broken!
     @test_skip A == @tullio P[i′] := A[i']
@@ -88,6 +91,8 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     Z = @tullio [i] := A[i] + 1
     @test Z == A .+ 1
     @test !isdefined(@__MODULE__, Tullio.ZED)
+
+    @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
 
 end
 

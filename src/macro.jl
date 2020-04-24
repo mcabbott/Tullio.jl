@@ -390,6 +390,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
             s = Symbol(string("≪", r, "≫"))
             push!(store.outpre, :($s = $r))
             push!(store.scalars, s)
+            push!(v, s)
         end
     end
     unique!(store.rightind)
