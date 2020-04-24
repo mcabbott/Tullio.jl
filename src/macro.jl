@@ -29,8 +29,8 @@ OffsetArrays.jl must be loaded in order to create an array whose indices don't s
 
     @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
 
-By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays.
-The options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
+By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays;
+the options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 Option `threads=10^3` sets the threshold at which to divide work between two threads
 (in this case `10×10` matrices).
 
