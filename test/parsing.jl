@@ -69,7 +69,7 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @test g(fill(4,5)) == 10
 
     # ranges
-    @tullio K[i] := i^2  (i ∈ 1:3) # :noavx because isempty(store.arrays)
+    @tullio K[i] := i^2  (i ∈ 1:3)
     @test K == (1:3).^2
     @test axes(K,1) === Base.OneTo(3) # literal 1:3
 

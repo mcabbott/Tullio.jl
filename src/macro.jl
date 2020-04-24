@@ -223,8 +223,6 @@ function parse_input(expr, store)
     unique!(store.scalars)
 
     unique!(store.arrays)
-    isempty(store.arrays) && push!(store.flags, :noavx) # @tullio K[i] := i^2  (i ∈ 1:3)
-
     unique!(store.sharedind)
     unique!(store.rightind)
     append!(store.redind, setdiff(store.rightind, store.leftind)) # seemingly random order??
