@@ -672,7 +672,6 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
     axouter = map(i -> Symbol(AXIS, i), outer)
 
     if store.cuda > 0 &&
-        v"1.3" <= VERSION < v"1.4" &&
         isdefined(store.mod, :KernelAbstractions) &&
         isdefined(store.mod, :CuArrays)
 
