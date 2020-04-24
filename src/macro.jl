@@ -11,27 +11,41 @@ const ExprSym = Union{Expr, Symbol}
 
 """
     @tullio C[i,k] := A[i,j] * B[j,k]
-    @tullio C[i,k] := A[i].field[j] * B[row=j, col=k]
+    @tullio F[i,k] := \$α * D[i].field[j] * E[col=k, row=j] + \$β
 
 This is a replacement for `@einsum` which understands a bit more syntax.
-`:=` makes a new array, `=` and `+=` write into an existing one.
+The expression on the right is summed over all possible valued of the free index `k`,
+and `:=` makes a new array `C`, while `=` and `+=` would write into an existing one.
+Scalar arguments need a dollar sign, like `\$α` or `A[i,\$γ]`.
+
+    @tullio G[i,j] := A[i+x+1, j+y+1] * K[x,y]
+    @tullio H[i,j] := A[2i+x, 2j+y]  (x in -1:1, y in -1:1)
+
+Shifts and scaling of indices are allowed, including shifts by other indices.
+Ranges can be provided as shown, for under-constrained indices.
+If they are over-constrained, shifted indices run over the intersection allowed by all constraints,
+while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(B,1)` above).
+OffsetArrays.jl must be loaded in order to create an array whose indices don't start at 1.
 
     @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
 
 By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays.
 The options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
+Option `threads=10^3` sets the threshold at which to divide work between two threads
+(in this case `10×10` matrices).
 
     @tullio  grad=false  C[i,k] := ...
 
-If Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will define gradient hooks for these,
-unless disabled by `grad=false`. The gradient itself is calculated in one of two ways,
+If any of Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will
+define gradient hooks for these, unless disabled by `grad=false`.
+The reverse gradient itself is calculated in one of two ways,
 either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
 You can use `Tullio.@printgrad` to show the symbolic output.
 
     @tullio  verbose=true
 
-This prints out everythinng the macro knows & generates. (You can't always use `@macroexpand1`
+This prints out everythinng the macro knows & generates. (You can't use `@macroexpand1`
 as the gradients need things `eval`uated at top level.)
 Options given without an expression change the global defaults, instead of applying just once.
 """
@@ -42,7 +56,7 @@ end
 function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
-    isnothing(ex) && return
+    isnothing(ex) && return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
     verbose, threads, grad, avx, cuda = opts
 
     store = Store((mod = mod, verbose = verbose,
@@ -96,14 +110,14 @@ end
 
 OPTS = Dict(
     :verbose => [true, false],
-    :threads => [true, false],
+    :threads => Integer,
     :grad => [false, :Base, :Dual],
-    :avx => vcat(false, Vector{Any}(1:16)),
-    :cuda => 0:2048,
+    :avx => Integer,
+    :cuda => Integer,
     )
 
 VERBOSE = Ref(false)
-THREADS = Ref(true)
+THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
@@ -121,8 +135,7 @@ parse_options(exs...) = begin
     for ex in exs
         # Actual options:
         if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
-            ex.args[2] in OPTS[ex.args[1]] || error(string(
-            "keyword $(ex.args[1]) accepts values [", join(OPTS[ex.args[1]], ", "), "]"))
+            checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
 
         # Ranges specified outside:
@@ -136,6 +149,7 @@ parse_options(exs...) = begin
 
         # The main course!
         elseif ex isa Expr
+            isnothing(expr) || error("too many expressions! recognised keywords are $(keys(opts))")
             expr = ex
         else
             error("not sure what to do with input $ex")
@@ -149,6 +163,15 @@ parse_options(exs...) = begin
     end
     (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda]), ranges, expr
 end
+
+
+checklegal(opt, val) =
+    if OPTS[opt] isa Vector
+        val in OPTS[opt] || error(string("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]"))
+    elseif val isa OPTS[opt]
+        val >= 0 || error(string("keyword $opt accepts false or a positive integer"))
+    # Silently allows val::Exp, for threads=64^3 to work
+    end
 
 verboseprint(store) = begin
     foreach(keys(parent(store))) do k
@@ -493,7 +516,9 @@ function action_functions(store)
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
         ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
-        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
+        block = store.threads==false ? nothing :
+            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads
         push!(store.outeval, quote
             function $create($(store.arrays...), $(store.scalars...), )
                 $sofar
@@ -565,7 +590,9 @@ function action_functions(store)
             push!(store.outex, :( $create($(store.arrays...), $(store.scalars...), ) ))
         end
     else
-        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
+        block = store.threads==false ? nothing :
+            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads
         push!(store.outex, quote
             $threader($apply!, $ST, $(store.leftarray[]),
                 tuple($(store.arrays...), $(store.scalars...),),
@@ -765,7 +792,9 @@ function backward_definitions(create, apply!, store)
 
     if needgrad
         ST = :($storage_type($(gradarrays...), $(store.arrays...)))
-        block = store.threads ? (BLOCK[] ÷ store.cost[]) : :nothing
+        block = store.threads==false ? nothing :
+            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads
         push!(store.outeval, quote
             function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
