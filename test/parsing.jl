@@ -69,8 +69,8 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @test g(fill(4,5)) == 10
 
     # ranges
-    @tullio K[i] := 1  (i ∈ 1:3)
-    @test K == ones(3)
+    @tullio K[i] := i^2  (i ∈ 1:3)
+    @test K == (1:3).^2
     @test axes(K,1) === Base.OneTo(3) # literal 1:3
 
     @tullio L[i,j] := A[i]//j  (j ∈ 2:3, i in 1:10)
