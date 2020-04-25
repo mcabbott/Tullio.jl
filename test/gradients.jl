@@ -39,6 +39,9 @@ _gradient = Tracker.gradient
     @test fx ≈ _gradient(sum∘unfill∘f, r_x, r_y)[1]
     @test fy ≈ _gradient(sum∘unfill∘f, r_x, r_y)[2]
 
+    # catch FillArray from sum:
+    @test _gradient(x -> sum(@tullio y[i] := log(x[i]) grad=Base), collect(1:3.0))[1] == 1 ./ (1:3)
+
 end
 
 using ForwardDiff
@@ -70,5 +73,7 @@ using ForwardDiff: partials # scope issue?
     fy = ForwardDiff.gradient(y -> sum(f(r_x, y)), r_y)
     @test fx ≈ _gradient(sum∘unfill∘f, r_x, r_y)[1]
     @test fy ≈ _gradient(sum∘unfill∘f, r_x, r_y)[2]
+
+    @test _gradient(x -> sum(@tullio y[i] := log(x[i]) grad=Dual), collect(1:3.0))[1] == 1 ./ (1:3)
 
 end

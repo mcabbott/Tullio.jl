@@ -31,6 +31,20 @@ function insert_forward_gradient(act!, store)
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store)
 
+    if isdefined(store.mod, :Zygote)
+        ex_iter2 = fillarrayreplace(ex_iter, dZ)
+        ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
+
+        make_many_actors(∇act!,
+            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
+            :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store)
+
+        push!(store.outeval, quote
+            Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
+            Tullio.promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
+        end)
+    end
+
 end
 
 epsilonwalk(dict) = ex -> begin

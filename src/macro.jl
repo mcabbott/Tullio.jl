@@ -834,5 +834,9 @@ function backward_definitions(make, act!, store)
     return needgrad
 end
 
+fillarrayreplace(rhs, dZ) = MacroTools_postwalk(rhs) do @nospecialize ex
+        @capture_(ex, A_[inds__]) && A==dZ || return ex
+        return Symbol(dZ, :_value)
+    end
 
 #========== the end ==========#

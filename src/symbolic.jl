@@ -30,6 +30,20 @@ function insert_symbolic_gradient(act!, store)
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store)
 
+    if isdefined(store.mod, :Zygote) # special case for FillArrays
+        ex_body2 = fillarrayreplace(ex_body, dZ)
+        ex_value = :($(Symbol(dZ, :_value)) = $dZ.value) # @avx likes this outside the loop
+
+        make_many_actors(∇act!,
+            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
+            ex_value, store.sharedind, nothing, nonshared, ex_body2, nothing, store)
+
+        push!(store.outeval, quote
+            Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
+            Tullio.promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
+        end)
+    end
+
 end
 
 # This could probably use https://github.com/dfdx/XGrad.jl
