@@ -34,10 +34,17 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
 
     # scalar
     @tullio S := A[i]/2
-    @test S ≈ sum(A)/2
+    @tullio S′ = A[i]/2 # here = is equivalent
+    @test S ≈ S′ ≈ sum(A)/2
 
     @tullio Z[] := A[i] + A[j]
     @test Z isa Array{Int,0}
+    @tullio Z′[1,1] := A[i] + A[j]
+    @test size(Z′) == (1,1)
+
+    # scalar update
+    @tullio S += A[i]/2
+    @test S ≈ sum(A)
 
     # inner
     J = repeat(1:3, 4);
@@ -92,11 +99,12 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @tullio Y[i] := (ind=i, val=A[i])
     @test Y[2] === (ind = 2, val = 4)
 
-    # name leaks
+    # no name given
     Z = @tullio [i] := A[i] + 1
     @test Z == A .+ 1
-    @test !isdefined(@__MODULE__, Tullio.ZED)
 
+    # internal name leaks
+    @test !isdefined(@__MODULE__, Tullio.ZED)
     @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
 
 end
@@ -133,6 +141,12 @@ end
     @test D[j,j] == 99
     @test D[1,1] != 0
 
+    @test_throws Exception Tullio._tullio(:( [i,j] = A[i] + 100 ))
+
+    # internal name leaks
+    @test !isdefined(@__MODULE__, Tullio.ZED)
+    @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
+
 end
 
 @testset "index shifts" begin
@@ -149,6 +163,9 @@ end
     j = 7 # interpolation
     @tullio C[i] := A[2i+$j]
     @test axes(C,1) == -3:1
+
+    cee(A) = @tullio C[i] := A[2i+$j] # closure over j
+    @test axes(cee(A),1) == -3:1
 
     @test_throws Exception @tullio D[i] := A[i] + B[i]
     @tullio D[i] := A[i] + B[i+0] # switches to intersection

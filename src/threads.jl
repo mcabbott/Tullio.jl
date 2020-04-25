@@ -125,7 +125,7 @@ Z
 function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, block::Int, spawns::Int, keep=nothing)
     if productlength(Js) <= block || spawns < 2
         # @info "thread_scalar on $(Threads.threadid())" Js
-        return fun!(T, Z, As..., Js...)
+        return fun!(T, Z, As..., Js..., keep)
     else
         Z1, Z2 = similar(Z), similar(Z)
         J1s, J2s = cleave(Js)

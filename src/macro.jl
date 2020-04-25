@@ -199,24 +199,28 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ = right_ )
     else error("can't understand input, expected A[] := B[], A[] = B[], or A[] += B[], got $ex")
     end
-    newarray = expr.head == :(:=)
 
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
-    elseif left isa Symbol
-        store.leftscalar[] = left
+    elseif left isa Symbol # complete reduction, by writing into a new 0-array
+        push!(store.flags, :newarray, :scalar)
+        store.leftscalar[] = left # because store.leftarray[] will be the array
         leftraw = []
+        expr.head == :(+=) && push!(store.scalars, left)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw1 = tidyleftraw(leftraw, store)
     append!(store.leftind, reverse(filter(i -> i isa Symbol, leftraw1))) # outer loop order
-    !allunique(store.leftind) && newarray && push!(store.flags, :zero)
+    !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
+
     append!(store.leftraw, tidyleftraw2(leftraw1, store))
 
+    isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray[] = Zed
-    newarray || saveconstraints(Zed, leftraw, store, false)
-    unique!(store.leftind)
+    :newarray in store.flags || saveconstraints(Zed, leftraw, store, false)
+    :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
+    unique!(store.leftind) # after last saveconstraints()
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right[] = MacroTools_postwalk(dollarwalk(store), right1)
@@ -225,11 +229,10 @@ function parse_input(expr, store)
     unique!(store.arrays)
     unique!(store.sharedind)
     unique!(store.rightind)
-    append!(store.redind, setdiff(store.rightind, store.leftind)) # seemingly random order??
+    append!(store.redind, setdiff(store.rightind, store.leftind)) # seemingly random order?? And, do I need to store all three?
 
     unique!(store.outpre) # kill mutiple @assert, also some limited CSE if f(A) appears twice
 
-    newarray && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
 end
 
 rightwalk(store) = ex -> begin
@@ -496,6 +499,11 @@ function output_array(store)
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
             push!(store.outex, :( local $(store.leftarray[]) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
+
+        # Deal with scalar += now: write into array, later read it out:
+        if :scalar in store.flags && :plusequals in store.flags
+            push!(store.outex, :($(store.leftarray[])[$(store.leftraw...)] = $(store.leftscalar[])))
+        end
     end
 
     if :zero in store.flags
@@ -522,6 +530,7 @@ function action_functions(store)
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
         ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
+        keep = (:plusequals in store.flags) ? :true : :nothing
         block = store.threads==false ? nothing :
             store.threads==true ? (BLOCK[] ÷ store.cost[]) :
             store.threads
@@ -531,7 +540,7 @@ function action_functions(store)
                 $threader($apply!, $ST, $(store.leftarray[]),
                     tuple($(store.arrays...), $(store.scalars...),),
                     tuple($(axisleft...),), tuple($(axisred...),);
-                    block=$block, keep=nothing)
+                    block=$block, keep=$keep)
                 return $(store.leftarray[])
             end
         end)
@@ -590,7 +599,7 @@ function action_functions(store)
     if :newarray in store.flags
         if store.leftarray[] != ZED
             push!(store.outex, :($(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), ) ))
-        elseif isassigned(store.leftscalar)
+        elseif :scalar in store.flags
              push!(store.outex, :($(store.leftscalar[]) = getindex($create($(store.arrays...), $(store.scalars...), ) )))
         else # case of [i,j] := ... with no name given
             push!(store.outex, :( $create($(store.arrays...), $(store.scalars...), ) ))
@@ -717,7 +726,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
 
             Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
                 As::Tuple, Is::Tuple, Js::Tuple; block=0) =
-                fun!(T, As..., Is..., Js..., keep)
+                fun!(T, As..., Is..., Js...,)
         # end
         # Could do this, but seems not to complain:
         # if hasmethod(threader, Tuple{Function, Type{<:Array}, Vararg})
