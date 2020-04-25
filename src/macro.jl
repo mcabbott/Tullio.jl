@@ -208,7 +208,7 @@ function parse_input(expr, store)
     elseif left isa Symbol # complete reduction, by writing into a new 0-array
         push!(store.flags, :newarray, :scalar)
         store.leftscalar[] = left # because store.leftarray[] will be the array
-        leftraw = []
+        leftraw = [1,] # make a 1D array, not zero
         expr.head == :(+=) && push!(store.scalars, left)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
@@ -604,7 +604,8 @@ function action_functions(store)
         if store.leftarray[] != ZED
             push!(store.outex, :($(store.leftarray[]) = $make($(store.arrays...), $(store.scalars...), ) ))
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar[]) = getindex($make($(store.arrays...), $(store.scalars...), ) )))
+             # push!(store.outex, :($(store.leftscalar[]) = getindex($make($(store.arrays...), $(store.scalars...), ),1)))
+             push!(store.outex, :($(store.leftscalar[]) = sum($make($(store.arrays...), $(store.scalars...), ))))
         else # case of [i,j] := ... with no name given
             push!(store.outex, :( $make($(store.arrays...), $(store.scalars...), ) ))
         end

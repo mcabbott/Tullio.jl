@@ -42,10 +42,18 @@ _gradient = Tracker.gradient
     # catch FillArray from sum:
     @test _gradient(x -> sum(@tullio y[i] := log(x[i]) grad=Base), collect(1:3.0))[1] == 1 ./ (1:3)
 
+    # fails on ReverseDiff & Tracker
+    # Tr: Tracker.gradient(x -> x[], fill(1.0))
+    # RD: ReverseDiff.gradient(x -> x[], fill(1.0)) is ambiguous
+    @test_skip _gradient(x -> sum(@tullio y[] := log(x[i]) grad=Base), collect(1:3.0))[1] == 1 ./ (1:3)
+    @test _gradient(x -> sum(@tullio y[1] := log(x[i]) grad=Base), collect(1:3.0))[1] == 1 ./ (1:3)
+
+    # Fixed by using 1D array, not zero!
+    @test _gradient(x -> (@tullio y := log(x[i]) grad=Base), collect(1:3.0))[1] == 1 ./ (1:3)
+
 end
 
 using ForwardDiff
-using ForwardDiff: partials # scope issue?
 
 @testset "dual" begin
 
@@ -75,5 +83,9 @@ using ForwardDiff: partials # scope issue?
     @test fy ≈ _gradient(sum∘unfill∘f, r_x, r_y)[2]
 
     @test _gradient(x -> sum(@tullio y[i] := log(x[i]) grad=Dual), collect(1:3.0))[1] == 1 ./ (1:3)
+
+    @test _gradient(x -> sum(@tullio y[1] := log(x[i]) grad=Dual), collect(1:3.0))[1] == 1 ./ (1:3)
+
+    @test _gradient(x -> (@tullio y := log(x[i]) grad=Dual), collect(1:3.0))[1] == 1 ./ (1:3)
 
 end
