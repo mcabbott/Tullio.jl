@@ -1,11 +1,11 @@
 
 #========== backward gradient using ForwardDiff ==========#
 
-function insert_forward_gradient(create, apply!, store)
-    store.verbose && @info "using ForwardDiff for $create ~ $(store.right[])"
+function insert_forward_gradient(act!, store)
+    store.verbose && @info "using ForwardDiff for $act! ~ $(store.right[])"
 
     dZ = Symbol(DEL, ZED)
-    ∇apply! = Symbol(:∇, apply!)
+    ∇act! = Symbol(:∇, act!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
@@ -26,7 +26,7 @@ function insert_forward_gradient(create, apply!, store)
 
     ex_iter = :($ZED = $(epsilonright); $(readepsilons...))
 
-    make_many_workers(∇apply!,
+    make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store)

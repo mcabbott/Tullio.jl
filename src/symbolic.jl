@@ -3,10 +3,10 @@
 
 using DiffRules
 
-function insert_base_gradient(create, apply!, store)
+function insert_symbolic_gradient(act!, store)
 
     dZ = Symbol(DEL, ZED)
-    ∇apply! = Symbol(:∇, apply!)
+    ∇act! = Symbol(:∇, act!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
@@ -25,7 +25,7 @@ function insert_base_gradient(create, apply!, store)
     end
     ex_body = commonsubex(quote $(inbody...) end)
 
-    make_many_workers(∇apply!,
+    make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store)

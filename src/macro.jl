@@ -184,9 +184,13 @@ end
 
 #========== symbols ==========#
 
-RHS, AXIS = :🖐, :📏
-ZED, TYP, ACC, KEEP = :ℛℰ𝒮, :𝒯, :𝒜, :𝒾𝓃𝒾𝓉
+# These only need not to clash with symbols in the input:
+RHS, AXIS = :𝓇𝒽𝓈, :𝒶_
+ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜, :♻
 EPS, DEL = :𝜀, :𝛥
+
+# These get defined globally, with a random number appended:
+MAKE, ACT! = :𝔐𝔞𝔨𝔢, :𝔄𝔠𝔱!
 
 #========== input parsing ==========#
 
@@ -517,9 +521,7 @@ end
 function action_functions(store)
 
     rn = abs(rand(Int16))
-    apply!, create = Symbol(:💥, rn), Symbol(:💧, rn)
-    # apply!, create = Symbol(:𝔅𝔞𝔫𝔤, rn), Symbol(:𝔑𝔢𝔴, rn)
-    # apply!, create = gensym(:💥), gensym(:💧)
+    act!, make = Symbol(ACT!, rn), Symbol(MAKE, rn)
 
     axisleft = map(i -> Symbol(AXIS, i), store.leftind)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
@@ -535,9 +537,9 @@ function action_functions(store)
             store.threads==true ? (BLOCK[] ÷ store.cost[]) :
             store.threads
         push!(store.outeval, quote
-            function $create($(store.arrays...), $(store.scalars...), )
+            function $make($(store.arrays...), $(store.scalars...), )
                 $sofar
-                $threader($apply!, $ST, $(store.leftarray[]),
+                $threader($act!, $ST, $(store.leftarray[]),
                     tuple($(store.arrays...), $(store.scalars...),),
                     tuple($(axisleft...),), tuple($(axisred...),);
                     block=$block, keep=$keep)
@@ -570,11 +572,11 @@ function action_functions(store)
         )
 
     if isempty(store.redind)
-        make_many_workers(apply!,
+        make_many_actors(act!,
             vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
             nothing, store.leftind, nothing, Symbol[], ex_nored, nothing, store)
     else
-        make_many_workers(apply!,
+        make_many_actors(act!,
             vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
@@ -582,13 +584,13 @@ function action_functions(store)
     #===== gradient hooks =====#
     if store.grad != false && (:newarray in store.flags) && !(:nograd in store.flags)
         # First see if you can insert hooks for Zygote/Tracker/Yota
-        if backward_definitions(create, apply!, store)
-            # If so, calculate ∇create() somehow:
+        if backward_definitions(make, act!, store)
+            # If so, calculate ∇make() somehow:
             if store.grad == :Dual
                 isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
-                insert_forward_gradient(create, apply!, store)
+                insert_forward_gradient(act!, store)
             elseif store.grad == :Base
-                insert_base_gradient(create, apply!, store)
+                insert_symbolic_gradient(act!, store)
             end
         end
     end
@@ -598,18 +600,18 @@ function action_functions(store)
     keep = (:plusequals in store.flags) ? :true : :nothing
     if :newarray in store.flags
         if store.leftarray[] != ZED
-            push!(store.outex, :($(store.leftarray[]) = $create($(store.arrays...), $(store.scalars...), ) ))
+            push!(store.outex, :($(store.leftarray[]) = $make($(store.arrays...), $(store.scalars...), ) ))
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar[]) = getindex($create($(store.arrays...), $(store.scalars...), ) )))
+             push!(store.outex, :($(store.leftscalar[]) = getindex($make($(store.arrays...), $(store.scalars...), ) )))
         else # case of [i,j] := ... with no name given
-            push!(store.outex, :( $create($(store.arrays...), $(store.scalars...), ) ))
+            push!(store.outex, :( $make($(store.arrays...), $(store.scalars...), ) ))
         end
     else
         block = store.threads==false ? nothing :
             store.threads==true ? (BLOCK[] ÷ store.cost[]) :
             store.threads
         push!(store.outex, quote
-            $threader($apply!, $ST, $(store.leftarray[]),
+            $threader($act!, $ST, $(store.leftarray[]),
                 tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisleft...),), tuple($(axisred...),);
                 block = $block, keep = $keep)
@@ -620,7 +622,7 @@ end
 
 
 """
-    make_many_workers(f!, args, ex1, [:i,], ex3, [:k,], ex5, ex6, store)
+    make_many_actors(f!, args, ex1, [:i,], ex3, [:k,], ex5, ex6, store)
 
 This makes several functions of this form,
 decorated as necessary with `@inbouds` or `@avx` etc,
@@ -638,14 +640,15 @@ f!(::Type, args..., keep=nothing) where {T}
 end
 ```
 """
-function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner::Vector{Symbol}, ex5, ex6, store)
+function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Vector{Symbol}, ex5, ex6, store)
 
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
     push!(store.outeval, quote
 
-        function $apply!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+        function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            @debug "base actor:" typeof.(tuple($(args...)))
             @inbounds @fastmath ($ex1; $ex2)
         end
 
@@ -663,7 +666,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         if store.avx == true
             push!(store.outeval, quote
 
-                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                function $act!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "LoopVectorization @avx actor"
                     $expre
                     LoopVectorization.@avx $exloop
                     $expost
@@ -673,7 +677,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         else
             push!(store.outeval, quote
 
-                function $apply!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                function $act!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "LoopVectorization @avx actor, unroll=$(store.avx)"
                     $expre
                     LoopVectorization.@avx unroll=$(store.avx) $exloop
                     $expost
@@ -689,7 +694,7 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
         isdefined(store.mod, :KernelAbstractions) &&
         isdefined(store.mod, :CuArrays)
 
-        kernel = Symbol(apply!, :🇨🇺)
+        kernel = Symbol(act!, :🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         push!(store.outeval, quote
@@ -699,7 +704,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
                 ($ex1; $ex3; $ex4; $ex6)
             end
 
-            function $apply!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+            function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                @debug "KernelAbstractions CuArrays actor"
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
                 # types = map(typeof, ($(args...),))
                 # @show types
@@ -709,7 +715,8 @@ function make_many_workers(apply!, args, ex1, outer::Vector{Symbol}, ex3, inner:
             end
 
             # Just for testing really...
-            function $apply!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+            function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+                @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
                 cpu_kern! = $kernel(CPU(), Threads.nthreads())
                 $(asserts...)
                 $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
@@ -747,15 +754,15 @@ recurseloops(ex, list::Vector) =
 
 #===== define gradient hooks =====#
 
-function backward_definitions(create, apply!, store)
+function backward_definitions(make, act!, store)
     dZ = Symbol(DEL, ZED)
-    ∇create = Symbol(:∇, create)
-    ∇apply! = Symbol(:∇, apply!)
+    ∇make = Symbol(:∇, make)
+    ∇act! = Symbol(:∇, act!)
     needgrad = false
 
     if isdefined(store.mod, :Zygote)
         push!(store.outeval, quote
-            Zygote.@adjoint $create(args...) = $create(args...), Δ -> $∇create(Δ, args...)
+            Zygote.@adjoint $make(args...) = $make(args...), Δ -> $∇make(Δ, args...)
         end)
         needgrad = true
     end
@@ -763,7 +770,7 @@ function backward_definitions(create, apply!, store)
     if  isdefined(store.mod, :Yota)
         for (n,A) in enumerate(store.arrays)
             push!(store.outeval, quote
-                Yota.@diffrule  $create($(store.arrays...), $(store.scalars...))  $A  $∇create(dZ, $(store.arrays...), $(store.scalars...))[$n]
+                Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  $∇make(dZ, $(store.arrays...), $(store.scalars...))[$n]
             end)
         end
         needgrad = true
@@ -771,22 +778,22 @@ function backward_definitions(create, apply!, store)
 
     if isdefined(store.mod, :Tracker)
         push!(store.outeval, quote
-            $create(A::Tracker.TrackedArray, args...) = Tracker.track($create, A, args...)
-            $create(A, B::Tracker.TrackedArray, args...) = Tracker.track($create, A, B, args...)
-            $create(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track($create, A, B, args...)
-            Tracker.@grad $create(args...) =
-                $create(Tracker.data.(args)...), Δ -> $∇create(Δ, Tracker.data.(args)...)
+            $make(A::Tracker.TrackedArray, args...) = Tracker.track($make, A, args...)
+            $make(A, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
+            $make(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
+            Tracker.@grad $make(args...) =
+                $make(Tracker.data.(args)...), Δ -> $∇make(Δ, Tracker.data.(args)...)
         end)
         needgrad = true
     end
 
     if isdefined(store.mod, :ReverseDiff) # https://github.com/JuliaDiff/ReverseDiff.jl/pull/123
         push!(store.outeval, quote
-            $create(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, args...)
-            $create(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, B, args...)
-            $create(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($create, A, B, args...)
-            ReverseDiff.@grad $create(args...) =
-                $create(ReverseDiff.value.(args)...), Δ -> $∇create(Δ, ReverseDiff.value.(args)...)
+            $make(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, args...)
+            $make(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
+            $make(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
+            ReverseDiff.@grad $make(args...) =
+                $make(ReverseDiff.value.(args)...), Δ -> $∇make(Δ, ReverseDiff.value.(args)...)
         end)
         needgrad = true
     end
@@ -810,10 +817,10 @@ function backward_definitions(create, apply!, store)
             store.threads==true ? (BLOCK[] ÷ store.cost[]) :
             store.threads
         push!(store.outeval, quote
-            function $∇create($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+            function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)
-                $∇threader($∇apply!, $ST,
+                $∇threader($∇act!, $ST,
                     tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
                     tuple($(shared...),), tuple($(nonshared...), );
                     block = $block)
