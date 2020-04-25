@@ -388,7 +388,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
             end
         end
         # for axes(A,2) where A is already available, just save it
-        if r isa Expr && r.head == :call && r.args[1] == :axes && r.args[2] in store.arrays
+        if r isa Expr && r.head == :call && r.args[1] in (:axes, :eachindex) && r.args[2] in store.arrays
             push!(v, r)
             continue
         end
@@ -466,11 +466,13 @@ function output_array(store)
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
+        str = "unable to infer eltype for RHS $(store.right[])"
         push!(store.outex, quote
             $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
             $TYP = if Base.isconcretetype($T0)
                 $T0
             else
+                @debug $str
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)

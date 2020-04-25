@@ -142,6 +142,7 @@ using ForwardDiff
 
         :(sqrt(x) + 1/sqrt(y+2z)),
         :(inv(sqrt(x)*sqrt(y)) + sqrt(2*inv(z))),
+        :(x * z / sqrt(y * z)),
 
         :(log(x/y) - log(z+2)),
         :(log(x*y*z) - 33y),
