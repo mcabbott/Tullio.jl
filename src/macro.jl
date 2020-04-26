@@ -586,7 +586,9 @@ function action_functions(store)
     #===== gradient hooks =====#
     if store.grad != false && (:newarray in store.flags) && !(:nograd in store.flags)
         # First see if you can insert hooks for Zygote/Tracker/Yota
-        if backward_definitions(make, act!, store)
+        backdefs = backward_definitions(make, act!, store)
+        if backdefs != nothing
+            append!(store.outeval, backdefs)
             # If so, calculate ∇make() somehow:
             if store.grad == :Dual
                 isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
@@ -762,25 +764,26 @@ function backward_definitions(make, act!, store)
     ∇make = Symbol(:∇, make)
     ∇act! = Symbol(:∇, act!)
     needgrad = false
+    evalex = []
 
     if isdefined(store.mod, :Zygote)
-        push!(store.outeval, quote
+        push!(evalex, quote
             Zygote.@adjoint $make(args...) = $make(args...), Δ -> $∇make(Δ, args...)
         end)
         needgrad = true
     end
 
-    if  isdefined(store.mod, :Yota)
+    if  isdefined(store.mod, :Yota) # Yota.@diffrule needs to be run after ∇make is defined
         for (n,A) in enumerate(store.arrays)
-            push!(store.outeval, quote
-                Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  $∇make(dZ, $(store.arrays...), $(store.scalars...))[$n]
+            push!(evalex, quote
+                Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  getindex($∇make(dy, $(store.arrays...), $(store.scalars...)), $n)
             end)
         end
         needgrad = true
     end
 
     if isdefined(store.mod, :Tracker)
-        push!(store.outeval, quote
+        push!(evalex, quote
             $make(A::Tracker.TrackedArray, args...) = Tracker.track($make, A, args...)
             $make(A, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
             $make(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
@@ -791,7 +794,7 @@ function backward_definitions(make, act!, store)
     end
 
     if isdefined(store.mod, :ReverseDiff) # https://github.com/JuliaDiff/ReverseDiff.jl/pull/123
-        push!(store.outeval, quote
+        push!(evalex, quote
             $make(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, args...)
             $make(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
             $make(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
@@ -819,7 +822,7 @@ function backward_definitions(make, act!, store)
         block = store.threads==false ? nothing :
             store.threads==true ? (BLOCK[] ÷ store.cost[]) :
             store.threads
-        push!(store.outeval, quote
+        pushfirst!(evalex, quote # pushfirst! is NB for Yota
             function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)
@@ -832,7 +835,7 @@ function backward_definitions(make, act!, store)
         end)
     end
 
-    return needgrad
+    return needgrad ? evalex : nothing
 end
 
 fillarrayreplace(rhs, dZ) = MacroTools_postwalk(rhs) do @nospecialize ex

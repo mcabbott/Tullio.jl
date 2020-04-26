@@ -3,21 +3,21 @@ using Test, Printf
 
 @info "Testing with $(Threads.nthreads()) threads"
 
-t0 = @elapsed using Tullio
-@info @sprintf("Loading Tullio took %.1f seconds", t0)
+t1 = @elapsed using Tullio
+@info @sprintf("Loading Tullio took %.1f seconds", t1)
 
 Tullio.BLOCK[] = 32 # use threading even on small arrays
 Tullio.MINIBLOCK[] = 32
 
 #===== stuff =====#
 
-t1 = time()
+t2 = time()
 
 @testset "parsing all the things" begin include("parsing.jl") end
 
 @testset "tests from Einsum.jl" begin include("einsum.jl") end
 
-@info @sprintf("Basic tests took %.1f seconds", time()-t1)
+@info @sprintf("Basic tests took %.1f seconds", time()-t2)
 
 @testset "internal pieces" begin include("utils.jl") end
 
@@ -42,57 +42,44 @@ end
 
 using ForwardDiff
 
-t3 = @elapsed using Tracker
-@info @sprintf("Loading Tracker took %.1f seconds", t3)
+t3 = time()
+using Tracker
 
 unfill(x) = x  # gradient of sum returns a FillArrays.Fill
-unfill(x::TrackedArray) = Tracker.track(unfill, x)
-Tracker.@grad unfill(x) = unfill(Tracker.data(x)), dx -> (collect(dx),)
 
 _gradient(x...) = Tracker.gradient(x...)
 @testset "backward gradients: Tracker" begin include("gradients.jl") end
 
+@info @sprintf("Tracker tests took %.1f seconds", time()-t3)
+
 #===== Yota =====#
 #=
-t4 = @elapsed using Yota
-@info @sprintf("Loading Yota took %.1f seconds", t4)
-# Yota.@diffrule unfill(x) x collect(ds)
+t4 = time()
+using Yota
 
 _gradient(x...) = Yota.grad(x...)[2]
 @testset "backward gradients: Yota" begin include("gradients.jl") end
+
+@info @sprintf("Yota tests took %.1f seconds", time()-t4)
 =#
 #===== Zygote =====#
 
-t5 = @elapsed using Zygote
-@info @sprintf("Loading Zygote took %.1f seconds", t5)
-
-Zygote.@adjoint unfill(x) = x, dx -> (collect(dx),)
+t5 = time()
+using Zygote
 
 _gradient(x...) = Zygote.gradient(x...)
 @testset "backward gradients: Zygote" begin include("gradients.jl") end
 
+@info @sprintf("Zygote tests took %.1f seconds", time()-t5)
+
 #===== ReverseDiff =====#
 
-t6 = @elapsed using ReverseDiff
-@info @sprintf("Loading ReverseDiff took %.1f seconds", t6)
+t6 = time()
+using ReverseDiff
 
 _gradient(f, xs...) = ReverseDiff.gradient(f, xs)
 @testset "backward gradients: ReverseDiff" begin include("gradients.jl") end
 
+@info @sprintf("ReverseDiff tests took %.1f seconds", time()-t6)
+
 #===== done! =====#
-
-#=
-using Yota
-g(x) = x^2
-dg(dy, x) = (@show dy x; x + dy + im)
-Yota.@diffrule g(x) x dg(dy, x)
-Yota.grad(g, 1)[2][1]
-
-f(x) = x^3
-df(dy, x) = (@show dy x; x + dy + im)
-Yota.@diffrule f(args...) x df(dy, args...)
-Yota.grad(f, 1)[2][1]
-
-
-
-=#
