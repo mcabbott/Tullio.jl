@@ -186,11 +186,11 @@ end
 
 # These only need not to clash with symbols in the input:
 RHS, AXIS = :𝓇𝒽𝓈, :𝒶_
-ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜, :♻
+ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜𝒸𝒸, :♻
 EPS, DEL = :𝜀, :𝛥
 
 # These get defined globally, with a random number appended:
-MAKE, ACT! = :𝔐𝔞𝔨𝔢, :𝔄𝔠𝔱!
+MAKE, ACT! = :𝒞𝓇ℯ𝒶𝓉ℯ, :𝒜𝒸𝓉! # :ℳ𝒶𝓀ℯ
 
 #========== input parsing ==========#
 
