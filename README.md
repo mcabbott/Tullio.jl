@@ -6,7 +6,7 @@ This is roughly a re-write of the [`Einsum.@einsum`](https://github.com/ahwillia
 ```
 and writes loops which fill in the matrix `C`, by summing the right hand side at all possible values of free index `k`. The differences are:
 
-1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. Shifts result in indices running over the intersection of ranges inferred (rather than demanding agreement).
+1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. 
 
 2. It calculates gradients for reverse-mode auto-differentiation, by making a second pass with either a symbolic derivative of the right hand side, or else using `(A[i,k] + ϵA) * (B[k,j] + ϵB)` with dual numbers `ϵA, ϵB`. 
 
@@ -22,11 +22,11 @@ The default setting is:
 * `avx=false` turns off `@avx`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work.
 * `verbose=true` prints everything; you can't use `@macroexpand1` as it needs to `eval` rather than return gradient definitions.
-* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one.
-* `A[row=i, col=j] := ...` makes a new NamedDimsArray.
+* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new NamedDimsArray.
 
 Implicit:
 * Output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
+* Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) are taken run over the inersection of possible ranges.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker`, `Zygote` & `Yota`, according to which of these packages are visible. 
 * GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
@@ -93,7 +93,7 @@ Back-end friends & relatives:
 
 * [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, if available. 
 
-* [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) is a pure-Julia BLAS, using that.
+* [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) and [PaddedMatrices.jl](https://github.com/chriselrod/PaddedMatrices.jl) build on that.
 
 * [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl) and [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) generate GPU-compatable kernels.
 
