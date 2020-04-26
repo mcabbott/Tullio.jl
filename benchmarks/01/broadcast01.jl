@@ -59,6 +59,9 @@ julia> using LoopVectorization
 julia> @btime Zygote.gradient(x -> sum(@tullio s[i] := 1+tanh(x[i,j])), $x2);
   10.663 ms (81 allocations: 7.64 MiB)
 
+julia> @btime Zygote.gradient(x -> (@tullio s := 1+tanh(x[i,j])), $x2); # skip making s[i]
+  9.406 ms (79 allocations: 7.63 MiB)
+
 julia> using ForwardDiff
 
 julia> @btime Zygote.gradient(x -> sum(@tullio s[i] := 1+tanh(x[i,j]) grad=Dual), $x2);
@@ -78,10 +81,13 @@ julia> @btime ReverseDiff.gradient(x -> sum(x .+ x' ./ 2), $x2);
 julia> @btime Zygote.gradient(x -> (@tullio s := x[i,j] + x[j,i]/2), $x2);
   1.756 ms (164 allocations: 7.64 MiB)
 
-# And without @avx magic:
+# And without @avx magic...
 
 julia> @btime Zygote.gradient(x -> (@tullio s := x[i,j] + x[j,i]/2  avx=false), $x2);
   2.368 ms (165 allocations: 7.64 MiB)
+
+julia> @btime Zygote.gradient(x -> (@tullio s := x[i,j] + x[j,i]/2  avx=false threads=false), $x2);
+  5.146 ms (25 allocations: 7.63 MiB)
 
 julia> @btime Tracker.gradient(x -> (@tullio s := x[i,j] + x[j,i]/2  avx=false), $x2);
   7.169 ms (172 allocations: 30.53 MiB)
@@ -101,3 +107,15 @@ julia> @btime ReverseDiff.gradient(x -> sum(x .+ x' ./ 2), $x2);
 
 julia> @btime ReverseDiff.gradient(x -> sum(x .+ x'), $x2); # without the ./2 bit!
   48.920 ms (1000030 allocations: 99.18 MiB)
+
+# Yota only supports broadcasting of primitives, i.e. things with an explicit scalar rule
+
+julia> using Yota
+
+julia> @diffrule f1(x)  x  dy*(1-tanh(x)^2)
+
+julia> @btime Yota.grad(x -> sum(f1.(x)), $x2);
+  77.449 ms (86 allocations: 45.78 MiB)
+
+julia> @btime Yota.grad(x -> sum(x .+ x' ./ 2), $x2);
+  8.423 ms (89 allocations: 38.15 MiB)
