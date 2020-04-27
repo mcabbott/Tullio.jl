@@ -7,8 +7,8 @@
 # These versions are updated to use Float32, which is what Jax is using (by default).
 # It helped a little to avoid Float64 constants, and to add @inbounds in a few places.
 
-using Pkg; pkg"add LoopVectorization Einsum https://github.com/mcabbott/Tullio.jl"
-using LoopVectorization, Tullio, Einsum, Test, BenchmarkTools
+using Pkg; pkg"add LoopVectorization Einsum TensorCast https://github.com/mcabbott/Tullio.jl"
+using LoopVectorization, Tullio, Einsum, TensorCast, Test, BenchmarkTools
 
 a = -100 .+ 200 .* rand(Float32, 5000, 2);
 b = -100 .+ 200 .* rand(Float32, 5000, 2);
@@ -130,6 +130,31 @@ end
 @test res ≈ distances_vielsum(a, b)
 @test eltype(distances_vielsum(a, b)) == Float32
 
+function distances_cast(data1deg, data2deg)
+    data1 = deg2rad.(data1deg)
+    data2 = deg2rad.(data2deg)
+
+    @cast data[n,m] := sin((data1[n,1] - data2[m,1])/2)^2 +
+        cos(data1[n,1]) * cos(data2[m,1]) * sin((data1[n,2] - data2[m,2])/2)^2
+
+    @cast data[n,m] = 2 * 6373 * atan(sqrt(abs(data[n,m])), sqrt(abs(1 - data[n,m])))
+end
+
+function distances_cast_avx(data1deg, data2deg)
+    data1 = deg2rad.(data1deg)
+    data2 = deg2rad.(data2deg)
+
+    @cast data[n,m] := sin((data1[n,1] - data2[m,1])/2)^2 +
+        cos(data1[n,1]) * cos(data2[m,1]) * sin((data1[n,2] - data2[m,2])/2)^2  avx
+
+    @cast data[n,m] = 2 * 6373 * atan(sqrt(abs(data[n,m])), sqrt(abs(1 - data[n,m])))  avx
+end
+
+@test res ≈ distances_cast(a, b)
+@test eltype(distances_cast(a, b)) == Float32
+@test res ≈ distances_cast_avx(a, b)
+@test eltype(distances_cast_avx(a, b)) == Float32
+
 function distances_tullio(data1deg, data2deg)
     data1 = deg2rad.(data1deg)
     data2 = deg2rad.(data2deg)
@@ -171,6 +196,12 @@ julia> @btime distances_einsum($a, $b);
 julia> @btime distances_vielsum($a, $b);
   572.038 ms (53 allocations: 95.45 MiB)
 
+julia> @btime distances_cast($a, $b); # should be much like distances_bcast
+  1.339 s (12 allocations: 95.44 MiB)
+
+julia> @btime distances_cast_avx($a, $b);
+  170.653 ms (45 allocations: 190.81 MiB)
+
 julia> @btime distances_tullio($a, $b);
   51.442 ms (636 allocations: 95.47 MiB)
 
@@ -197,6 +228,12 @@ julia> @btime distances_einsum($a, $b);
 
 julia> @btime distances_vielsum($a, $b);
   549.669 ms (52 allocations: 190.89 MiB)
+
+julia> @btime distances_cast($a, $b);
+  1.546 s (12 allocations: 190.89 MiB)
+
+julia> @btime distances_cast_avx($a, $b);
+  607.745 ms (45 allocations: 381.62 MiB)
 
 julia> @btime distances_tullio($a, $b);
   188.599 ms (636 allocations: 190.91 MiB)
