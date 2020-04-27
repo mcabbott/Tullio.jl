@@ -199,7 +199,7 @@ julia> @btime distances_vielsum($a, $b);
 julia> @btime distances_cast($a, $b); # should be much like distances_bcast
   1.339 s (12 allocations: 95.44 MiB)
 
-julia> @btime distances_cast_avx($a, $b);
+julia> @btime distances_cast_avx($a, $b); # applies @avx to two broadcasts, not one
   170.653 ms (45 allocations: 190.81 MiB)
 
 julia> @btime distances_tullio($a, $b);
@@ -266,6 +266,12 @@ julia> @btime distances_einsum($a, $b);
 julia> @btime distances_vielsum($a, $b);
   145.149 ms (133 allocations: 95.46 MiB)
 
+julia> @btime distances_cast($a, $b); # should be much like distances_bcast
+  1.036 s (12 allocations: 95.44 MiB)
+
+julia> @btime distances_cast_avx($a, $b); # applies @avx to two broadcasts, not one
+  134.320 ms (45 allocations: 190.81 MiB)
+
 julia> @btime distances_tullio($a, $b);
   27.329 ms (789 allocations: 95.48 MiB)
 
@@ -293,6 +299,12 @@ julia> @btime distances_einsum($a, $b);
 julia> @btime distances_vielsum($a, $b);
   149.393 ms (133 allocations: 190.90 MiB)
 
+julia> @btime distances_cast($a, $b);
+  1.139 s (12 allocations: 190.89 MiB)
+
+julia> @btime distances_cast_avx($a, $b);
+  473.684 ms (45 allocations: 381.62 MiB)
+
 julia> @btime distances_tullio($a, $b);
   75.990 ms (790 allocations: 190.93 MiB)
 
@@ -311,8 +323,14 @@ julia> cres = distances_bcast(ca, cb);
 julia> @test cres ≈ distances_tullio(ca, cb)
 Test Passed
 
+julia> @test cres ≈ distances_cast(ca, cb)
+Test Passed
+
 julia> @btime CuArrays.@sync distances_bcast($ca, $cb);
   31.550 ms (420 allocations: 18.42 KiB)
+
+julia> @btime CuArrays.@sync distances_cast($ca, $cb);
+  31.663 ms (392 allocations: 17.94 KiB)
 
 julia> @btime CuArrays.@sync distances_tullio($ca, $cb);
   188.699 ms (330445 allocations: 5.05 MiB)
