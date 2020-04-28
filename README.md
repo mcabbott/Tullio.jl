@@ -10,30 +10,9 @@ and writes loops which fill in the matrix `C`, by summing the right hand side at
 
 2. It calculates gradients for reverse-mode auto-differentiation, by making a second pass with either a symbolic derivative of the right hand side, or else using `(A[i,k] + ϵA) * (B[k,j] + ϵB)` with dual numbers `ϵA, ϵB`. 
 
-3. It should be faster, by using blocking and [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) on large arrays, and by using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. 
+3. It should be faster, by using [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) and blocking on large arrays, and using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. 
 
 4. It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to write a GPU version, slightly experimentally.
-
-### Options
-
-The default setting is:
-```@tullio threads=true grad=Base avx=true verbose=false A[i,j] := ...``` 
-* `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
-* `avx=false` turns off `@avx`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
-* `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work.
-* `verbose=true` prints everything; you can't use `@macroexpand1` as it needs to `eval` rather than return gradient definitions.
-* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new NamedDimsArray.
-
-Implicit:
-* Output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
-* Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) are taken run over the inersection of possible ranges.
-* The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
-* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker`, `Zygote` & `Yota`, according to which of these packages are visible. 
-* GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
-
-Extras:
-* `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
-* `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
 ### Examples
 
@@ -56,7 +35,7 @@ using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
 
-# Access to fields & arrays -- this uses `axes(first(N).c, 1)`
+# Access to fields & arrays -- this uses j ∈ axes(first(N).c, 1)
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 @tullio T[i,j] := (N[i].a // 1, N[i].c[j])
 
@@ -65,27 +44,68 @@ N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 T == reverse.(permutedims(T))
 ```
 
+Threads & SIMD:
+
+```julia
+using Tullio, LoopVectorization, NNlib, BenchmarkTools
+
+# Batched matmul with batch index first in B, defined with @avx loops:
+bmm_rev(A, B) = @tullio C[i,k,b] := A[i,j,b] * B[b,k,j]  # (sum over j)
+
+A = randn(20,30,500); B = randn(500,40,30);
+bmm_rev(A, B) ≈ NNlib.batched_mul(A, permutedims(B, (3,2,1))) # true
+
+@btime bmm_rev($A, $B); # 317.526 μs μs, same speed as un-permuted bmm
+@btime NNlib.batched_mul($A, permutedims($B, (3,2,1))); # 1.478 ms, with MKL
+
+# Complete reduction, without first materialising X .* log.(Y')
+sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
+
+X = rand(1000,1000);
+@btime sum_opp($X)                    #   499.814 μs (173 allocations: 14.20 KiB)
+@btime sum($X .* log.(transpose($X))) # 8.759 ms (2 allocations: 7.63 MiB)
+```
+
 Derivatives & GPU:
 
 ```julia
-using Tullio, Tracker, CuArrays, KernelAbstractions
+using Tullio, Tracker # This is defined with a gradient:
+mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k] 
+
 A = rand(3,40); B = rand(40,500);
-cA = cu(A); cB = cu(B);
+A * B ≈ mul(A, B) # true
 
-mul(A,B) = @tullio C[i,k] := A[i,j] * B[j,k]
-cC = mul(cA,cB) 
+ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
+ΔA ≈ ones(3,500) * B' # true
 
-ΔA = Tracker.gradient((A,B) -> sum(identity, mul(A,B)), cA, cB)[1]
-collect(ΔA) ≈ ones(size(A*B)) * B'
+using CuArrays, KernelAbstractions # Now defined with a GPU version:
+mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
-A0 = rand(300,400); B0 = rand(400,500);
-@btime mul($A0, $B0);
-@btime ($A0 * $B0); # twice as quick, thanks to MKL
+cu(A * B) ≈ mul(cu(A), cu(B)) # true
 
-cA0 = cu(A0); cB0 = cu(B0);
-@btime CuArrays.@sync mul($cA0, $cB0);
-@btime CuArrays.@sync ($cA0 * $cB0); # 400 times as quick!
+cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1] # true
 ```
+
+### Options
+
+The default setting is:
+```@tullio threads=true avx=true grad=Base verbose=false A[i,j] := ...``` 
+* `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
+* `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
+* `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
+* `verbose=true` prints everything; you can't use `@macroexpand1` as it needs to `eval` rather than return gradient definitions.
+* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
+
+Implicit:
+* Output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
+* Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
+* The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
+* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker`, `Zygote` & `Yota`, according to which of these packages are visible. 
+* GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
+
+Extras:
+* `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
+* `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
 ### Elsewhere
 
@@ -103,7 +123,7 @@ Back-end friends & relatives:
 
 Front-end near-lookalikes:
 
-* [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. This package should (eventually) be a strict upgrade: `using Tullio: @einsum` even gives a macro with the same name.
+* [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. See [tests/einsum.jl](https://github.com/mcabbott/Tullio.jl/blob/master/test/einsum.jl) where `using Tullio: @einsum` is an almost-seamless replaceement.
 
 * [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations.
 
