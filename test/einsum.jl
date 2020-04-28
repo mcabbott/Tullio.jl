@@ -158,7 +158,7 @@ end
     end
 
 end
-#=
+
 @testset "scalar += dot" begin
 
     x = randn(10)
@@ -168,12 +168,7 @@ end
     @einsum k += x[i] * y[i]
     @test isapprox(k, k0 + dot(x, y))
 
-    # @tullio k += x[i] * y[i]  verbose=true
-    # immediately says  @assert ndims(ℛℰ𝒮) == 0 "expected a 0-array ℛℰ𝒮"
-    # thinks of += as in-place... do I special-case this?
-
 end
-=#
 
 @testset "test *= operator" begin
 
