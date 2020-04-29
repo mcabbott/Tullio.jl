@@ -667,11 +667,10 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
 
     if store.avx != false && !(:noavx in store.flags) &&
         isdefined(store.mod, :LoopVectorization)
-        LoopVecTypes = Union{Float64,Float32,Int64,Int32}
         if store.avx == true
             push!(store.outeval, quote
 
-                function $act!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                     @debug "LoopVectorization @avx actor"
                     $expre
                     LoopVectorization.@avx $exloop
@@ -682,7 +681,7 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
         else
             push!(store.outeval, quote
 
-                function $act!(::Type{<:Array{<:$LoopVecTypes}}, $(args...), $KEEP=nothing) where {$TYP}
+                function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                     @debug "LoopVectorization @avx actor, unroll=$(store.avx)"
                     $expre
                     LoopVectorization.@avx unroll=$(store.avx) $exloop
