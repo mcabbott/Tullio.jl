@@ -23,6 +23,10 @@ function insert_symbolic_gradient(act!, store)
         deltar = simplitimes(drdt, :($dZ[$(store.leftraw...)]))
         :($dt = $dt + $deltar)
     end
+    # You could show the error only if the gradient is actually called, delete :nograd flags?
+    #     catch err
+    #     :(throw(err))
+    # end
     ex_body = commonsubex(quote $(inbody...) end)
 
     make_many_actors(∇act!,
@@ -48,6 +52,7 @@ end
 
 # This could probably use https://github.com/dfdx/XGrad.jl
 # or https://github.com/SciML/ModelingToolkit.jl
+# or now I found this: https://github.com/HarrisonGrodin/Simplify.jl
 # but seemed simple enough to just write out, using rules from:
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
@@ -169,41 +174,80 @@ simplipow(x::Number, p::Number) = x^p
 simplipow(x, p::Number) = p==1 ? x : p==2 ? :($x*$x) : :($x^$p)
 simplipow(x, p) = :($x^$p)
 
+#========== CSE ==========#
+
+# My approach was to look for things occuring twice, biggest first.
+# Then I found https://github.com/rdeits/CommonSubexpressions.jl
+# which just pulls everything out, but doesn't like indexing expressions.
+
 function commonsubex(expr::Expr)
-    seen = Expr[]
-    twice = Dict{Expr,Symbol}()
-    MacroTools_postwalk(expr) do @nospecialize ex
-        if ex in keys(twice)
-            return ex
-        elseif ex in seen
-            twice[ex] = Symbol(string(ex))
-            return ex
-        elseif ex isa Expr && ex.head != :ref # && !(ex.head in [:+, :-, :*])
-            push!(seen, ex)
-        # elseif ex isa Expr && ex.head == :ref
-        #     return nothing
-        # trying to prevent pulling out [i+j-1] etc, but needs prewalk, which is worse?
+    dict, defs, nope = Dict(), [], Set()
+    if expr.head == :block
+        args = [csewalk(ex, dict, defs, nope) for ex in copy(expr).args]
+        quote
+            $(defs...)
+            $(args...)
         end
-        ex
+    else
+        res = csewalk(copy(expr), dict, defs, nope)
+        quote
+            $(defs...)
+            $res
+        end
     end
-    rules = Dict{Expr,Symbol}()
-    out = commonapply(expr, twice, rules)
-    for (ex,sy) in pairs(rules)
-        pushfirst!(out.args, :($sy = $ex))
-    end
-    out
 end
 
-commonapply(expr, twice, rules) =
-    MacroTools_prewalk(expr) do @nospecialize ex
-        ex == expr && return ex
-        if ex in keys(twice)
-            sy = twice[ex]
-            rules[ex] = sy
-            return sy
+csewalk(ex, dict, defs, nope) = ex
+csewalk(ex::Expr, dict::Dict, defs::Vector, nope::Set) =
+    # The goal is to alter RHS of assignments,
+    # this mess is the most common case, A = A + stuff
+    if ex.head == :(=) && ex.args[2] isa Expr && ex.args[2].head == :call &&
+        ex.args[2].args[1] == :+ && ex.args[2].args[2] == ex.args[1]
+        for n in 3:length(ex.args[2].args)
+            ex.args[2].args[n] = csewalk(ex.args[2].args[n], dict, defs, nope)
         end
+        push!(nope, ex.args[1]) # new Ex3 = ... cannot have this on RHS
         ex
+    elseif ex.head in (:(=), :(+=)) # easier case of A = stuff
+        push!(nope, ex.args[1])
+        ex.args[2] = csewalk(ex.args[2], dict, defs, nope)
+        ex
+
+    # Then we work on sub-expressions, replace those we're seen immediately,
+    # and don't look inside A[i,j] at all:
+    elseif haskey(dict, ex)
+        dict[ex]
+    elseif ex.head == :ref
+        ex
+
+    # Simplest case is the last one, replace a whole expression with Ex5 & work inwards.
+    # Can't replace "illegal" expressions, but can look for parts which are safe:
+    elseif illegal(ex, nope)
+        args = Any[x in nope ? x : csewalk(x, dict, defs, nope) for x in ex.args]
+        Expr(ex.head, args...)
+
+    elseif ex.head == :call && ex.args[1] in (:*, :+) && length(ex.args) >= 4 # e.g. 1*2*3
+        inner = []
+        while length(ex.args) >= 3
+            pushfirst!(inner, pop!(ex.args))
+        end
+        binary = Expr(:call, ex.args..., Expr(:call, ex.args[1], inner...))
+        csewalk(binary, dict, defs, nope)
+
+    else
+        args = Any[csewalk(x, dict, defs, nope) for x in ex.args]
+        sy = Symbol(EXPR, length(defs)+1)
+        dict[ex] = sy
+        # add defn for the outermost operation:
+        push!(defs, Expr(:(=), sy, Expr(ex.head, args...)))
+        # and return the name for caller:
+        sy
     end
+
+illegal(ex, nope) = ex in nope
+illegal(ex::Expr, nope) = ex in nope || any(illegal(x, nope) for x in ex.args)
+
+#========== examination ==========#
 
 """
     Tullio.@printgrad log(x/y) x y
@@ -223,8 +267,11 @@ function printgrad(ex::Expr, ts::Symbol...)
         dt = Symbol(:δ, t) # Symbol("∂f_∂", t)
         push!(out.args, :($dt = $df))
     end
+    print("Initial:\n   ")
+    println(join(filter(x -> !(x isa LineNumberNode), out.args), "\n   "))
+    print("After CSE:\n   ")
     done = filter(x -> !(x isa LineNumberNode), commonsubex(out).args)
-    map(println, done)
+    println(join(done, "\n   "))
     nothing
 end
 
@@ -286,6 +333,9 @@ using Tullio: @printgrad
 
 @printgrad  exp(x) * y   x y
 @printgrad  exp(x) / 2y   x y
+
+@printgrad a * b / sqrt(d * e)  a b d e
+@printgrad x * z / sqrt(y * z)  x y z
 
 =#
 

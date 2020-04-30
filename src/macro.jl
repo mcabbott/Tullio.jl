@@ -185,9 +185,9 @@ end
 #========== symbols ==========#
 
 # These only need not to clash with symbols in the input:
-RHS, AXIS = :𝓇𝒽𝓈, :𝒶_
+RHS, AXIS = :𝓇𝒽𝓈, :𝒶𝓍
 ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜𝒸𝒸, :♻
-EPS, DEL = :𝜀, :𝛥
+EPS, DEL, EXPR = :𝜀, :𝛥, :ℰ𝓍
 
 # These get defined globally, with a random number appended:
 MAKE, ACT! = :𝒞𝓇ℯ𝒶𝓉ℯ, :𝒜𝒸𝓉! # :ℳ𝒶𝓀ℯ
