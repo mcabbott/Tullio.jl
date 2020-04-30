@@ -334,3 +334,111 @@ julia> @btime CuArrays.@sync distances_tullio($ca, $cb);
   187.258 ms (173551 allocations: 2.66 MiB)
 
 
+##### Python
+# From here, verbatim:
+# https://gist.github.com/cgarciae/a69fa609f8fcd0aacece92660b5c2315
+
+import typing as tp
+from jax import numpy as jnp
+import jax
+import numpy as np
+import time
+@jax.jit
+def distances_jax(data1, data2):
+    # data1, data2 are the data arrays with 2 cols and they hold
+    # lat., lng. values in those cols respectively
+    np = jnp
+    data1 = np.deg2rad(data1)
+    data2 = np.deg2rad(data2)
+    lat1 = data1[:, 0]
+    lng1 = data1[:, 1]
+    lat2 = data2[:, 0]
+    lng2 = data2[:, 1]
+    diff_lat = lat1[:, None] - lat2
+    diff_lng = lng1[:, None] - lng2
+    d = (
+        np.sin(diff_lat / 2) ** 2
+        + np.cos(lat1[:, None]) * np.cos(lat2) * np.sin(diff_lng / 2) ** 2
+    )
+    data = 2 * 6373 * np.arctan2(np.sqrt(np.abs(d)), np.sqrt(np.abs(1 - d)))
+    return data.reshape(data1.shape[0], data2.shape[0])
+def distances_np(data1, data2):
+    # data1, data2 are the data arrays with 2 cols and they hold
+    # lat., lng. values in those cols respectively
+    data1 = np.deg2rad(data1)
+    data2 = np.deg2rad(data2)
+    lat1 = data1[:, 0]
+    lng1 = data1[:, 1]
+    lat2 = data2[:, 0]
+    lng2 = data2[:, 1]
+    diff_lat = lat1[:, None] - lat2
+    diff_lng = lng1[:, None] - lng2
+    d = (
+        np.sin(diff_lat / 2) ** 2
+        + np.cos(lat1[:, None]) * np.cos(lat2) * np.sin(diff_lng / 2) ** 2
+    )
+    data = 2 * 6373 * np.arctan2(np.sqrt(np.abs(d)), np.sqrt(np.abs(1 - d)))
+    return data.reshape(data1.shape[0], data2.shape[0])
+a = np.random.uniform(-100, 100, size=(5000, 2)).astype(np.float32)
+b = np.random.uniform(-100, 100, size=(5000, 2)).astype(np.float32)
+def dist_np_test():
+    return distances_np(a, b)
+# enforce eager evaluation
+def dist_jax_test():
+    return distances_jax(a, b).block_until_ready()
+
+
+##### Times on the same laptop as above:
+
+Python 3.7.5 (default, Nov  6 2019, 19:41:43)
+Type 'copyright', 'credits' or 'license' for more information
+IPython 7.9.0 -- An enhanced Interactive Python. Type '?' for help.
+
+
+In [2]: dist_np_test()
+Out[2]:
+array([[ 4011.349 , 11679.735 ,  1918.837 , ...,  2963.0593, 13176.956 ,
+        15359.288 ],
+       ...,
+       [10144.612 , 18684.783 ,  6158.844 , ..., 10165.801 , 13639.45  ,
+         8931.506 ]], dtype=float32)
+
+In [3]: %timeit dist_np_test()
+988 ms ± 3.14 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
+
+In [4]: %timeit dist_jax_test()
+/Users/me/.pyenv/versions/3.7.5/lib/python3.7/site-packages/jax/lib/xla_bridge.py:114: UserWarning: No GPU/TPU found, falling back to CPU.
+  warnings.warn('No GPU/TPU found, falling back to CPU.')
+372 ms ± 14.3 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
+
+In [5]: jax.__version__
+Out[5]: '0.1.50'
+
+In [6]: np.__version__
+Out[6]: '1.17.3'
+
+# Closest versions above are probably these:
+# distances_einsum 983.168 ms -- simple loops, single-threaded
+# distances_vielsum 389.831 ms -- ditto, multi-threaded
+
+##### Times on the same desktop as above:
+
+Python 3.6.5 (default, Jun 17 2018, 12:13:06)
+Type 'copyright', 'credits' or 'license' for more information
+IPython 7.13.0 -- An enhanced Interactive Python. Type '?' for help.
+
+In [3]: %timeit dist_np_test()
+822 ms ± 4.09 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
+
+In [4]: %timeit dist_jax_test()
+/Users/me/code/jax19/.direnv/python-3.6.5/lib/python3.6/site-packages/jax/lib/xla_bridge.py:116: UserWarning: No GPU/TPU found, falling back to CPU.
+  warnings.warn('No GPU/TPU found, falling back to CPU.')
+107 ms ± 1.14 ms per loop (mean ± std. dev. of 7 runs, 10 loops each)
+
+In [5]: jax.__version__
+Out[5]: '0.1.65'
+
+# Again these nearly exactly match the following:
+# distances_einsum 756.749 ms
+# distances_vielsum 108.200 ms
+# and distances_tullio is still faster by a factor of 3.

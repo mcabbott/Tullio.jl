@@ -85,6 +85,64 @@ julia> @btime StructArray($a);
 julia> @btime real($a);
   248.114 ms (2 allocations: 457.76 MiB)
 
+# Compare Einsum on StructArrays: not great, however you do it.
+
+julia> @btime f_viel($sa, $sb);
+  479.932 ms (25 allocations: 1.83 MiB)
+
+julia> typeof(f_viel(sa, sb))
+Array{Complex{Float64},2}
+
+julia> similar(sa, 1,3)
+1×3 StructArray(::Array{Float64,2}, ::Array{Float64,2}) with eltype Complex{Float64}:
+ 2.29092e-314+2.27751e-314im  2.29092e-314+3.7518e-314im  3.7518e-314+3.75184e-314im
+
+julia> similar(sa, ComplexF64, 1,3)
+1×3 Array{Complex{Float64},2}:
+ 2.66668e-314+2.66668e-314im  2.66668e-314+2.29246e-314im  2.29246e-314+2.27751e-314im
+
+julia> f_viel!(c_,a,b) = @vielsum c_[k, n] = a[k, n, c] * conj(b[c,k]);
+
+julia> sc = similar(f_tul(sa, sb)); typeof(sc)
+StructArray{Complex{Float64},2,NamedTuple{(:re, :im),Tuple{Array{Float64,2},Array{Float64,2}}},Int64}
+
+julia> @btime f_viel!($sc, $sa, $sb);
+  478.993 ms (240023 allocations: 5.50 MiB)
+
+# Try KernelAbstractions? This should handle threading instead of my code.
+
+julia> using KernelAbstractions, CuArrays # CuArrays just to trigger it!
+
+julia> ENV["JULIA_DEBUG"] = Main;
+
+julia> f_tul2(a,b) = @tullio c[k, n] := a[k, n, c] * conj(b[c,k])  threads=false;
+
+julia> f_tul2(a, b);
+┌ Debug: KernelAbstractions CPU actor:
+│   typeof.(tuple(ℛ::AbstractArray{𝒯}, a, b, 𝒶_n, 𝒶_k, 𝒶_c)) = (Array{Complex{Float64},2}, Array{Complex{Float64},3}, Array{Complex{Float64},2}, UnitRange{Int64}, UnitRange{Int64}, UnitRange{Int64})
+└ @ Main ~/.julia/dev/Tullio/src/macro.jl:724
+
+julia> ENV["JULIA_DEBUG"] = "none";
+
+julia> @btime f_tul2($a, $b);
+  599.003 ms (64 allocations: 1.84 MiB)
+
+# Note that if you just run f_tul threads=false without KernelAbstractions, it takes 1.3sec,
+# which is much much slower than @einsum, so perhaps that's another bug.
+
+
+#########################
+
+julia> using StructArrays
+
+julia> a = randn(ComplexF64, 300, 400, 500);
+
+julia> @time StructArray(a);
+  4.967282 seconds (120.00 M allocations: 3.576 GiB, 21.80% gc time)
+
+julia> @time StructArray{ComplexF64}((real(a), imag(a)));
+  0.630163 seconds (7 allocations: 915.528 MiB, 10.91% gc time)
+
 julia> @code_warntype StructArray(a)
 Variables
   #self#::Type{StructArray}
@@ -96,51 +154,3 @@ Body::StructArray{Complex{Float64},3,NamedTuple{(:re, :im),Tuple{Array{Float64,3
 │   %2 = #46::Core.Compiler.Const(StructArrays.var"#46#48"(), false)
 │   %3 = StructArrays.:(var"#StructArray#45")(%2, #self#, v)::StructArray{Complex{Float64},3,NamedTuple{(:re, :im),Tuple{Array{Float64,3},Array{Float64,3}}},Int64}
 └──      return %3
-
-
-
-#=
-
-Making a toy example...
-
-@tullio c_re[k, n] := a_re[k, n, c] * b_re[c,k] + a_im[k, n, c] * b_im[c,k] avx=false
-@tullio c_re[k, n] := a_re[k, n, c] * b_re[c,k] + a_im[k, n, c] * b_im[c,k] avx=true
-
-@tullio c_re[k, n] := a_re[k, n, c] * b_re[c,k] + a_im[k, n, c] * b_im[c,k] avx=true verbose=true
-
-
-a_re, a_im = rand(2,2,2), rand(2,2,2);
-b_re, b_im = rand(2,2), rand(2,2);
-
-function w!(c_re::AbstractArray{T}, a_re, b_re, a_im, b_im, keep=nothing) where T
-    @avx for k in 1:2
-            for n in 1:2
-                # acc = ifelse(keep === nothing, zero(T), c_re[k, n]) # same problem
-                acc = keep === nothing ? zero(T) : c_re[k, n]
-                # acc = zero(T) # this works fine
-                for c in 1:2
-                    acc = acc + (a_re[k, n, c] * b_re[c, k] + a_im[k, n, c] * b_im[c, k])
-                end
-                c_re[k, n] = acc
-            end
-        end
-    c_re
-end
-
-c_re = ones(2,2);
-
-w!(c_re, a_re, b_re, a_im, b_im, true) # [1 1; 1 1]
-w!(c_re, a_re, b_re, a_im, b_im) # [0 0; 0 0]
-
-=#
-
-ulia> using StructArrays
-
-julia> a = randn(ComplexF64, 300, 400, 500);
-
-julia> @time StructArray(a);
-  4.967282 seconds (120.00 M allocations: 3.576 GiB, 21.80% gc time)
-
-julia> @time StructArray{ComplexF64}((real(a), imag(a)));
-  0.630163 seconds (7 allocations: 915.528 MiB, 10.91% gc time)
-
