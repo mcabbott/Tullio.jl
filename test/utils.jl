@@ -177,3 +177,61 @@ using ForwardDiff
 
 end
 
+macro cse(ex)
+    esc(Tullio.commonsubex(ex))
+end
+
+@testset "common subexpressionism" begin
+
+    x,y,z = 1.2, 3.4, 5.6
+
+    @test (x+y)*z/(x+y) ≈
+        @cse (x+y)*z/(x+y)
+
+    @test x*y*z + 2*x*y*z ≈
+        @cse x*y*z + 2*x*y*z
+
+    @test (sqrt(inv(x)) * inv(sqrt(y)) + inv(x)/inv(z)) ≈
+        @cse (sqrt(inv(x)) * inv(sqrt(y)) + inv(x)/inv(z))
+
+    @test (a1 = inv(x); b1 = inv(x); c1 = inv(x)*inv(y)) ≈
+        @cse (a = inv(x); b = inv(x); c = inv(x)*inv(y))
+
+    # setting a, b (outside @test)
+    (a1 = inv(x); b1 = inv(x); c1 = inv(x)*inv(y))
+    @cse (a = inv(x); b = inv(x); c = inv(x)*inv(y))
+
+    @test a1 ≈ a
+    @test b1 ≈ b
+    @test c1 ≈ c
+
+    # updating a, b, etc
+    a = 1
+    @cse a = a + x*y/z
+    @test a ≈ 1 + x*y/z
+
+    a = 1
+    b = 1
+    @cse begin
+        a = a + x*y/z
+        b += x*y + z
+    end
+    @test a ≈ 1 + x*y/z
+    @test b ≈ 1 + x*y + z
+
+    a = a1 = 1
+    b = b1 = 1
+    begin
+        θ = inv(x)*inv(y+a)
+        a1 += θ^2
+        b1 = θ^3 + inv(x)
+    end
+    @cse begin
+        θ = inv(x)*inv(y+a)
+        a += θ^2
+        b = θ^3 + inv(x)
+    end
+    @test a ≈ a1
+    @test b ≈ b1
+
+end
