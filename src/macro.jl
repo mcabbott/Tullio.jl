@@ -1,13 +1,5 @@
-#========== storage ==========#
-
-mutable struct Store store::NamedTuple end
-Base.parent(x::Store) = getfield(x, :store)
-Base.getproperty(x::Store, y::Symbol) = getproperty(parent(x), y)
-Base.merge(x::NamedTuple, y::Store) = Store(merge(x, parent(y)))
 
 #========== the macro! ==========#
-
-const ExprSym = Union{Expr, Symbol}
 
 """
     @tullio C[i,k] := A[i,j] * B[j,k]
@@ -56,7 +48,9 @@ end
 function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
-    isnothing(ex) && return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
+    if isnothing(ex) # then we simply updated global settings
+        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
+    end
 
     key = hash((mod, opts, ranges, ex, check_packages(mod)))
     if haskey(HASHSAVED, key) # then we've seen this exact thing before
@@ -65,35 +59,35 @@ function _tullio(exs...; mod=Main)
 
     verbose, threads, grad, avx, cuda = opts
 
-    store = Store((mod = mod, verbose = verbose,
+    store = DotDict(mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
-        redfun = Ref{Symbol}(:+), # no way to set this just yet
+        redfun = :+, # no way to set this just yet
     # Everything writes into leftarray[leftraw...], sometimes with a generated name.
-        leftraw = Any[],
+        leftraw = [],
         leftind = Symbol[], # vcat(leftind, redind) is the complete list of loop indices
-        leftarray = Ref{ExprSym}(),
-        leftscalar = Ref{Symbol}(), # only defined for scalar reduction
+        leftarray = :nothing,
+        leftscalar = :nothing, # only defined for scalar reduction
         leftnames = Symbol[], # for NamedDims
     # Whole RHS, untouched
-        right = Ref{Any}(),
+        right = :nothing,
         rightind = Symbol[],
-        sharedind = Array{Symbol}(undef, 0), # indices appearing on every RHS array
+        sharedind = Symbol[], # indices appearing on every RHS array
         arrays = Symbol[],
         scalars = Symbol[],
-        cost = Ref{Int}(1),
+        cost = 1,
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
         shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
     # Expressions:
-        outeval = ExprSym[], # functions to be @eval-ed at top level,
-        outpre = ExprSym[],  # preliminary steps, never put inside a function,
-        outex = ExprSym[],   # the rest!
-    ))
+        outeval = [], # functions to be @eval-ed at top level,
+        outpre = [],  # preliminary steps, never put inside a function,
+        outex = [],   # the rest!
+    )
 
     parse_input(ex, store)
 
@@ -228,7 +222,7 @@ function parse_input(expr, store)
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
     elseif left isa Symbol # complete reduction, by writing into a new 0-array
         push!(store.flags, :newarray, :scalar)
-        store.leftscalar[] = left # because store.leftarray[] will be the array
+        store.leftscalar = left # because store.leftarray will be the array
         leftraw = [1,] # make a 1D array, not zero
         expr.head == :(+=) && push!(store.scalars, left)
     else
@@ -242,13 +236,13 @@ function parse_input(expr, store)
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
-    store.leftarray[] = Zed
+    store.leftarray = Zed
     :newarray in store.flags || saveconstraints(Zed, leftraw, store, false)
     :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
     unique!(store.leftind) # after last saveconstraints()
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
-    store.right[] = MacroTools_postwalk(dollarwalk(store), right1)
+    store.right = MacroTools_postwalk(dollarwalk(store), right1)
     unique!(store.scalars)
 
     unique!(store.arrays)
@@ -482,12 +476,12 @@ end
 function output_array(store)
     if :newarray in store.flags
 
-        push!(store.outex, :( $RHS($(store.arrays...), $(store.rightind...)) = $(store.right[]) ))
+        push!(store.outex, :( $RHS($(store.arrays...), $(store.rightind...)) = $(store.right) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
-        str = "unable to infer eltype for RHS $(store.right[])"
+        str = "unable to infer eltype for RHS $(store.right)"
         push!(store.outex, quote
             $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
             $TYP = if Base.isconcretetype($T0)
@@ -521,20 +515,20 @@ function output_array(store)
             :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
         end
         if isempty(store.leftnames)
-            push!(store.outex, :( local $(store.leftarray[]) = $simex ))
+            push!(store.outex, :( local $(store.leftarray) = $simex ))
         else
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
-            push!(store.outex, :( local $(store.leftarray[]) = NamedDims.NamedDimsArray($simex, $nex) ))
+            push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
 
         # Deal with scalar += now: write into array, later read it out:
         if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($(store.leftarray[])[$(store.leftraw...)] = $(store.leftscalar[])))
+            push!(store.outex, :($(store.leftarray)[$(store.leftraw...)] = $(store.leftscalar)))
         end
     end
 
     if :zero in store.flags
-        push!(store.outex, :( $(store.leftarray[]) .= zero($TYP) ))
+        push!(store.outex, :( $(store.leftarray) .= zero($TYP) ))
     end
 
 end
@@ -554,27 +548,27 @@ function action_functions(store)
     if :newarray in store.flags
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
-        ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
+        ST = :($storage_type($(store.leftarray), $(store.arrays...)))
         keep = (:plusequals in store.flags) ? :true : :nothing
         block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads==true ? (BLOCK[] ÷ store.cost) :
             store.threads
         push!(store.outeval, quote
             function $make($(store.arrays...), $(store.scalars...), )
                 $sofar
-                $threader($act!, $ST, $(store.leftarray[]),
+                $threader($act!, $ST, $(store.leftarray),
                     tuple($(store.arrays...), $(store.scalars...),),
                     tuple($(axisleft...),), tuple($(axisred...),);
                     block=$block, keep=$keep)
-                return $(store.leftarray[])
+                return $(store.leftarray)
             end
         end)
     end
 
     #===== constructing loops =====#
-    init = store.redfun[] == :* ? :(one($TYP)) :
-        store.redfun[] == :max ? :(typemin($TYP)) :
-        store.redfun[] == :min ? :(typemin($TYP)) :
+    init = store.redfun == :* ? :(one($TYP)) :
+        store.redfun == :max ? :(typemin($TYP)) :
+        store.redfun == :min ? :(typemin($TYP)) :
         :(zero($TYP))
 
     # Right now this would allow *= only with reduction * too. Could separate them:
@@ -584,14 +578,14 @@ function action_functions(store)
     ex_init = :( $ACC = ifelse($KEEP === nothing, $init, $ZED[$(store.leftraw...)]) )
     # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] ) # both OK, ifelse is tidier!
 
-    ex_iter = :( $ACC = $(store.redfun[])($ACC, $(store.right[]) ) )
+    ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
     ex_write = :( $ZED[$(store.leftraw...)] = $ACC )
 
     ex_nored = :(
         $ZED[$(store.leftraw...)] = $KEEP === nothing ?
-        $(store.right[]) :
-        $(store.redfun[])($ZED[$(store.leftraw...)] ,$(store.right[]))
+        $(store.right) :
+        $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
         )
 
     if isempty(store.redind)
@@ -621,27 +615,27 @@ function action_functions(store)
     end
 
     #===== call something =====#
-    ST = :($storage_type($(store.leftarray[]), $(store.arrays...)))
+    ST = :($storage_type($(store.leftarray), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
     if :newarray in store.flags
-        if store.leftarray[] != ZED
-            push!(store.outex, :($(store.leftarray[]) = $make($(store.arrays...), $(store.scalars...), ) ))
+        if store.leftarray != ZED
+            push!(store.outex, :($(store.leftarray) = $make($(store.arrays...), $(store.scalars...), ) ))
         elseif :scalar in store.flags
-             # push!(store.outex, :($(store.leftscalar[]) = getindex($make($(store.arrays...), $(store.scalars...), ),1)))
-             push!(store.outex, :($(store.leftscalar[]) = sum($make($(store.arrays...), $(store.scalars...), ))))
+             # push!(store.outex, :($(store.leftscalar) = getindex($make($(store.arrays...), $(store.scalars...), ),1)))
+             push!(store.outex, :($(store.leftscalar) = sum($make($(store.arrays...), $(store.scalars...), ))))
         else # case of [i,j] := ... with no name given
             push!(store.outex, :( $make($(store.arrays...), $(store.scalars...), ) ))
         end
     else
         block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads==true ? (BLOCK[] ÷ store.cost) :
             store.threads
         push!(store.outex, quote
-            $threader($act!, $ST, $(store.leftarray[]),
+            $threader($act!, $ST, $(store.leftarray),
                 tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisleft...),), tuple($(axisred...),);
                 block = $block, keep = $keep)
-            $(store.leftarray[])
+            $(store.leftarray)
         end)
     end
 end
@@ -840,7 +834,7 @@ function backward_definitions(make, act!, store)
     if needgrad
         ST = :($storage_type($(gradarrays...), $(store.arrays...)))
         block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost[]) :
+            store.threads==true ? (BLOCK[] ÷ store.cost) :
             store.threads
         pushfirst!(evalex, quote # pushfirst! is NB for Yota
             function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}

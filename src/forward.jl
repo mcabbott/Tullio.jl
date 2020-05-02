@@ -14,8 +14,8 @@ function insert_forward_gradient(act!, store)
 
     epsilondict = Dict{Symbol,Expr}()
 
-    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict), store.right[])
-    # epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store.scalars), store.right[])
+    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict), store.right)
+    # epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store.scalars), store.right)
 
     defineepsilons, readepsilons = [], []
     for (d, (Aepsilon, Aex)) in enumerate(epsilondict)

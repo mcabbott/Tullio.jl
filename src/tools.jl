@@ -1,4 +1,26 @@
 
+#========== a mutable, typeless, namedtuple ==========#
+
+struct DotDict
+    store::Dict{Symbol,Any}
+end
+DotDict(;kw...) = DotDict(Dict(pairs(kw)...))
+
+Base.parent(x::DotDict) = getfield(x, :store)
+
+Base.propertynames(x::DotDict) = Tuple(keys(parent(x)))
+Base.getproperty(x::DotDict, s::Symbol) = getindex(parent(x), s)
+function Base.setproperty!(x::DotDict, s::Symbol, v)
+    s in propertynames(x) || error("DotDict has no field $s")
+    setindex!(parent(x), v, s)
+end
+
+function Base.show(io::IO, x::DotDict)
+    print(io, "DotDict(")
+    strs = map(k -> string(k, " = ", getproperty(x, k)), propertynames(x))
+    print(io, join(strs, ", "), ")")
+end
+
 #========== capture macro ==========#
 # My faster, more limited, version:
 
@@ -186,32 +208,10 @@ Flatten any redundant blocks into a single block, over the whole expression.
 """
 flatten(ex) = postwalk(flatten1, ex)
 
-# function makeif(clauses, els = nothing)
-#   @static if VERSION < v"0.7.0-"
-#     foldr((c, ex)->:($(c[1]) ? $(c[2]) : $ex), els, clauses)
-#   else
-#     foldr((c, ex)->:($(c[1]) ? $(c[2]) : $ex), clauses; init=els)
-#   end
-# end
-
 unresolve1(x) = x
 unresolve1(f::Function) = methods(f).mt.name
 
 unresolve(ex) = prewalk(unresolve1, ex)
-
-# function resyntax(ex)
-#   prewalk(ex) do x
-#     @match x begin
-#       setfield!(x_, :f_, x_.f_ + v_) => :($x.$f += $v)
-#       setfield!(x_, :f_, v_) => :($x.$f = $v)
-#       getindex(x_, i__) => :($x[$(i...)])
-#       tuple(xs__) => :($(xs...),)
-#       adjoint(x_) => :($x')
-#       _ => x
-#     end
-#   end
-# end
-
 
 """
     prettify(ex)

@@ -12,7 +12,7 @@ COSTS = Dict(:* => 0, :/ => 2, :log => 10, :exp => 10) # plus 1 initially
 
 callcost(sy, store) =
     if haskey(COSTS, sy)
-        store.cost[] += COSTS[sy]
+        store.cost += COSTS[sy]
     end
 
 # Then block = BLOCK[] ÷ store.cost[] is the number of iterations at which threading is turned on.

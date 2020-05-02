@@ -14,12 +14,12 @@ function insert_symbolic_gradient(act!, store)
 
     axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
-    targets=[]
-    MacroTools_postwalk(symbwalk(targets), store.right[])
+    targets = []
+    MacroTools_postwalk(symbwalk(targets), store.right)
     # append!(targets, scalars)
     unique!(targets)
     inbody = map(targets) do (dt, t)
-        drdt = leibnitz(store.right[], t)
+        drdt = leibnitz(store.right, t)
         deltar = simplitimes(drdt, :($dZ[$(store.leftraw...)]))
         :($dt = $dt + $deltar)
     end
