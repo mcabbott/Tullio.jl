@@ -7,7 +7,6 @@ function insert_forward_gradient(act!, store)
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, act!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
-    gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
     axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
@@ -63,7 +62,7 @@ arrayplusepsilon(A::Symbol, inds, dict) = begin # the same array may occur twice
     :(( $A[$(inds...)] + $Aepsilon ))
 end
 arrayplusepsilon(A, inds, dict) = begin
-    @debug "expression ", string(A), " is why you can't use ForwardDiff here"
+    @debug string("expression ", A, " is why you can't use ForwardDiff here")
     :🐳
 end
 

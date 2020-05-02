@@ -51,13 +51,13 @@ function _tullio(exs...; mod=Main)
     if isnothing(ex) # then we simply updated global settings
         return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
     end
+    verbose, threads, grad, avx, cuda = opts
 
     key = hash((mod, opts, ranges, ex, check_packages(mod)))
     if haskey(HASHSAVED, key) # then we've seen this exact thing before
+        verbose && verboseprint((outex= HASHSAVED[key],))
         return Expr(:block, HASHSAVED[key]...) |> esc
     end
-
-    verbose, threads, grad, avx, cuda = opts
 
     store = DotDict(mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
@@ -67,14 +67,14 @@ function _tullio(exs...; mod=Main)
         redfun = :+, # no way to set this just yet
     # Everything writes into leftarray[leftraw...], sometimes with a generated name.
         leftraw = [],
-        leftind = Symbol[], # vcat(leftind, redind) is the complete list of loop indices
+        leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
         leftarray = :nothing,
         leftscalar = :nothing, # only defined for scalar reduction
-        leftnames = Symbol[], # for NamedDims
+        leftnames = Symbol[],  # for NamedDims
     # Whole RHS, untouched
         right = :nothing,
         rightind = Symbol[],
-        sharedind = Symbol[], # indices appearing on every RHS array
+        sharedind = Symbol[],  # indices appearing on every RHS array
         arrays = Symbol[],
         scalars = Symbol[],
         cost = 1,
@@ -101,7 +101,9 @@ function _tullio(exs...; mod=Main)
 
     verbose && verboseprint(store)
 
-    @eval store.mod begin $(store.outeval...) end
+    if !isempty(store.outeval)
+        @eval store.mod begin $(store.outeval...) end
+    end
 
     HASHSAVED[key] = vcat(store.outpre, store.outex)
 
@@ -189,7 +191,7 @@ checklegal(opt, val) =
     end
 
 verboseprint(store) = begin
-    foreach(keys(parent(store))) do k
+    foreach(propertynames(store)) do k
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outeval, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
@@ -239,18 +241,18 @@ function parse_input(expr, store)
     store.leftarray = Zed
     :newarray in store.flags || saveconstraints(Zed, leftraw, store, false)
     :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
-    unique!(store.leftind) # after last saveconstraints()
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
-    unique!(store.scalars)
 
+    unique!(store.scalars)
     unique!(store.arrays)
+    unique!(store.leftind) # after last saveconstraints()
     unique!(store.sharedind)
     unique!(store.rightind)
-    append!(store.redind, setdiff(store.rightind, store.leftind)) # seemingly random order?? And, do I need to store all three?
-
     unique!(store.outpre) # kill mutiple @assert, also some limited CSE if f(A) appears twice
+
+    append!(store.redind, setdiff(store.rightind, store.leftind))
 
 end
 
@@ -455,8 +457,8 @@ end
 
 resolvestrict(i, store) = begin
     res = first(store.constraints[i])
-    r_i = Symbol(AXIS, i)
-    push!(store.axisdefs, :( local $r_i = $res ))
+    ax_i = Symbol(AXIS, i)
+    push!(store.axisdefs, :( local $ax_i = $res ))
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
         push!(store.axisdefs, :( $alt == $res || error($str) ))
@@ -467,8 +469,8 @@ resolveintersect(i, store) = begin
     res = length(store.constraints[i])==1 ?
         first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
         :( intersect($(store.constraints[i]...)) )
-    r_i = Symbol(AXIS, i)
-    push!(store.axisdefs, :( local $r_i = $res ))
+    ax_i = Symbol(AXIS, i)
+    push!(store.axisdefs, :( local $ax_i = $res ))
 end
 
 #========== output array + eltype ==========#
@@ -476,15 +478,15 @@ end
 function output_array(store)
     if :newarray in store.flags
 
-        push!(store.outex, :( $RHS($(store.arrays...), $(store.rightind...)) = $(store.right) ))
+        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.right) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
         str = "unable to infer eltype for RHS $(store.right)"
         push!(store.outex, quote
-            $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
-            $TYP = if Base.isconcretetype($T0)
+            local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
+            local $TYP = if Base.isconcretetype($T0)
                 $T0
             else
                 @debug $str
@@ -726,8 +728,6 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
             function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
                 @debug "KernelAbstractions CuArrays actor"
                 cu_kern! = $kernel(CUDA(), $(store.cuda))
-                # types = map(typeof, ($(args...),))
-                # @show types
                 $(asserts...)
                 $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
                 KernelAbstractions.wait($ACC)
@@ -742,9 +742,8 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
                 KernelAbstractions.wait($ACC)
             end
 
-        # end)
-        # # Also, bypass "threader" functions to come straight here for CuArrays:
-        # @eval store.mod begin
+        # Also, bypass "threader" functions to come straight here for CuArrays.
+        # Could check if length(methods(threader)) < 2, but no complaints so far:
 
             Tullio.threader(fun!::Function, T::Type{<:CuArray},
                 Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
@@ -753,10 +752,7 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
             Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
                 As::Tuple, Is::Tuple, Js::Tuple; block=0) =
                 fun!(T, As..., Is..., Js...,)
-        # end
-        # Could do this, but seems not to complain:
-        # if hasmethod(threader, Tuple{Function, Type{<:Array}, Vararg})
-        # if length(methods(threader)) < 2
+
         end)
     end
 end
