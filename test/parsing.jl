@@ -178,8 +178,8 @@ end
 
     # negative
     @test eachindex(@tullio F[i] := A[-1i]) == -10:-1
-    @test eachindex(@tullio F[i] := A[-i] avx=false) == -10:-1 # fine with avx=false
-    @test eachindex(@tullio F[i] := A[-i+0] avx=false) == -10:-1
+    @test eachindex(@tullio F[i] := A[-i]) == -10:-1
+    @test eachindex(@tullio F[i] := A[-i+0]) == -10:-1
     @test eachindex(@tullio F[i] := A[0-i]) == -10:-1
 
     # non-constant
@@ -198,13 +198,13 @@ end
     @test axes(@tullio I[i,j] := A[2(0+i)+(2j-4)-1] + 0 * B[j]) == (2:3, 1:4)
 
     @test axes(@tullio J[i,j] := A[i-j] + 0 * B[j]) == (5:11, 1:4)
-    @test axes(@tullio J[i,j] := A[-(-i+j)] + 0 * B[j] avx=false) == (5:11, 1:4)
-    @test axes(@tullio J[i,j] := A[-(j-i)] + 0 * B[j] avx=false) == (5:11, 1:4)
-    @test axes(@tullio J[i,j] := A[-1*(j-i)] + 0 * B[j] avx=false) == (5:11, 1:4)
+    @test axes(@tullio J[i,j] := A[-(-i+j)] + 0 * B[j]) == (5:11, 1:4)
+    @test axes(@tullio J[i,j] := A[-(j-i)] + 0 * B[j]) == (5:11, 1:4)
+    @test axes(@tullio J[i,j] := A[-1*(j-i)] + 0 * B[j]) == (5:11, 1:4)
     @test axes(@tullio J[i,j] := A[i+(-j)] + 0 * B[j]) == (5:11, 1:4)
     @test axes(@tullio J[i,j] := A[-j+i] + 0 * B[j]) == (5:11, 1:4)
     @test axes(@tullio J[i,j] := A[-1j+i] + 0 * B[j]) == (5:11, 1:4)
-    @test axes(@tullio J[i,j] := A[-1j-(-i)] + 0 * B[j] avx=false) == (5:11, 1:4)
+    @test axes(@tullio J[i,j] := A[-1j-(-i)] + 0 * B[j]) == (5:11, 1:4)
     @test axes(@tullio J[i,j] := A[i-2j] + 0 * B[j]) == (9:12, 1:4)
     @test axes(@tullio J[i,j] := A[-2j+i] + 0 * B[j]) == (9:12, 1:4)
     @test axes(@tullio J[i,j] := A[2i-2j] + 0 * B[j]) == (5:6, 1:4)
