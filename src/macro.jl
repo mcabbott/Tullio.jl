@@ -57,6 +57,12 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     isnothing(ex) && return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
+
+    key = hash((mod, opts, ranges, ex, check_packages(mod)))
+    if haskey(HASHSAVED, key) # then we've seen this exact thing before
+        return Expr(:block, HASHSAVED[key]...) |> esc
+    end
+
     verbose, threads, grad, avx, cuda = opts
 
     store = Store((mod = mod, verbose = verbose,
@@ -103,8 +109,24 @@ function _tullio(exs...; mod=Main)
 
     @eval store.mod begin $(store.outeval...) end
 
+    HASHSAVED[key] = vcat(store.outpre, store.outex)
+
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
+
+#========== re-using definitions ==========#
+
+# This saves everything which isn't @eval-ed:
+HASHSAVED = Dict{UInt64,Any}()
+
+# ... for re-use on the same expression, under same conditions:
+PACKAGES = [
+    :OffsetArrays,
+    :ForwardDiff, :Zygote, :Tracker, :Yota, :ReverseDiff,
+    :LoopVectorization, :KernelAbstractions, :CuArrays,
+    ]
+
+check_packages(mod) = map(x -> isdefined(mod, x), PACKAGES)
 
 #========== options, etc ==========#
 
@@ -164,13 +186,12 @@ parse_options(exs...) = begin
     (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda]), ranges, expr
 end
 
-
 checklegal(opt, val) =
     if OPTS[opt] isa Vector
         val in OPTS[opt] || error(string("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]"))
     elseif val isa OPTS[opt]
         val >= 0 || error(string("keyword $opt accepts false or a positive integer"))
-    # Silently allows val::Exp, for threads=64^3 to work
+    # Silently allows val::Expr, for threads=64^3 to work
     end
 
 verboseprint(store) = begin
