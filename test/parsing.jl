@@ -1,5 +1,5 @@
 
-using Tullio, Test, LinearAlgebra, OffsetArrays
+using Tullio, Test, LinearAlgebra
 
 @testset "new arrays" begin
 
@@ -85,9 +85,6 @@ using Tullio, Test, LinearAlgebra, OffsetArrays
     @test K == (1:3).^2
     @test axes(K,1) === Base.OneTo(3) # literal 1:3
 
-    @tullio L[i,j] := A[i]//j  (j ∈ 2:3, i in 1:10)
-    @test axes(L) == (1:10, 2:3)
-
     @tullio N[i,j] := A[i]/j  (j in axes(K,1))  (i in axes(A,1)) # K not an argument
     @test N ≈ A ./ (1:3)'
 
@@ -149,9 +146,27 @@ end
 
 end
 
+@testset "without packages" begin
+
+    A = [i^2 for i in 1:10]
+
+    # without OffsetArrays
+    @test axes(@tullio B[i] := A[2i+1] + A[i]) === (Base.OneTo(4),)
+    @test_throws Exception @tullio C[i] := A[2i+5]
+
+    # without NamedDims
+    @test_throws Exception @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
+
+end
+
+using OffsetArrays
+
 @testset "index shifts" begin
 
     A = [i^2 for i in 1:10]
+
+    @tullio L[i,j] := A[i]//j  (j ∈ 2:3, i in 1:10) # no shift, just needs OffsetArrays
+    @test axes(L) == (1:10, 2:3)
 
     # shifts
     @tullio B[i] := A[2i+1] + A[i]
