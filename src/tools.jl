@@ -1,5 +1,5 @@
 
-#========== a mutable, typeless, namedtuple ==========#
+#========== a mutable, typeless, almost-namedtuple ==========#
 
 struct DotDict
     store::Dict{Symbol,Any}
@@ -12,7 +12,12 @@ Base.propertynames(x::DotDict) = Tuple(keys(parent(x)))
 Base.getproperty(x::DotDict, s::Symbol) = getindex(parent(x), s)
 function Base.setproperty!(x::DotDict, s::Symbol, v)
     s in propertynames(x) || error("DotDict has no field $s")
-    setindex!(parent(x), v, s)
+    T = typeof(getproperty(x, s))
+    if T == Nothing
+        setindex!(parent(x), v, s)
+    else
+        setindex!(parent(x), convert(T, v), s)
+    end
 end
 
 function Base.show(io::IO, x::DotDict)

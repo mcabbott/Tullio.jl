@@ -65,14 +65,14 @@ function _tullio(exs...; mod=Main)
     # Reduction
         redind = Symbol[],
         redfun = :+, # no way to set this just yet
-    # Everything writes into leftarray[leftraw...], sometimes with a generated name.
+    # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
-        leftarray = :nothing,
-        leftscalar = :nothing, # only defined for scalar reduction
+        leftarray = nothing,
+        leftscalar = nothing, # only defined for scalar reduction
         leftnames = Symbol[],  # for NamedDims
-    # Whole RHS, untouched
-        right = :nothing,
+    # Whole RHS, untouched, plus things extracted:
+        right = nothing,
         rightind = Symbol[],
         sharedind = Symbol[],  # indices appearing on every RHS array
         arrays = Symbol[],
@@ -84,9 +84,9 @@ function _tullio(exs...; mod=Main)
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
     # Expressions:
-        outeval = [], # functions to be @eval-ed at top level,
-        outpre = [],  # preliminary steps, never put inside a function,
-        outex = [],   # the rest!
+        outeval = Expr[], # functions to be @eval-ed at top level,
+        outpre = Expr[],  # preliminary steps, never put inside a function,
+        outex = Expr[],   # the rest!
     )
 
     parse_input(ex, store)
@@ -231,15 +231,15 @@ function parse_input(expr, store)
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw1 = tidyleftraw(leftraw, store)
-    append!(store.leftind, reverse(filter(i -> i isa Symbol, leftraw1))) # outer loop order
+    store.leftind = reverse(filter(i -> i isa Symbol, leftraw1)) # reverse sets outer loop order.
     !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
 
-    append!(store.leftraw, tidyleftraw2(leftraw1, store))
+    store.leftraw = tidyleftraw2(leftraw1, store)
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
-    :newarray in store.flags || saveconstraints(Zed, leftraw, store, false)
+    :newarray in store.flags || saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
     :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
@@ -250,16 +250,15 @@ function parse_input(expr, store)
     unique!(store.leftind) # after last saveconstraints()
     unique!(store.sharedind)
     unique!(store.rightind)
-    unique!(store.outpre) # kill mutiple @assert, also some limited CSE if f(A) appears twice
+    unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
-    append!(store.redind, setdiff(store.rightind, store.leftind))
+    store.redind = setdiff(store.rightind, store.leftind)
 
 end
 
 rightwalk(store) = ex -> begin
         @nospecialize ex
         # First, note if these are seen:
-        # if @capture(ex, A_[inds__].field_) || @capture(ex, A_[inds__][more__])
         if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
             (@capture_(ex, Binds_[more__]) && @capture_(Binds, B_[inds__]))
             push!(store.flags, :noavx)
@@ -321,7 +320,7 @@ saveconstraints(A, inds, store, right=true) = begin
             append!(store.sharedind, is)
         end
     else
-        append!(store.leftind, is)
+        append!(store.leftind, is) # why can's this be the only path for store.leftind??
     end
     n = length(inds)
     if n==1
@@ -335,7 +334,6 @@ end
 
 arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
 arrayfirst(A::Expr) =
-    # if @capture(A, B_[inds__].field_)
     if (@capture_(A, Binds_.field_) && @capture_(Binds, B_[inds__]))
         return :( first($B).$field )
     elseif @capture_(A, B_[inds__])
@@ -378,6 +376,8 @@ tidyleftraw(leftraw, store) = map(leftraw) do i
         else
             push!(store.flags, :noavx)
         end
+    elseif i === :_
+        return 1
     end
     i
 end
@@ -483,7 +483,7 @@ function output_array(store)
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
-        str = "unable to infer eltype for RHS $(store.right)"
+        str = "unable to infer eltype from RHS = $(store.right)"
         push!(store.outex, quote
             local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
             local $TYP = if Base.isconcretetype($T0)
@@ -496,18 +496,18 @@ function output_array(store)
 
         # This now checks for OffsetArrays, and allows A[i,1] := ...
         outaxes = map(store.leftraw) do i
-            # i === :_ && return :(Base.OneTo(1)) # not understood elsewhere
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
             error("can't use index $i on LHS for a new array")
         end
 
-        if !isdefined(store.mod, :OffsetArrays) # && (:shift in store.flags) # turn off unless needed??
-            for r in outaxes
-                r == :(Base.OneTo(1)) && continue
-                push!(store.outex, :( first($r) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
+        if !isdefined(store.mod, :OffsetArrays)
+            outaxes = map(store.leftraw, outaxes) do i, ax
+                ax == :(Base.OneTo(1)) && return ax
+                i in store.shiftedind || return ax
+                push!(store.outex, :( first($ax) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
+                return :(Base.OneTo($ax))
             end
-            outaxes = map(r -> :(Base.OneTo($r)), outaxes)
         end
 
         simex = if isempty(store.arrays)
@@ -662,7 +662,7 @@ f!(::Type, args..., keep=nothing) where {T}
 end
 ```
 """
-function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Vector{Symbol}, ex5, ex6, store)
+function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex5, ex6, store)
 
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
@@ -684,29 +684,17 @@ function make_many_actors(act!, args, ex1, outer::Vector{Symbol}, ex3, inner::Ve
 
     if store.avx != false && !(:noavx in store.flags) &&
         isdefined(store.mod, :LoopVectorization)
-        if store.avx == true
-            push!(store.outeval, quote
+        unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
+        push!(store.outeval, quote
 
-                function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
-                    @debug "LoopVectorization @avx actor"
-                    $expre
-                    LoopVectorization.@avx $exloop
-                    $expost
-                end
+            function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
+                @debug "LoopVectorization @avx actor, unroll=$unroll"
+                $expre
+                LoopVectorization.@avx unroll=$unroll $exloop
+                $expost
+            end
 
-            end)
-        else
-            push!(store.outeval, quote
-
-                function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
-                    @debug "LoopVectorization @avx actor, unroll=$(store.avx)"
-                    $expre
-                    LoopVectorization.@avx unroll=$(store.avx) $exloop
-                    $expost
-                end
-
-            end)
-        end
+        end)
     end
 
     axouter = map(i -> Symbol(AXIS, i), outer)

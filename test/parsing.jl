@@ -62,8 +62,12 @@ using Tullio, Test, LinearAlgebra
     @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
     @test H[5] == F
 
-    @tullio J[1,i] := A[i]
-    @test size(J) == (1,10)
+    # trivial dimensions
+    @tullio J[1,1,i] := A[i]
+    @test size(J) == (1,1,10)
+
+    @tullio J[_,i] := A[i]
+    @test J == A'
 
     # non-unique arrays
     @tullio A2[i] := A[i] + A[i]
