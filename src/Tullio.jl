@@ -1,5 +1,8 @@
 module Tullio
 
+using EllipsisNotation: (..)
+using Base.Broadcast: newindex, newindexer, combine_axes # , check_broadcast_axes
+
 #========== ⚜️ ==========#
 
 export @tullio

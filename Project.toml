@@ -5,10 +5,12 @@ version = "0.0.1"
 
 [deps]
 DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
+EllipsisNotation = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [compat]
 DiffRules = "1"
+EllipsisNotation = "0.4"
 Requires = "1"
 julia = "1.3"
 
