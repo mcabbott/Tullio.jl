@@ -161,6 +161,34 @@ end
 
 end
 
+@testset "broadcasting" begin
+
+    f1(A) = @tullio C[i, ..] := A[i, ..] + 1
+    @test f1(ones(3)) == ones(3) .+ 1
+    @test f1(ones(3,4)) == ones(3,4) .+ 1
+    @test f1(ones(3,4,5)) == ones(3,4,5) .+ 1
+
+    f2(A) = @tullio C[i, ..] := A[i, k, ..]
+    @test f2(ones(3,4)) == fill(4.0, 3)
+    A3 = rand(3,4,5)
+    @test f2(A3) ≈ dropdims(sum(A3, dims=2), dims=2)
+
+    f3(A, B) = @tullio C[i,j, ..] := A[i, k, ..] * B[j, k, ..]
+    A2 = rand(3,3);
+    B2 = rand(3,3);
+    @test f3(A2, B2) ≈ A2 * B2'
+    A3 = rand(3,3,2);
+    B3 = rand(3,3,2);
+    C3 = f3(A3, B3)
+    @test C3[:,:,1] ≈ A3[:,:,1] * B3[:,:,1]'
+    @test C3[:,:,2] ≈ A3[:,:,2] * B3[:,:,2]'
+
+    C4 = f3(A3, B2)
+    @test C4[:,:,1] ≈ A3[:,:,1] * B2[:,:]'
+    @test C4[:,:,2] ≈ A3[:,:,2] * B2[:,:]'
+
+end
+
 @testset "without packages" begin
 
     A = [i^2 for i in 1:10]
