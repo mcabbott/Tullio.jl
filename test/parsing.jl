@@ -92,9 +92,10 @@ using Tullio, Test, LinearAlgebra
     @tullio N[i,j] := A[i]/j  (j in axes(K,1))  (i in axes(A,1)) # K not an argument
     @test N ≈ A ./ (1:3)'
 
-    # primes, broken!
-    @test_skip A == @tullio P[i′] := A[i']
-    @test_skip A == @tullio P[i'] := A[i′]
+    # primes
+    @test A == @tullio P[i′] := A[i']
+    @test A == @tullio P[i'] := A[i′]
+    @test [1,4,9] == @tullio Q[i'] := (i′)^2  (i' in 1:3)
 
     # non-numeric array
     @tullio Y[i] := (ind=i, val=A[i])
@@ -141,6 +142,16 @@ end
     @tullio D[$j,i] = 99
     @test D[j,j] == 99
     @test D[1,1] != 0
+
+    # diagonal & ==, from https://github.com/ahwillia/Einsum.jl/pull/14
+    B = [1 2 3; 4 5 6; 7 8 9]
+    @tullio W[i, j, i, n] := B[n, j]  i in 1:2
+    @test size(W) == (2,3,2,3)
+    @test W[1,2,1,3] == B[3,2]
+
+    W2 = zero(W);
+    @tullio W2[i, j, m, n] = (i == m) * B[n, j]
+    @test W2 == W
 
     @test_throws Exception Tullio._tullio(:( [i,j] = A[i] + 100 ))
 

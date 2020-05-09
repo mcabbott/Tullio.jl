@@ -140,7 +140,7 @@ GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
 
-parse_options(exs...) = begin
+function parse_options(exs...)
     opts = Dict(
         :verbose => VERBOSE[],
         :threads => THREADS[],
@@ -230,7 +230,7 @@ function parse_input(expr, store)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
-    leftraw1 = tidyleftraw(leftraw, store)
+    leftraw1 = tidyleftraw(primeindices(leftraw), store)
     store.leftind = reverse(filter(i -> i isa Symbol, leftraw1)) # reverse sets outer loop order.
     !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
 
@@ -344,7 +344,7 @@ arrayfirst(A::Expr) =
 
 primeindices(inds) = map(inds) do ex
     ex isa Expr && ex.head == Symbol("'") &&
-        return Symbol(primeindices(ex.args[1]), "′") # normalise i''
+        return Symbol(ex.args[1], "′") # normalise i''
     ex
 end
 
@@ -392,6 +392,9 @@ end
 
 function parse_ranges(ranges, store) # now runs after parse_input
     for (i,r) in ranges
+        if i isa Expr && i.head == Symbol("'") # catch primes!
+            i = Symbol(i.args[1], "′")
+        end
         push!(store.rightind, i)
         v = get!(store.constraints, i, [])
         if r isa Expr && r.head == :call && r.args[1] == :(:) && length(r.args) == 3
