@@ -308,7 +308,7 @@ saveconstraints(A, inds, store, right=true) = begin
     A1 = arrayfirst(A)
     is = Symbol[]
     foreach(enumerate(inds)) do (d,ex)
-        isconst(ex) && return
+        is_const(ex) && return
         containsany(ex, store.notfree) && return
         range_i, i = range_expr_walk(length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d)), ex)
         if i isa Symbol

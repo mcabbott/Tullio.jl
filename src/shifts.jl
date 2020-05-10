@@ -91,8 +91,8 @@ function range_expr_walk(r::Expr, ex::Expr)
     elseif length(ex.args) == 3
         op, a, b = ex.args
         if op == :+
-            isconst(a) && return range_expr_walk(:($r .- $a), b)
-            isconst(b) && return range_expr_walk(:($r .- $b), a)
+            is_const(a) && return range_expr_walk(:($r .- $a), b)
+            is_const(b) && return range_expr_walk(:($r .- $b), a)
             # with neither constant, first go outwards from index j to expression b...
             ax_a = range_unwrap(a)
             ax_b = range_unwrap(b)
@@ -102,8 +102,8 @@ function range_expr_walk(r::Expr, ex::Expr)
             return (range_a, range_b), (i_a, i_b)
 
         elseif op == :-
-            isconst(a) && return range_expr_walk(:($minusrange($r .- $a)), b)
-            isconst(b) && return range_expr_walk(:($r .+ $b), a)
+            is_const(a) && return range_expr_walk(:($minusrange($r .- $a)), b)
+            is_const(b) && return range_expr_walk(:($r .+ $b), a)
             ax_a = range_unwrap(a)
             ax_b = range_unwrap(b)
             range_a, i_a = range_expr_walk(:($addranges($r, $ax_b)), a)
@@ -111,10 +111,10 @@ function range_expr_walk(r::Expr, ex::Expr)
             return (range_a, range_b), (i_a, i_b)
 
         elseif op == :*
-            isconst(a) && return range_expr_walk(:($divrange($r, $a)), b)
-            isconst(b) && return range_expr_walk(:($divrange($r, $b)), a)
+            is_const(a) && return range_expr_walk(:($divrange($r, $a)), b)
+            is_const(b) && return range_expr_walk(:($divrange($r, $b)), a)
         elseif op == :÷
-            isconst(b) && return range_expr_walk(:($r .* $b), a)
+            is_const(b) && return range_expr_walk(:($r .* $b), a)
         elseif op == :/
             error("not sure what to do with $ex, perhaps you wanted ÷")
         end
@@ -122,9 +122,9 @@ function range_expr_walk(r::Expr, ex::Expr)
         op, a, b, c = ex.args[1:4]
         ds = ex.args[5:end]
         if op == :+
-            isconst(a) && return range_expr_walk(:($r .- $a), :(+($b, $c, $(ds...))))
-            isconst(b) && return range_expr_walk(:($r .- $b), :(+($a, $c, $(ds...))))
-            isconst(c) && return range_expr_walk(:($r .- $c), :(+($a, $b, $(ds...))))
+            is_const(a) && return range_expr_walk(:($r .- $a), :(+($b, $c, $(ds...))))
+            is_const(b) && return range_expr_walk(:($r .- $b), :(+($a, $c, $(ds...))))
+            is_const(c) && return range_expr_walk(:($r .- $c), :(+($a, $b, $(ds...))))
         end
     end
     error("not sure what to do with $ex, sorry")
@@ -132,10 +132,16 @@ end
 
 range_expr_walk(range::Expr, s::Symbol) = range, s
 
-isconst(::Int) = true
-isconst(::Any) = false
-isconst(ex::Expr) = ex.head == :$ # what's returned by range_expr_walk will still contain $
-isconst(s::Symbol) = s === :(:) # for the purposes of saveconstraints setting :intersect
+is_const(::Int) = true
+is_const(::Any) = false
+is_const(s::Symbol) = s === :(:) # for the purposes of saveconstraints setting :intersect
+is_const(ex::Expr) = begin
+    ex.head == :$ && return true # what's returned by range_expr_walk will still contain $
+    if ex.head == :call && ex.args[1] in (:+, :-, :*, :÷)
+        return all(is_const, ex.args[2:end])
+    end
+    false
+end
 
 """
     range_expr_walk(:(axes(A,1)), :(i=j)) -> :(axes(A, :i)), :j
@@ -168,14 +174,14 @@ range_unwrap(ex::Expr) = begin
         if op == :*
             a == -1 && return :($minusrange($(range_unwrap(b))))
             b == -1 && return :($minusrange($(range_unwrap(a))))
-            isconst(a) && return :($a .* $(range_unwrap(b)))
-            isconst(b) && return :($b .* $(range_unwrap(a)))
+            is_const(a) && return :($a .* $(range_unwrap(b)))
+            is_const(b) && return :($b .* $(range_unwrap(a)))
         elseif op == :+
-            isconst(a) && return :($a .+ $(range_unwrap(b)))
-            isconst(b) && return :($b .+ $(range_unwrap(a)))
+            is_const(a) && return :($a .+ $(range_unwrap(b)))
+            is_const(b) && return :($b .+ $(range_unwrap(a)))
         elseif op == :-
-            isconst(a) && return :($a .- $(range_unwrap(b)))
-            isconst(b) && return :($(range_unwrap(a)) .- $b)
+            is_const(a) && return :($a .- $(range_unwrap(b)))
+            is_const(b) && return :($(range_unwrap(a)) .- $b)
         end
     end
     error("don't know how to handle $ex, sorry")
