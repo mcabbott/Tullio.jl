@@ -259,27 +259,8 @@ end
 
 rightwalk(store) = ex -> begin
         @nospecialize ex
-        # First, note if these are seen:
-        if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
-            (@capture_(ex, Binds_[more__]) && @capture_(Binds, B_[inds__]))
-            push!(store.flags, :noavx)
-            push!(store.flags, :nograd)
-        end
-        ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
-        ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
-        ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
-        ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
-        ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
-        if ex isa Expr && ex.head == :(=) # This will detect any assignment before it is used.
-            if ex.args[1] isa Symbol
-                push!(store.notfree, ex.args[1])
-            elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
-                for i in ex.args[1].args
-                    i isa Symbol && push!(store.notfree, i)
-                end
-            end
-        end
-        ex isa Expr && ex.head == :return && error("can't use return inside body")
+        # First, note the presence of illegal / difficult things:
+        rigthlegal(ex, store)
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -297,6 +278,31 @@ rightwalk(store) = ex -> begin
         # Re-assemble RHS with new A, and primes on indices taken care of.
         return :( $A[$(inds...)] )
     end # A1[i][k] should be seen later, with corrected A
+
+rigthlegal(ex, store) = begin
+    # This will detect any assignment before it is used.
+    if ex isa Expr && ex.head == :(=)
+        if ex.args[1] isa Symbol
+            push!(store.notfree, ex.args[1])
+        elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
+            for i in ex.args[1].args
+                i isa Symbol && push!(store.notfree, i)
+            end
+        end
+    end
+    ex isa Expr && ex.head == :return && error("can't use return inside body")
+    # These things cause difficulties for gradient or for LoopVectorization:
+    if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
+        (@capture_(ex, Binds_[more__]) && @capture_(Binds, B_[inds__]))
+        push!(store.flags, :noavx)
+        push!(store.flags, :nograd)
+    end
+    ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
+    ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
+    ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
+    ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
+    ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
+end
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
 arrayonly(A::Expr) =
