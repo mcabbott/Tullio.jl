@@ -300,8 +300,8 @@ rigthlegal(ex, store) = begin
     ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
     ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
     ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
-    ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
-    ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
+    # ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)  # ?? removed to make an example work
+    # ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
 end
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -453,6 +453,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
         end
     end
     unique!(store.rightind)
+    store.redind = setdiff(store.rightind, store.leftind)
 end
 
 #========== index ranges ==========#
@@ -462,12 +463,12 @@ function index_ranges(store)
     todo = Set(vcat(store.leftind, store.redind))
 
     for (i,j,r_i,r_j) in store.pairconstraints
-        if haskey(store.constraints, i) # && i in todo ??
+        if haskey(store.constraints, i) && i in todo # ??
             resolveintersect(i, store) # use existing knowledge to fix i's range
             pop!(todo, i)
             v = get!(store.constraints, j, Expr[]) # and then allow j's range to depend on that
             push!(v, r_j)
-        elseif haskey(store.constraints, j) # && j in todo
+        elseif haskey(store.constraints, j) && j in todo
             resolveintersect(j, store)
             pop!(todo, j)
             v = get!(store.constraints, i, Expr[])
@@ -838,7 +839,7 @@ function backward_definitions(make, act!, store)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     defineempties = map((A,dA) -> :($dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0)), store.arrays, gradarrays)
     # append!(defineempties, map((x,dx) -> :($dx = zero(Base.promote_type(typeof($x), $TYP))), store.scalars, gradscalars))
-    returns = vcat(gradarrays, )
+    returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
     # returns = vcat(gradarrays, gradscalars)
 
     # loop order may as well be the same as before?

@@ -2,8 +2,6 @@
 #========== backward gradient using ForwardDiff ==========#
 
 function insert_forward_gradient(act!, store)
-    store.verbose && @info "using ForwardDiff for $act! ~ $(store.right[])"
-
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, act!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
