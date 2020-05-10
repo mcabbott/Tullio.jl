@@ -105,6 +105,14 @@ using Tullio, Test, LinearAlgebra
     Z = @tullio [i] := A[i] + 1
     @test Z == A .+ 1
 
+    # multi-line
+    @tullio B[i,j] := begin
+        x = (1:10)[i] + 3
+        y = (1:3)[j]
+        x // y
+    end
+    @test B == (4:13) .// (1:3)'
+
     # internal name leaks
     @test !isdefined(@__MODULE__, Tullio.ZED)
     @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
@@ -153,7 +161,15 @@ end
     @tullio W2[i, j, m, n] = (i == m) * B[n, j]
     @test W2 == W
 
-    @test_throws Exception Tullio._tullio(:( [i,j] = A[i] + 100 ))
+    @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
+
+    # assignment: no loop over j
+    B = zero(A);
+    @tullio B[i] = begin
+        j = mod(i^4, 1:10)
+        A[j]
+    end
+    @test B == A[[mod(i^4, 1:10) for i in 1:10]]
 
     # internal name leaks
     @test !isdefined(@__MODULE__, Tullio.ZED)

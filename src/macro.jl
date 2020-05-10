@@ -80,6 +80,7 @@ function _tullio(exs...; mod=Main)
         cost = 1,
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
+        notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
@@ -247,9 +248,9 @@ function parse_input(expr, store)
 
     unique!(store.scalars)
     unique!(store.arrays)
-    unique!(store.leftind) # after last saveconstraints()
-    unique!(store.sharedind)
-    unique!(store.rightind)
+    unique!(store.leftind)
+    store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
+    store.rightind = unique!(setdiff(store.rightind, store.notfree))
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
     store.redind = setdiff(store.rightind, store.leftind)
@@ -269,6 +270,16 @@ rightwalk(store) = ex -> begin
         ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
         ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
         ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
+        if ex isa Expr && ex.head == :(=) # This will detect any assignment before it is used.
+            if ex.args[1] isa Symbol
+                push!(store.notfree, ex.args[1])
+            elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
+                for i in ex.args[1].args
+                    i isa Symbol && push!(store.notfree, i)
+                end
+            end
+        end
+        ex isa Expr && ex.head == :return && error("can't use return inside body")
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -298,6 +309,7 @@ saveconstraints(A, inds, store, right=true) = begin
     is = Symbol[]
     foreach(enumerate(inds)) do (d,ex)
         isconst(ex) && return
+        containsany(ex, store.notfree) && return
         range_i, i = range_expr_walk(length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d)), ex)
         if i isa Symbol
             push!(is, i)
@@ -341,6 +353,17 @@ arrayfirst(A::Expr) =
     elseif @capture_(A, B_.field_)
         return A
     end
+
+containsany(ex, list) = begin
+    out = false
+    MacroTools_postwalk(ex) do x
+        if x in list
+            out = true
+        end
+        x
+    end
+    out
+end
 
 primeindices(inds) = map(inds) do ex
     ex isa Expr && ex.head == Symbol("'") &&
