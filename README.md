@@ -16,6 +16,8 @@ and writes loops which fill in the matrix `C`, by summing the right hand side at
 
 ### Examples
 
+Notation:
+
 ```julia
 using Pkg; pkg"add https://github.com/mcabbott/Tullio.jl"
 using Tullio
@@ -35,13 +37,13 @@ using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
 
-# Access to fields & arrays -- this uses j ∈ axes(first(N).c, 1)
+# Access to fields & arrays -- this uses j ∈ eachindex(first(N).c)
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 @tullio T[i,j] := (N[i].a // 1, N[i].c[j])
 
 # Functions which create arrays are evaluated once:
-@tullio T[i,j] := abs.((rand(Int8, 5)[i], rand(Int8, 5)[j]))
-T == reverse.(permutedims(T))
+@tullio R[i,j] := abs.((rand(Int8, 5)[i], rand(Int8, 5)[j]))
+R == reverse.(permutedims(T))
 ```
 
 Threads & SIMD:
@@ -86,6 +88,19 @@ cu(A * B) ≈ mul(cu(A), cu(B)) # true
 cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1] # true
 ```
 
+Larger expressions:
+
+```julia
+mat = zeros(10,10,1); mat[1,1] = 101;
+@tullio kern[i,j] := 1/(1+i^2+j^2)  (i in -2:2, j in -2:2)
+
+@tullio out[x,y,c] := begin
+    xi = mod(x+i, axes(mat,1)) # xi = ... means that it won't be summed,
+    yj = mod(y+j, axes(mat,2))
+    @inbounds trunc(Int, mat[xi, yj, c] * kern[i,j]) # and disables automatic @inbounds,
+end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
+```
+
 ### Options
 
 The default setting is:
@@ -93,12 +108,13 @@ The default setting is:
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
+* Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints everything; you can't use `@macroexpand1` as it needs to `eval` rather than return gradient definitions.
 * `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
 
 Implicit:
-* Output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
+* Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker`, `Zygote` & `Yota`, according to which of these packages are visible. 
 * GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
@@ -127,5 +143,12 @@ Front-end near-lookalikes:
 
 * [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations.
 
-* [TensorCast.jl](https://github.com/mcabbott/TensorCast.jl) expresses everything as Julia array operations, broadcasting and reduction.
+* [TensorCast.jl](https://github.com/mcabbott/TensorCast.jl) expresses everything as Julia array operations, broadcasting and reduction. (OMEinsum.jl also treats some cases as a special lazy broadcast-reduction.)
 
+Things you can't run:
+
+* [Tortilla.jl](https://www.youtube.com/watch?v=Rp7sTl9oPNI) seems to exist, publicly, only in this very nice talk. 
+
+* [ArrayMeta.jl](https://github.com/shashi/ArrayMeta.jl) was a Julia 0.5 take on some of this.
+
+* [Tokamak.jl](https://github.com/tkelman/Tokamak.jl) was another.
