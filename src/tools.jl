@@ -8,7 +8,7 @@ DotDict(;kw...) = DotDict(Dict(pairs(kw)...))
 
 Base.parent(x::DotDict) = getfield(x, :store)
 
-Base.propertynames(x::DotDict) = Tuple(keys(parent(x)))
+Base.propertynames(x::DotDict) = Tuple(sort(collect(keys(parent(x)))))
 Base.getproperty(x::DotDict, s::Symbol) = getindex(parent(x), s)
 function Base.setproperty!(x::DotDict, s::Symbol, v)
     s in propertynames(x) || error("DotDict has no field $s")
