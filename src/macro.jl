@@ -461,15 +461,16 @@ end
 function index_ranges(store)
 
     todo = Set(vcat(store.leftind, store.redind))
+    done = Dict{Symbol,Expr}()
 
     for (i,j,r_i,r_j) in store.pairconstraints
         if haskey(store.constraints, i) && i in todo # ??
-            resolveintersect(i, store) # use existing knowledge to fix i's range
+            resolveintersect(i, store, done) # use existing knowledge to fix i's range
             pop!(todo, i)
             v = get!(store.constraints, j, Expr[]) # and then allow j's range to depend on that
             push!(v, r_j)
         elseif haskey(store.constraints, j) && j in todo
-            resolveintersect(j, store)
+            resolveintersect(j, store, done)
             pop!(todo, j)
             v = get!(store.constraints, i, Expr[])
             push!(v, r_i)
