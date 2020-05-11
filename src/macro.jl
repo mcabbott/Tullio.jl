@@ -724,7 +724,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if store.avx != false # && !(:noavx in store.flags) &&
         isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
-        try lex = macroexpand(store.mod, :(
+        try lex = macroexpand(store.mod, quote
 
             function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                 @debug "LoopVectorization @avx actor, unroll=$unroll"
@@ -733,9 +733,9 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 $expost
             end
 
-            ))
+            end)
             push!(store.outeval, lex)
-            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll" err
+            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll"
         catch err
             store.verbose > 0 && @error "LoopVectorization failed" err
         end
@@ -750,7 +750,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         kernel = Symbol(act!, :🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
-        push!(store.outeval, quote
+        try kex = macroexpand(store.mod, quote
 
             KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
                 ($(outer...),) = @index(Global, NTuple)
@@ -765,7 +765,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 KernelAbstractions.wait($ACC)
             end
 
-            # Just for testing really...
+            # For testing, this probably wants threads=false
+            # Less specific than LoopVectorization signature
             function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
                 @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
                 cpu_kern! = $kernel(CPU(), Threads.nthreads())
@@ -774,20 +775,31 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 KernelAbstractions.wait($ACC)
             end
 
-        # Also, bypass "threader" functions to come straight here for CuArrays.
-        # Could check if length(methods(threader)) < 2, but no complaints so far:
+            end)
+            push!(store.outeval, kex)
+            store.verbose == 2 && @info "success wtih KernelAbstractions"
+            if CUDADEF[] == false
+                # Then we also need to add methods to avoid threader functions:
+                @eval store.mod quote
 
-            Tullio.threader(fun!::Function, T::Type{<:CuArray},
-                Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
-                fun!(T, Z, As..., Is..., Js..., keep)
+                    Tullio.threader(fun!::Function, T::Type{<:CuArray},
+                        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+                        fun!(T, Z, As..., Is..., Js..., keep)
 
-            Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-                As::Tuple, Is::Tuple, Js::Tuple; block=0) =
-                fun!(T, As..., Is..., Js...,)
+                    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
+                        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
+                        fun!(T, As..., Is..., Js...,)
 
-        end)
+                end
+                CUDADEF[] = true
+            end
+        catch err
+            store.verbose > 0 && @error "KernelAbstractions failed" err
+        end
     end
 end
+
+const CUDADEF = Ref(false)
 
 recurseloops(ex, list::Vector) =
     if isempty(list)
