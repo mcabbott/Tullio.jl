@@ -700,14 +700,19 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
-    push!(store.outeval, quote
-
-        function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
-            @debug "base actor:" typeof.(tuple($(args...)))
-            @inbounds @fastmath ($ex1; $ex2)
-        end
-
-    end)
+    if isempty(store.notfree)
+        push!(store.outeval, quote
+            function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+                @inbounds @fastmath ($ex1; $ex2)
+            end
+        end)
+    else
+        push!(store.outeval, quote
+            function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+                ($ex1; $ex2)
+            end
+        end)
+    end
 
     expre, exloop, expost = if isempty(outer)
         :($ex1; $ex3), ex4, ex6
