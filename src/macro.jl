@@ -320,7 +320,7 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, Expr[])
-            isnothing(range_i) || push!(v, dollarstrip(range_i)) # ?? is this ever nothing?
+            push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
             push!(is, i...)
             push!(store.shiftedind, i...)
@@ -380,7 +380,7 @@ dollarwalk(store) = ex -> begin
         @nospecialize ex
         ex isa Expr || return ex
         if ex.head == :call
-            ex.args[1] == :* && ex.args[2] === Int(0) && return false # tidy up dummy arrays!
+            # ex.args[1] == :* && ex.args[2] === Int(0) && return false # tidy up dummy arrays!
             callcost(ex.args[1], store) # cost model for threading
         elseif ex.head == :$ # interpolation of $c things:
             ex.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
