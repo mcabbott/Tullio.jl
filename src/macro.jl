@@ -253,8 +253,6 @@ function parse_input(expr, store)
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
-    store.redind = setdiff(store.rightind, store.leftind)
-
 end
 
 rightwalk(store) = ex -> begin
@@ -300,8 +298,8 @@ rigthlegal(ex, store) = begin
     ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
     ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
     ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
-    # ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)  # ?? removed to make an example work
-    # ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
+    ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
+    ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
 end
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -461,10 +459,10 @@ end
 function index_ranges(store)
 
     todo = Set(vcat(store.leftind, store.redind))
-    done = Dict{Symbol,Expr}()
+    done = Dict{Symbol,Any}()
 
     for (i,j,r_i,r_j) in store.pairconstraints
-        if haskey(store.constraints, i) && i in todo # ??
+        if haskey(store.constraints, i) && i in todo
             resolveintersect(i, store, done) # use existing knowledge to fix i's range
             pop!(todo, i)
             v = get!(store.constraints, j, Expr[]) # and then allow j's range to depend on that
