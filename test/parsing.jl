@@ -21,10 +21,10 @@ using Tullio, Test, LinearAlgebra
 
     # fields
     E = [(a=i, b=i^2, c=[i,2i,3i]) for i in 1:10]
-    @tullio O[i] := A[i]//E[i].b # gets :noavx flag from E[i].b
+    @tullio O[i] := A[i]//E[i].b # avx disabled by try/catch
     @test O == ones(10)
 
-    @tullio F[i,j] := E[i].c[j] # also :noavx
+    @tullio F[i,j] := E[i].c[j]
     @test F == (1:10) .* [1 2 3]
 
     # arrays of tuples
@@ -74,8 +74,8 @@ using Tullio, Test, LinearAlgebra
     @test A2 == 2 .* A
 
     # broadcasting
-    @tullio S[i] := sqrt.(M[:,i]) # dot sets :noavx & :nograd
-    @tullio T[i] := A[i] .+ A[j]  # dot does nothing, except set :noavx & :nograd
+    @tullio S[i] := sqrt.(M[:,i]) # avx & grad now disabled by try/catch
+    # @tullio T[i] := A[i] .+ A[j]  # dot does nothing, except set :noavx & :nograd
 
     # scope
     f(x,k) = @tullio y[i] := x[i] + i + $k

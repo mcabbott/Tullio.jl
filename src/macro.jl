@@ -258,8 +258,17 @@ end
 
 rightwalk(store) = ex -> begin
         @nospecialize ex
-        # First, note the presence of illegal / difficult things:
-        rigthlegal(ex, store)
+        # First, this will detect any assignment before it is used:
+        if ex isa Expr && ex.head == :(=)
+            if ex.args[1] isa Symbol
+                push!(store.notfree, ex.args[1])
+            elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
+                for i in ex.args[1].args
+                    i isa Symbol && push!(store.notfree, i)
+                end
+            end
+        end
+        ex isa Expr && ex.head == :return && error("can't use return inside body")
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -277,31 +286,6 @@ rightwalk(store) = ex -> begin
         # Re-assemble RHS with new A, and primes on indices taken care of.
         return :( $A[$(inds...)] )
     end # A1[i][k] should be seen later, with corrected A
-
-rigthlegal(ex, store) = begin
-    # This will detect any assignment before it is used.
-    if ex isa Expr && ex.head == :(=)
-        if ex.args[1] isa Symbol
-            push!(store.notfree, ex.args[1])
-        elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
-            for i in ex.args[1].args
-                i isa Symbol && push!(store.notfree, i)
-            end
-        end
-    end
-    ex isa Expr && ex.head == :return && error("can't use return inside body")
-    # These things cause difficulties for gradient or for LoopVectorization:
-    if (@capture_(ex, Binds_.field_) && @capture_(Binds, B_[inds__])) ||
-        (@capture_(ex, Binds_[more__]) && @capture_(Binds, B_[inds__]))
-        push!(store.flags, :noavx)
-        push!(store.flags, :nograd)
-    end
-    ex isa Expr && ex.head == :kw && push!(store.flags, :noavx)
-    ex isa Expr && ex.head == :tuple && push!(store.flags, :noavx)
-    ex isa Expr && ex.head == :call && ex.args[1] in [:(==), :(!=), :(>), :(>=), :(<), :(<=)] && push!(store.flags, :noavx)
-    ex isa Expr && ex.head == Symbol(".") && push!(store.flags, :noavx, :nograd)
-    ex isa Symbol && startswith(string(ex), ".") && push!(store.flags, :noavx, :nograd)
-end
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
 arrayonly(A::Expr) =
@@ -402,7 +386,7 @@ tidyleftraw(leftraw, store) = map(leftraw) do i
             push!(store.leftnames, i.args[1])
             return i.args[2]
         else
-            push!(store.flags, :noavx)
+            # push!(store.flags, :noavx)
         end
     elseif i === :_
         return 1
@@ -645,7 +629,7 @@ function action_functions(store)
     end
 
     #===== gradient hooks =====#
-    if store.grad != false && (:newarray in store.flags) && !(:nograd in store.flags)
+    if store.grad != false && (:newarray in store.flags) # && !(:nograd in store.flags)
         # First see if you can insert hooks for Zygote/Tracker/Yota
         backdefs = backward_definitions(make, act!, store)
         if backdefs != nothing
@@ -654,8 +638,14 @@ function action_functions(store)
             if store.grad == :Dual
                 isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
                 insert_forward_gradient(act!, store)
+                store.verbose == 2 && @info "using ForwardDiff gradient" err
             elseif store.grad == :Base
-                insert_symbolic_gradient(act!, store)
+                try
+                    insert_symbolic_gradient(act!, store)
+                    store.verbose == 2 && @info "success wtih Symbolic gradient" err
+                catch err
+                    store.verbose > 0 && @error "Symbolic gradient failed" err
+                end
             end
         end
     end
@@ -731,10 +721,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         ex1, ex2, nothing
     end
 
-    if store.avx != false && !(:noavx in store.flags) &&
+    if store.avx != false # && !(:noavx in store.flags) &&
         isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
-        push!(store.outeval, quote
+        try lex = macroexpand(store.mod, :(
 
             function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                 @debug "LoopVectorization @avx actor, unroll=$unroll"
@@ -743,7 +733,12 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 $expost
             end
 
-        end)
+            ))
+            push!(store.outeval, lex)
+            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll" err
+        catch err
+            store.verbose > 0 && @error "LoopVectorization failed" err
+        end
     end
 
     axouter = map(i -> Symbol(AXIS, i), outer)

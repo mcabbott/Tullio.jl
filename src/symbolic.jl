@@ -23,10 +23,6 @@ function insert_symbolic_gradient(act!, store)
         deltar = simplitimes(drdt, :($dZ[$(store.leftraw...)]))
         :($dt = $dt + $deltar)
     end
-    # You could show the error only if the gradient is actually called, delete :nograd flags?
-    #     catch err
-    #     :(throw(err))
-    # end
     ex_body = commonsubex(quote $(inbody...) end)
 
     make_many_actors(∇act!,
@@ -72,7 +68,7 @@ leibnitz(ex::Expr, target) = begin
         ex.head = :call
         pushfirst!(ex.args, :adjoint)
     end
-    ex.head == :call || error("expected a functionn call, got $ex. Use @tullio grad=false if you do not need the gradient.")
+    ex.head == :call || error("expected a functionn call, got $ex.")
     fun = ex.args[1]
     if fun == :log # catch log(a*b) and especially log(a/b)
         arg = ex.args[2]
@@ -98,21 +94,13 @@ leibnitz(ex::Expr, target) = begin
         dxs = [leibnitz(x, target) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
     end
-    error("don't know how to handle $ex. Use @tullio grad=false if you do not need the gradient.")
+    error("don't know how to handle $ex.")
 end
 
 simplitimes(x::Number, y::Number) = x*y
 simplitimes(x::Number, y) = x==0 ? 0 : x==1 ? y : x==-1 ? :(-$y) : :($x * $y)
 simplitimes(x, y::Number) = y==0 ? 0 : y==1 ? x : y==-1 ? :(-$x) : :($y * $x)
 simplitimes(x, y) = :($y * $x)
-# simplitimes(x, y) = begin # not worth the hassle, but .e.g.  @printgrad  1/sqrt(z)  z
-#     if x isa Expr && y isa Expr && x.head == y.head == :call
-#         x.args[1] == y.args[1] == :* && return Expr(:call, :*, x.args[2:end]..., y.args[2:end]...)
-#         x.args[1] == :/ && y.args[1] == :* && return :(*($(x.args[2]), $(y.args[2:end]...))/$(x.args[3]))
-#         y.args[1] == :/ && x.args[1] == :* && return :(*($(y.args[2]), $(x.args[2:end]...))/$(y.args[3]))
-#     end
-#     :($y * $x)
-# end
 
 simpliplus(x::Number, y::Number) = x + y
 simpliplus(x::Number, y) = x==0 ? y : :($x + $y)
@@ -135,7 +123,7 @@ mydiffrule(f, xs...) = begin
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
         return DiffRules.diffrule(:SpecialFunctions, f, xs...)
-    error("no diffrule found for function $f($(join(map(_->"_",xs),", "))). Use @tullio grad=false if you do not need the gradient.")
+    error("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
 end
 
 # Goals of these rules, besides correctness, are:
