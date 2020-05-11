@@ -479,31 +479,42 @@ function index_ranges(store)
     for i in todo
         haskey(store.constraints, i) || error("unable to infer range of index $i")
         if i in store.shiftedind
-            resolveintersect(i, store)
+            resolveintersect(i, store, done)
         else
-            resolvestrict(i, store)
+            resolvestrict(i, store, done)
         end
     end
 
     append!(store.outex, store.axisdefs)
+
+    if store.verbose
+        lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
+        push!(store.outex, :(@info "left index ranges" $(lex...)))
+        if !isempty(store.redind)
+            rex = map(i -> Expr(:(=), i, done[i]), store.redind)
+            push!(store.outex, :(@info "reduction index ranges" $(rex...)))
+        end
+    end
 end
 
-resolvestrict(i, store) = begin
+resolvestrict(i, store, done) = begin
     res = first(store.constraints[i])
     ax_i = Symbol(AXIS, i)
     push!(store.axisdefs, :( local $ax_i = $res ))
+    done[i] = res
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
         push!(store.axisdefs, :( $alt == $res || error($str) ))
     end
 end
 
-resolveintersect(i, store) = begin
+resolveintersect(i, store, done) = begin
     res = length(store.constraints[i])==1 ?
         first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
         :( intersect($(store.constraints[i]...)) )
     ax_i = Symbol(AXIS, i)
     push!(store.axisdefs, :( local $ax_i = $res ))
+    done[i] = res
 end
 
 #========== output array + eltype ==========#
