@@ -35,10 +35,10 @@ either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
 You can use `Tullio.@printgrad` to show the symbolic output.
 
-    @tullio  verbose=true
+    @tullio  verbose=2
 
 This prints out everythinng the macro knows & generates. (You can't use `@macroexpand1`
-as the gradients need things `eval`uated at top level.)
+as the gradients need things `eval`uated at top level.) `verbose=1` prints some information.
 Options given without an expression change the global defaults, instead of applying just once.
 """
 macro tullio(exs...)
@@ -54,8 +54,7 @@ function _tullio(exs...; mod=Main)
     verbose, threads, grad, avx, cuda = opts
 
     key = hash((mod, opts, ranges, ex, check_packages(mod)))
-    if haskey(HASHSAVED, key) # then we've seen this exact thing before
-        verbose && verboseprint((outex= HASHSAVED[key],))
+    if haskey(HASHSAVED, key) && verbose < 2 # then we've seen this exact thing before
         return Expr(:block, HASHSAVED[key]...) |> esc
     end
 
@@ -100,7 +99,7 @@ function _tullio(exs...; mod=Main)
 
     action_functions(store)
 
-    verbose && verboseprint(store)
+    verbose == 2 && verboseprint(store)
 
     if !isempty(store.outeval)
         @eval store.mod begin $(store.outeval...) end
@@ -128,14 +127,16 @@ check_packages(mod) = map(x -> isdefined(mod, x), PACKAGES)
 #========== options, etc ==========#
 
 OPTS = Dict(
-    :verbose => [true, false],
+    :verbose => Any[true, false, 2],
+    :inbounds => [true, false],
     :threads => Integer,
     :grad => [false, :Base, :Dual],
     :avx => Integer,
     :cuda => Integer,
     )
 
-VERBOSE = Ref(false)
+VERBOSE = Ref{Any}(false)
+INBOUNDS = Ref(true)
 THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
@@ -486,7 +487,7 @@ function index_ranges(store)
 
     append!(store.outex, store.axisdefs)
 
-    if store.verbose
+    if store.verbose > 0
         lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
         push!(store.outex, :(@info "left index ranges" $(lex...)))
         if !isempty(store.redind)
