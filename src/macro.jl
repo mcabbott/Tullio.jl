@@ -233,7 +233,7 @@ function parse_input(expr, store)
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw1 = tidyleftraw(primeindices(leftraw), store)
-    store.leftind = reverse(filter(i -> i isa Symbol, leftraw1)) # reverse sets outer loop order.
+    store.leftind = filter(i -> i isa Symbol, leftraw1) # this gives correct outer loop order
     !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
 
     store.leftraw = tidyleftraw2(leftraw1, store)
@@ -638,11 +638,11 @@ function action_functions(store)
             if store.grad == :Dual
                 isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
                 insert_forward_gradient(act!, store)
-                store.verbose == 2 && @info "using ForwardDiff gradient" err
+                store.verbose == 2 && @info "using ForwardDiff gradient"
             elseif store.grad == :Base
                 try
                     insert_symbolic_gradient(act!, store)
-                    store.verbose == 2 && @info "success wtih Symbolic gradient" err
+                    store.verbose == 2 && @info "success wtih Symbolic gradient"
                 catch err
                     store.verbose > 0 && @error "Symbolic gradient failed" err
                 end
