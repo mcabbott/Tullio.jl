@@ -110,8 +110,9 @@ end
 
 #=
 
-Tullio.MINIBLOCK[] = 1
-Z = zeros(Int, 13,17);
+using Tullio
+Tullio.MINIBLOCK[] = 4
+Z = zeros(Int, 11,9);
 cnt = 0
 f!(::Type, Z, i, j, keep) = begin
     global cnt
@@ -119,6 +120,39 @@ f!(::Type, Z, i, j, keep) = begin
 end
 Tullio.block_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), nothing)
 Z
+
+  1   1   3   3   5   5   7   8   8
+  1   1   3   3   5   5   7   8   8
+  2   2   4   4   6   6   9  10  10
+  2   2   4   4   6   6   9  10  10
+ 11  11  13  13  19  19  21  21  21
+ 12  12  14  14  20  20  22  23  23
+ 12  12  14  14  20  20  22  23  23
+ 15  15  16  16  24  24  26  27  27
+ 15  15  16  16  24  24  26  27  27
+ 17  17  18  18  25  25  28  29  29
+ 17  17  18  18  25  25  28  29  29
+
+using TiledIteration
+function colour!(A, n=1)
+    for (i,t) in enumerate(TileIterator(axes(A), ntuple(_->n, ndims(A))))
+        A[t...] .= i
+    end
+    A
+end;
+colour!(zeros(Int, 11,9), 2)
+
+ 1  1   7   7  13  13  19  19  25
+ 1  1   7   7  13  13  19  19  25
+ 2  2   8   8  14  14  20  20  26
+ 2  2   8   8  14  14  20  20  26
+ 3  3   9   9  15  15  21  21  27
+ 3  3   9   9  15  15  21  21  27
+ 4  4  10  10  16  16  22  22  28
+ 4  4  10  10  16  16  22  22  28
+ 5  5  11  11  17  17  23  23  29
+ 5  5  11  11  17  17  23  23  29
+ 6  6  12  12  18  18  24  24  30
 
 =#
 
