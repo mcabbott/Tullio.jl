@@ -29,6 +29,18 @@ julia> Zygote.gradient(x -> sum(@tullio s[i] := 1+tanh(x[i])), x1)[1]'
 
 julia> x2 = randn(1000,1000);
 
+julia> @btime sum(f1.($x2));
+  25.181 ms (2 allocations: 7.63 MiB)
+
+julia> @btime sum(f1, $x2);
+  24.414 ms (0 allocations: 0 bytes)
+
+julia> @btime sum(Broadcast.broadcasted(f1, $x2)) # on Julia 1.5
+  29.678 ms (0 allocations: 0 bytes)
+
+julia> @btime @tullio s = f1($x2[i,j])
+  13.195 ms (41 allocations: 2.66 KiB)
+
 julia> @btime Tracker.gradient(x -> sum(f1.(x)), $x2);
   58.780 ms (44 allocations: 53.41 MiB)
 
@@ -56,6 +68,9 @@ julia> @btime Zygote.gradient(x -> sum(tanh.(x)), $x2);
 
 julia> using LoopVectorization
 
+julia> @btime @tullio s = f1($x2[i,j])
+  3.194 ms (39 allocations: 2.59 KiB)
+
 julia> @btime Zygote.gradient(x -> sum(@tullio s[i] := 1+tanh(x[i,j])), $x2);
   10.663 ms (81 allocations: 7.64 MiB)
 
@@ -68,6 +83,9 @@ julia> @btime Zygote.gradient(x -> sum(@tullio s[i] := 1+tanh(x[i,j]) grad=Dual)
   10.512 ms (81 allocations: 7.64 MiB)
 
 # Another problem:
+
+julia> @btime sum($x2 .+ $x2' ./ 2);
+  2.968 ms (2 allocations: 7.63 MiB)
 
 julia> @btime Tracker.gradient(x -> sum(x .+ x' ./ 2), $x2);
   25.699 ms (210 allocations: 68.67 MiB)
