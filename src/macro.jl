@@ -303,7 +303,7 @@ saveconstraints(A, inds, store, right=true) = begin
         if i isa Symbol
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
-            v = get!(store.constraints, i, Expr[])
+            v = get!(store.constraints, i, [])
             push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
             push!(is, i...)
@@ -450,12 +450,12 @@ function index_ranges(store)
         if haskey(store.constraints, i) && i in todo
             resolveintersect(i, store, done) # use existing knowledge to fix i's range
             pop!(todo, i)
-            v = get!(store.constraints, j, Expr[]) # and then allow j's range to depend on that
+            v = get!(store.constraints, j, []) # and then allow j's range to depend on that
             push!(v, r_j)
         elseif haskey(store.constraints, j) && j in todo
             resolveintersect(j, store, done)
             pop!(todo, j)
-            v = get!(store.constraints, i, Expr[])
+            v = get!(store.constraints, i, [])
             push!(v, r_i)
         end
     end
@@ -721,8 +721,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         ex1, ex2, nothing
     end
 
-    if store.avx != false # && !(:noavx in store.flags) &&
-        isdefined(store.mod, :LoopVectorization)
+    if store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         try lex = macroexpand(store.mod, quote
 
