@@ -38,6 +38,9 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
 function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple; block, keep=nothing)
+    if !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
+        fun!(T, Z, As..., I0s..., J0s..., keep) # don't thread ranges like 10:-1:1
+    end
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
     if isnothing(block)
