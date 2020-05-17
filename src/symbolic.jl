@@ -28,7 +28,7 @@ function insert_symbolic_gradient(act!, store)
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store)
+        nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store, " (symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
@@ -36,12 +36,7 @@ function insert_symbolic_gradient(act!, store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
-            ex_value, store.sharedind, nothing, nonshared, ex_body2, nothing, store)
-
-        push!(store.outeval, quote
-            Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
-            Tullio.promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
-        end)
+            ex_value, store.sharedind, nothing, nonshared, ex_body2, nothing, store, " (method for FillArrays)")
     end
 
 end

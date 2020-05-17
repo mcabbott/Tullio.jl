@@ -26,7 +26,7 @@ function insert_forward_gradient(act!, store)
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store)
+        :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store, " (gradient using ForwardDiff)")
 
     if isdefined(store.mod, :Zygote)
         ex_iter2 = fillarrayreplace(ex_iter, dZ)
@@ -34,12 +34,12 @@ function insert_forward_gradient(act!, store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
-            :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store)
+            :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store, " (method for FillArrays)")
 
-        push!(store.outeval, quote
-            Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
-            Tullio.promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
-        end)
+        # push!(store.outeval, quote
+        #     Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
+        #     Tullio.promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
+        # end)
     end
 
 end
