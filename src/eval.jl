@@ -19,70 +19,17 @@ end
 
 (ev::Eval)(args...) = ev.fwd(args...)
 
-#========== gradient hooks ==========#
 
+#========== gradient hooks ==========#
+# Macros like @adjoint need to be hidden behind include(), it seems:
 
 using Requires
 
-@init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" begin
-    using .Zygote
+@init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
 
-    Zygote.@adjoint function (ev::Eval)(args...)
-        ev.fwd(args...), Δ -> begin
-            isnothing(ev.rev) && error("no gradient definition here!")
-            tuple(nothing, ev.rev(Δ, args...)...)
-        end
-    end
+@init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
 
-    $promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
-    $promote_storage(::Type{<:Zygote.Fill}, T::Type) = T
-
-end
-
-@init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" begin
-    using .Tracker
-    using .Tracker: @grad, TrackedArray, track, data
-
-    (ev::Eval)(A::TrackedArray, args...) = track(ev, A, args...)
-    (ev::Eval)(A, B::TrackedArray, args...) = track(ev, A, B, args...)
-    (ev::Eval)(A::TrackedArray, B::TrackedArray, args...) = track(ev, A, B, args...)
-
-    @grad function (ev::Eval)(args...)
-        ev.fwd(data.(args)...), Δ -> begin
-            isnothing(ev.rev) && error("no gradient definition here!")
-            tuple(ev.rev(Δ, data.(args)...)...)
-        end
-    end
-
-    # (ev::Eval)(A::Tracker.TrackedArray, args...) = Tracker.track(ev, A, args...)
-    # (ev::Eval)(A, B::Tracker.TrackedArray, args...) = Tracker.track(ev, A, B, args...)
-    # (ev::Eval)(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track(ev, A, B, args...)
-
-    # Tracker.@grad function (ev::Eval)(args...)
-    #     ev.fwd(Tracker.data.(args)...), Δ -> begin
-    #         isnothing(ev.rev) && error("no gradient definition here!")
-    #         tuple(ev.rev(Δ, Tracker.data.(args)...)...)
-    #     end
-    # end
-
-end
-
-@init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" begin
-    using .ReverseDiff
-
-    (ev::Eval)(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, args...)
-    (ev::Eval)(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, B, args...)
-    (ev::Eval)(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, B, args...)
-
-    ReverseDiff.@grad function (ev::Eval)(args...)
-        ev.fwd(ReverseDiff.value.(args)...), Δ -> begin
-            isnothing(ev.rev) && error("no gradient definition here!")
-            ev.rev(Δ, ReverseDiff.value.(args)...)
-        end
-    end
-
-end
-
+@init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
 
 #=
 @init @requite Yota = "cd998857-8626-517d-b929-70ad188a48f0" begin
