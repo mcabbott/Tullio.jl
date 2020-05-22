@@ -1,0 +1,13 @@
+
+using .ReverseDiff
+
+(ev::Eval)(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, args...)
+(ev::Eval)(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, B, args...)
+(ev::Eval)(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track(ev, A, B, args...)
+
+ReverseDiff.@grad function (ev::Eval)(args...)
+    ev.fwd(ReverseDiff.value.(args)...), Δ -> begin
+        isnothing(ev.rev) && error("no gradient definition here!")
+        ev.rev(Δ, ReverseDiff.value.(args)...)
+    end
+end

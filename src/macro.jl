@@ -8,7 +8,7 @@
 This is a replacement for `@einsum` which understands a bit more syntax.
 The expression on the right is summed over all possible valued of the free index `k`,
 and `:=` makes a new array `C`, while `=` and `+=` would write into an existing one.
-Scalar arguments need a dollar sign, like `\$α` or `A[i,\$γ]`.
+Scalar arguments should have a dollar sign, like `\$α` or `A[i,\$γ]`.
 
     @tullio G[i,j] := A[i+x+1, j+y+1] * K[x,y]
     @tullio H[i,j] := A[2i+x, 2j+y]  (x in -1:1, y in -1:1)
@@ -37,8 +37,7 @@ You can use `Tullio.@printgrad` to show the symbolic output.
 
     @tullio  verbose=2
 
-This prints out everythinng the macro knows & generates. (You can't use `@macroexpand1`
-as the gradients need things `eval`uated at top level.) `verbose=1` prints some information.
+This prints out everythinng the macro knows & generates. `verbose=1` prints some information.
 Options given without an expression change the global defaults, instead of applying just once.
 """
 macro tullio(exs...)
@@ -52,11 +51,6 @@ function _tullio(exs...; mod=Main)
         return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
     end
     verbose, threads, grad, avx, cuda = opts
-
-    key = hash((mod, opts, ranges, ex, check_packages(mod)))
-    if haskey(HASHSAVED, key) && verbose < 2 # then we've seen this exact thing before
-        return Expr(:block, HASHSAVED[key]...) |> esc
-    end
 
     store = DotDict(mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
@@ -84,8 +78,7 @@ function _tullio(exs...; mod=Main)
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
     # Expressions:
-        outeval = Expr[], # functions to be @eval-ed at top level,
-        outpre = Expr[],  # preliminary steps, never put inside a function,
+        outpre = Expr[],  # preliminary steps
         outex = Expr[],   # the rest!
     )
 
@@ -101,28 +94,8 @@ function _tullio(exs...; mod=Main)
 
     verbose == 2 && verboseprint(store)
 
-    if !isempty(store.outeval)
-        @eval store.mod begin $(store.outeval...) end
-    end
-
-    HASHSAVED[key] = vcat(store.outpre, store.outex)
-
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
-
-#========== re-using definitions ==========#
-
-# This saves everything which isn't @eval-ed:
-HASHSAVED = Dict{UInt64,Any}()
-
-# ... for re-use on the same expression, under same conditions:
-PACKAGES = [
-    :OffsetArrays,
-    :ForwardDiff, :Zygote, :Tracker, :Yota, :ReverseDiff,
-    :LoopVectorization, :KernelAbstractions, :CuArrays,
-    ]
-
-check_packages(mod) = map(x -> isdefined(mod, x), PACKAGES)
 
 #========== options, etc ==========#
 
@@ -195,7 +168,7 @@ checklegal(opt, val) =
 verboseprint(store) = begin
     foreach(propertynames(store)) do k
         r = getproperty(store, k) # startswith(string(k), "out") fails?
-        k ∉ [:outpre, :outeval, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
+        k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
         foreach(ex -> printstyled(MacroTools_prettify(ex) , "\n", color=:green), r)
     end
@@ -574,28 +547,8 @@ function action_functions(store)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
     axislist = vcat(axisleft, axisred)
 
-    #===== new array =====#
-    if :newarray in store.flags
-        sofar = Expr(:block, store.outex...)
-        empty!(store.outex)
-        ST = :($storage_type($(store.leftarray), $(store.arrays...)))
-        keep = (:plusequals in store.flags) ? :true : :nothing
-        block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost) :
-            store.threads
-        push!(store.outeval, quote
-            function $make($(store.arrays...), $(store.scalars...), )
-                $sofar
-                $threader($act!, $ST, $(store.leftarray),
-                    tuple($(store.arrays...), $(store.scalars...),),
-                    tuple($(axisleft...),), tuple($(axisred...),);
-                    block=$block, keep=$keep)
-                return $(store.leftarray)
-            end
-        end)
-    end
-
     #===== constructing loops =====#
+
     init = store.redfun == :* ? :(one($TYP)) :
         store.redfun == :max ? :(typemin($TYP)) :
         store.redfun == :min ? :(typemin($TYP)) :
@@ -628,51 +581,44 @@ function action_functions(store)
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
-    #===== gradient hooks =====#
-    if store.grad != false && (:newarray in store.flags) # && !(:nograd in store.flags)
-        # First see if you can insert hooks for Zygote/Tracker/Yota
-        backdefs = backward_definitions(make, act!, store)
-        if backdefs != nothing
-            append!(store.outeval, backdefs)
-            # If so, calculate ∇make() somehow:
-            if store.grad == :Dual
-                isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
-                insert_forward_gradient(act!, store)
-                store.verbose == 2 && @info "using ForwardDiff gradient"
-            elseif store.grad == :Base
-                try
-                    insert_symbolic_gradient(act!, store)
-                    store.verbose == 2 && @info "success wtih Symbolic gradient"
-                catch err
-                    store.verbose > 0 && @error "Symbolic gradient failed" err
-                end
-            end
-        end
-    end
+    # make_many_actors and backward_definitions both push into store.outpre
+    ∇make = backward_definitions(make, act!, store)
 
-    #===== call something =====#
+    #===== action! =====#
+
     ST = :($storage_type($(store.leftarray), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
+    block = store.threads==false ? nothing :
+        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads
+    push!(store.outex, quote
+        $threader($act!, $ST, $(store.leftarray),
+            tuple($(store.arrays...), $(store.scalars...),),
+            tuple($(axisleft...),), tuple($(axisred...),);
+            block = $block, keep = $keep)
+        $(store.leftarray)
+    end)
+
     if :newarray in store.flags
-        if store.leftarray != ZED
-            push!(store.outex, :($(store.leftarray) = $make($(store.arrays...), $(store.scalars...), ) ))
-        elseif :scalar in store.flags
-             # push!(store.outex, :($(store.leftscalar) = getindex($make($(store.arrays...), $(store.scalars...), ),1)))
-             push!(store.outex, :($(store.leftscalar) = sum($make($(store.arrays...), $(store.scalars...), ))))
-        else # case of [i,j] := ... with no name given
-            push!(store.outex, :( $make($(store.arrays...), $(store.scalars...), ) ))
+        # then slurp up outex to make a function:
+        sofar = Expr(:block, store.outex...)
+        empty!(store.outex)
+        ex = quote
+            let $act! = $act!
+                function $make($(store.arrays...), $(store.scalars...), )
+                    $sofar
+                end
+                $Eval($make, $∇make)($(store.arrays...), $(store.scalars...), )
+            end
         end
-    else
-        block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost) :
-            store.threads
-        push!(store.outex, quote
-            $threader($act!, $ST, $(store.leftarray),
-                tuple($(store.arrays...), $(store.scalars...),),
-                tuple($(axisleft...),), tuple($(axisred...),);
-                block = $block, keep = $keep)
-            $(store.leftarray)
-        end)
+        # and assign the result if necc:
+        if store.leftarray != ZED
+            push!(store.outex, :($(store.leftarray) = $ex ))
+        elseif :scalar in store.flags
+             push!(store.outex, :($(store.leftscalar) = sum($ex)))
+        else # case of [i,j] := ... with no name given
+            push!(store.outex, ex)
+        end
     end
 end
 
@@ -696,20 +642,20 @@ f!(::Type, args..., keep=nothing) where {T}
 end
 ```
 """
-function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex5, ex6, store)
+function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex5, ex6, store, note="")
 
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
     if isempty(store.notfree)
-        push!(store.outeval, quote
-            function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+        push!(store.outpre, quote
+            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
             end
         end)
     else
-        push!(store.outeval, quote
-            function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+        push!(store.outpre, quote
+            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 ($ex1; $ex2)
             end
         end)
@@ -725,18 +671,17 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         try lex = macroexpand(store.mod, quote
 
-            function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "LoopVectorization @avx actor, unroll=$unroll"
-                $expre
-                LoopVectorization.@avx unroll=$unroll $exloop
-                $expost
-            end
+                local function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
+                    $expre
+                    LoopVectorization.@avx unroll=$unroll $exloop
+                    $expost
+                end
 
-            end)
-            push!(store.outeval, lex)
-            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll"
+            end) # quote
+            push!(store.outpre, lex)
+            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
-            store.verbose > 0 && @error "LoopVectorization failed" err
+            store.verbose > 0 && @error "LoopVectorization failed $note" err
         end
     end
 
@@ -749,56 +694,43 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         kernel = Symbol(act!, :🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
-        try kex = macroexpand(store.mod, quote
+        try kex1 = macroexpand(store.mod, quote
 
-            KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
-                ($(outer...),) = @index(Global, NTuple)
-                ($ex1; $ex3; $ex4; $ex6)
-            end
-
-            function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "KernelAbstractions CuArrays actor"
-                cu_kern! = $kernel(CUDA(), $(store.cuda))
-                $(asserts...)
-                $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
-                KernelAbstractions.wait($ACC)
-            end
-
-            # For testing, this probably wants threads=false
-            # Less specific than LoopVectorization signature
-            function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
-                cpu_kern! = $kernel(CPU(), Threads.nthreads())
-                $(asserts...)
-                $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
-                KernelAbstractions.wait($ACC)
-            end
+                KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
+                    ($(outer...),) = @index(Global, NTuple)
+                    ($ex1; $ex3; $ex4; $ex6)
+                end
 
             end)
-            push!(store.outeval, kex)
-            store.verbose == 2 && @info "success wtih KernelAbstractions"
-            if CUDADEF[] == false
-                # Then we also need to add methods to avoid threader functions:
-                @eval store.mod quote
+            kex2 = quote
 
-                    Tullio.threader(fun!::Function, T::Type{<:CuArray},
-                        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
-                        fun!(T, Z, As..., Is..., Js..., keep)
-
-                    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-                        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
-                        fun!(T, As..., Is..., Js...,)
-
+                local function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "KernelAbstractions CuArrays actor"
+                    cu_kern! = $kernel(CUDA(), $(store.cuda))
+                    $(asserts...)
+                    $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                    KernelAbstractions.wait($ACC)
                 end
-                CUDADEF[] = true
+
+                # For testing, this probably wants threads=false
+                # Less specific than LoopVectorization signature
+                local function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
+                    cpu_kern! = $kernel(CPU(), Threads.nthreads())
+                    $(asserts...)
+                    $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                    KernelAbstractions.wait($ACC)
+                end
+
             end
+            push!(store.outpre, kex1, kex2)
+            store.verbose == 2 && @info "success wtih KernelAbstractions $note"
         catch err
-            store.verbose > 0 && @error "KernelAbstractions failed" err
+            store.verbose > 0 && @error "KernelAbstractions failed $note" err
         end
     end
 end
 
-const CUDADEF = Ref(false)
 
 recurseloops(ex, list::Vector) =
     if isempty(list)
@@ -813,70 +745,52 @@ recurseloops(ex, list::Vector) =
 #===== define gradient hooks =====#
 
 function backward_definitions(make, act!, store)
+    store.grad == false && return nothing # no gradient wanted
+
+    ok = false
+    if store.grad == :Dual
+        isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
+        insert_forward_gradient(act!, store)
+        ok = true
+        store.verbose == 2 && @info "using ForwardDiff gradient"
+    elseif store.grad == :Base
+        try
+            insert_symbolic_gradient(act!, store)
+            ok = true
+            store.verbose == 2 && @info "success wtih Symbolic gradient"
+        catch err
+            store.verbose > 0 && @error "Symbolic gradient failed" err
+        end
+    end
+
+    ok == false && return nothing # failed to make a gradient
+
     dZ = Symbol(DEL, ZED)
     ∇make = Symbol(:∇, make)
     ∇act! = Symbol(:∇, act!)
-    needgrad = false
-    evalex = []
-
-    if isdefined(store.mod, :Zygote)
-        push!(evalex, quote
-            Zygote.@adjoint $make(args...) = $make(args...), Δ -> $∇make(Δ, args...)
-        end)
-        needgrad = true
-    end
-
-    if  isdefined(store.mod, :Yota) # Yota.@diffrule needs to be run after ∇make is defined
-        for (n,A) in enumerate(store.arrays)
-            push!(evalex, quote
-                Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  getindex($∇make(dy, $(store.arrays...), $(store.scalars...)), $n)
-            end)
-        end
-        needgrad = true
-    end
-
-    if isdefined(store.mod, :Tracker)
-        push!(evalex, quote
-            $make(A::Tracker.TrackedArray, args...) = Tracker.track($make, A, args...)
-            $make(A, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
-            $make(A::Tracker.TrackedArray, B::Tracker.TrackedArray, args...) = Tracker.track($make, A, B, args...)
-            Tracker.@grad $make(args...) =
-                $make(Tracker.data.(args)...), Δ -> $∇make(Δ, Tracker.data.(args)...)
-        end)
-        needgrad = true
-    end
-
-    if isdefined(store.mod, :ReverseDiff) # https://github.com/JuliaDiff/ReverseDiff.jl/pull/123
-        push!(evalex, quote
-            $make(A::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, args...)
-            $make(A, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
-            $make(A::ReverseDiff.TrackedArray, B::ReverseDiff.TrackedArray, args...) = ReverseDiff.track($make, A, B, args...)
-            ReverseDiff.@grad $make(args...) =
-                $make(ReverseDiff.value.(args)...), Δ -> $∇make(Δ, ReverseDiff.value.(args)...)
-        end)
-        needgrad = true
-    end
 
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
-    defineempties = map((A,dA) -> :($dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0)), store.arrays, gradarrays)
+    defineempties = map(store.arrays, gradarrays) do A, dA
+        :( local $dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0) )
+    end
     # append!(defineempties, map((x,dx) -> :($dx = zero(Base.promote_type(typeof($x), $TYP))), store.scalars, gradscalars))
     returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
     # returns = vcat(gradarrays, gradscalars)
 
-    # loop order may as well be the same as before?
     loopind = vcat(store.leftind, store.redind)
     # "sharedind" go first in argument list, they are safe to thread over
     shared = map(i -> Symbol(AXIS, i), store.sharedind)
     nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
 
-    if needgrad
-        ST = :($storage_type($(gradarrays...), $(store.arrays...)))
-        block = store.threads==false ? nothing :
-            store.threads==true ? (BLOCK[] ÷ store.cost) :
-            store.threads
-        pushfirst!(evalex, quote # pushfirst! is NB for Yota
-            function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+    ST = :($storage_type($(gradarrays...), $(store.arrays...)))
+    block = store.threads==false ? nothing :
+        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads
+    push!(store.outpre, quote
+
+        $∇make = let $∇act! = $∇act!
+            local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
@@ -885,10 +799,11 @@ function backward_definitions(make, act!, store)
                     block = $block)
                 return ($(returns...),)
             end
-        end)
-    end
+        end
 
-    return needgrad ? evalex : nothing
+    end)
+
+    return ∇make
 end
 
 fillarrayreplace(rhs, dZ) = MacroTools_postwalk(rhs) do @nospecialize ex

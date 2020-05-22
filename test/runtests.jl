@@ -73,7 +73,7 @@ _gradient(x...) = Zygote.gradient(x...)
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
 
 #===== ReverseDiff =====#
-
+#=
 t6 = time()
 using ReverseDiff
 
@@ -81,5 +81,5 @@ _gradient(f, xs...) = ReverseDiff.gradient(f, xs)
 @testset "backward gradients: ReverseDiff" begin include("gradients.jl") end
 
 @info @sprintf("ReverseDiff tests took %.1f seconds", time()-t6)
-
+=#
 #===== done! =====#
