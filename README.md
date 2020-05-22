@@ -1,22 +1,57 @@
 # Tullio.jl
 
-This is roughly a re-write of the [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl) macro, which takes expressions like 
+[![Build Status](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
+
+This is a package is for writing array operations in index notation, such as:
+
 ```julia
-@tullio C[i,j] := A[i,k] * B[k,j]
+@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]   # sum over i,j
+
+@tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y
+
+@tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l
 ```
-and writes loops which fill in the matrix `C`, by summing the right hand side at all possible values of free index `k`. The differences are:
 
-1. It understands more syntax, including shifts of indices (by constants or other indices, such as `C[i] := A[i+j-1] * K[j]`), arrays of arrays, fields of their elements, and keyword indexing. 
+Used by itself the macro writes ordinary loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
+One difference is that it can to parse more expressions (such as the convolution `M`).
+Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
 
-2. It calculates gradients for reverse-mode auto-differentiation, by making a second pass with either a symbolic derivative of the right hand side, or else using `(A[i,k] + ϵA) * (B[k,j] + ϵB)` with dual numbers `ϵA, ϵB`. 
+But it works best with various other packages, if you load them:
 
-3. It should be faster, by using [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/) and blocking on large arrays, and using [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) when possible. 
+* It will use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
 
-4. It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to write a GPU version, slightly experimentally.
+* It will use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
+<!--
+* It will use `TensorOperations.@tensor` on expressions which this understands,
+  namely strict Einstein-convention contractions. (Disable with `tensor=false`.)
+-->
+Gradients for reverse-mode auto-differentiation are handled as follows:
 
-### Examples
+* If any of [Tracker](..), [Zygote](..), [ReverseDiff](..) are loaded, then it will take a 
+  symbolic derivative of the right hand side expression. (Disable with `grad=false`.)
 
-Notation:
+* If [ForwardDiff](..) is also loaded, the option `grad=Dual` uses that to differentiate
+  the right hand side. This allows for more complicated expressions.
+
+The expression need not be just one line, for example:
+
+```julia
+@tullio out[x,y,n] := begin                  # sum over a,b
+        i = mod(x+a, axes(mat,1))
+        j = mod(y+b, axes(mat,2))
+        @inbounds mat[i,j,n] * abs(kern[a,b])
+    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
+```
+
+Here the macro cannot infer the range of the output's indices `x,y`, 
+so they must be provided explicitly. (If writing into an existing array, 
+with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.) 
+It knows that it should not sum over indices `i,j`, but since it can't be sure 
+of their ranges, it will not add `@inbounds` in such cases. 
+It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
+
+
+<details><summary><b>Notation</b></summary>
 
 ```julia
 using Pkg; pkg"add https://github.com/mcabbott/Tullio.jl"
@@ -46,7 +81,8 @@ N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 R == reverse.(permutedims(T))
 ```
 
-Threads & SIMD:
+</details>
+<details><summary><b>Threads & SIMD</b></summary>
 
 ```julia
 using Tullio, LoopVectorization, NNlib, BenchmarkTools
@@ -68,7 +104,8 @@ X = rand(1000,1000);
 @btime sum($X .* log.(transpose($X))) # 8.759 ms (2 allocations: 7.63 MiB)
 ```
 
-Derivatives & GPU:
+</details>
+<details><summary><b>Derivatives & GPU</b></summary>
 
 ```julia
 using Tullio, Tracker # This is defined with a gradient:
@@ -88,7 +125,8 @@ cu(A * B) ≈ mul(cu(A), cu(B)) # true
 cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1] # true
 ```
 
-Larger expressions:
+</details>
+<details><summary><b>Larger expressions</b></summary>
 
 ```julia
 mat = zeros(10,10,1); mat[1,1] = 101;
@@ -101,7 +139,8 @@ mat = zeros(10,10,1); mat[1,1] = 101;
 end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 ```
 
-### Options
+</details>
+<details><summary><b>Options</b></summary>
 
 The default setting is:
 ```@tullio threads=true avx=true grad=Base verbose=false A[i,j] := ...``` 
@@ -123,7 +162,8 @@ Extras:
 * `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
-### Elsewhere
+</details>
+<details><summary><b>Elsewhere</b></summary>
 
 Back-end friends & relatives:
 
