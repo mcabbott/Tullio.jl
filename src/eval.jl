@@ -105,11 +105,11 @@ using Requires
 @init @require CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae" begin
     using .CuArrays
 
-    $threader(fun!::Function, T::Type{<:CuArray},
+    Tullio.threader(fun!::Function, T::Type{<:CuArray},
         Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
         fun!(T, Z, As..., Is..., Js..., keep)
 
-    $∇threader(fun!::Function, T::Type{<:CuArray},
+    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
         As::Tuple, Is::Tuple, Js::Tuple; block=0) =
         fun!(T, As..., Is..., Js...,)
 

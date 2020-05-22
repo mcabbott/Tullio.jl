@@ -671,12 +671,11 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         try lex = macroexpand(store.mod, quote
 
-            local function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "LoopVectorization @avx actor, unroll=$unroll"
-                $expre
-                LoopVectorization.@avx unroll=$unroll $exloop
-                $expost
-            end
+                local function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
+                    $expre
+                    LoopVectorization.@avx unroll=$unroll $exloop
+                    $expost
+                end
 
             end) # quote
             push!(store.outpre, lex)
@@ -695,33 +694,36 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         kernel = Symbol(act!, :🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
-        try kex = macroexpand(store.mod, quote
+        try kex1 = macroexpand(store.mod, quote
 
-            local KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
-                ($(outer...),) = @index(Global, NTuple)
-                ($ex1; $ex3; $ex4; $ex6)
+                KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
+                    ($(outer...),) = @index(Global, NTuple)
+                    ($ex1; $ex3; $ex4; $ex6)
+                end
+
+            end)
+            kex2 = quote
+
+                local function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "KernelAbstractions CuArrays actor"
+                    cu_kern! = $kernel(CUDA(), $(store.cuda))
+                    $(asserts...)
+                    $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                    KernelAbstractions.wait($ACC)
+                end
+
+                # For testing, this probably wants threads=false
+                # Less specific than LoopVectorization signature
+                local function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+                    @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
+                    cpu_kern! = $kernel(CPU(), Threads.nthreads())
+                    $(asserts...)
+                    $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                    KernelAbstractions.wait($ACC)
+                end
+
             end
-
-            local function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "KernelAbstractions CuArrays actor"
-                cu_kern! = $kernel(CUDA(), $(store.cuda))
-                $(asserts...)
-                $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
-                KernelAbstractions.wait($ACC)
-            end
-
-            # For testing, this probably wants threads=false
-            # Less specific than LoopVectorization signature
-            local function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
-                @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
-                cpu_kern! = $kernel(CPU(), Threads.nthreads())
-                $(asserts...)
-                $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
-                KernelAbstractions.wait($ACC)
-            end
-
-            end) # quote
-            push!(store.outpre, kex)
+            push!(store.outpre, kex1, kex2)
             store.verbose == 2 && @info "success wtih KernelAbstractions $note"
         catch err
             store.verbose > 0 && @error "KernelAbstractions failed $note" err
