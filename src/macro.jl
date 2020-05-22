@@ -772,7 +772,7 @@ function backward_definitions(make, act!, store)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     defineempties = map(store.arrays, gradarrays) do A, dA
-        :( $dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0) )
+        :( local $dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0) )
     end
     # append!(defineempties, map((x,dx) -> :($dx = zero(Base.promote_type(typeof($x), $TYP))), store.scalars, gradscalars))
     returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
@@ -789,14 +789,16 @@ function backward_definitions(make, act!, store)
         store.threads
     push!(store.outpre, quote
 
-        local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
-            $(defineempties...)
-            $(store.axisdefs...)
-            $∇threader($∇act!, $ST,
-                tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
-                tuple($(shared...),), tuple($(nonshared...), );
-                block = $block)
-            return ($(returns...),)
+        $∇make = let $∇act! = $∇act!
+            local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+                $(defineempties...)
+                $(store.axisdefs...)
+                $∇threader($∇act!, $ST,
+                    tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
+                    tuple($(shared...),), tuple($(nonshared...), );
+                    block = $block)
+                return ($(returns...),)
+            end
         end
 
     end)
