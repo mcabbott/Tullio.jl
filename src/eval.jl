@@ -74,7 +74,7 @@ end
     @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
         # dual numbers + svec, should live in PaddedMatricesForwardDiff?
         # (And where would the conditional loading go, still here?)
-        include("avxdual.jl")
+        include("grad/avxdual.jl")
     end
 end
 
