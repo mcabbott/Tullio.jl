@@ -409,6 +409,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
         end
     end
     unique!(store.rightind)
+    unique!(store.scalars)
     store.redind = setdiff(store.rightind, store.leftind)
 end
 

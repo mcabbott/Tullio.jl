@@ -92,6 +92,10 @@ using Tullio, Test, LinearAlgebra
     @tullio N[i,j] := A[i]/j  (j in axes(K,1))  (i in axes(A,1)) # K not an argument
     @test N ≈ A ./ (1:3)'
 
+    tri = 1:3
+    @tullio M[i,j] := (r=i, c=j)  (i in tri, j in tri) # repeated scalar arg
+    @test M[3,3] == (r=3, c=3)
+
     # primes
     @test A == @tullio P[i′] := A[i']
     @test A == @tullio P[i'] := A[i′]
