@@ -13,22 +13,19 @@ This is a package is for writing array operations in index notation, such as:
 ```
 
 Used by itself the macro writes ordinary loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
-One difference is that it can to parse more expressions (such as the convolution `M`).
+One difference is that it can parse more expressions (such as the convolution `M`, and worse).
 Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
-
 But it works best with various other packages, if you load them:
 
 * It will use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
 
 * It will use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
 <!--
-* It will use `TensorOperations.@tensor` on expressions which this understands,
-  namely strict Einstein-convention contractions. (Disable with `tensor=false`.)
+* It will use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands, namely strict Einstein-convention contractions. (Disable with `tensor=false`.)
 -->
-Gradients for reverse-mode auto-differentiation are handled as follows:
+Gradients are handled as follows:
 
-* If any of [Tracker](..), [Zygote](..), [ReverseDiff](..) are loaded, then it will take a 
-  symbolic derivative of the right hand side expression. (Disable with `grad=false`.)
+* It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.)
 
 * If [ForwardDiff](..) is also loaded, the option `grad=Dual` uses that to differentiate
   the right hand side. This allows for more complicated expressions.
@@ -78,7 +75,6 @@ N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 
 # Functions which create arrays are evaluated once:
 @tullio R[i,j] := abs.((rand(Int8, 5)[i], rand(Int8, 5)[j]))
-R == reverse.(permutedims(T))
 ```
 
 </details>
@@ -148,14 +144,14 @@ The default setting is:
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
-* `verbose=true` prints everything; you can't use `@macroexpand1` as it needs to `eval` rather than return gradient definitions.
+* `verbose=true` prints things like the index ranges inferred. `verbose=2` prints absolutely everything.
 * `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
 
 Implicit:
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
 * Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
-* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker`, `Zygote` & `Yota`, according to which of these packages are visible. 
+* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` &  `Zygote`, if these are loaded.
 * GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
 
 Extras:
