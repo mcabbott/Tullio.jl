@@ -40,15 +40,15 @@ end
 
 #===== Tracker =====#
 
-using ForwardDiff
-
 t3 = time()
 using Tracker
-
-unfill(x) = x  # gradient of sum returns a FillArrays.Fill
-
 _gradient(x...) = Tracker.gradient(x...)
-@testset "backward gradients: Tracker" begin include("gradients.jl") end
+
+@tullio grad=Base
+@testset "gradients: Tracker + DiffRules" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: Tracker + ForwardDiff" begin include("gradients.jl") end
 
 @info @sprintf("Tracker tests took %.1f seconds", time()-t3)
 
@@ -58,7 +58,12 @@ t4 = time()
 using Yota
 
 _gradient(x...) = Yota.grad(x...)[2]
-@testset "backward gradients: Yota" begin include("gradients.jl") end
+
+@tullio grad=Base
+@testset "gradients: Yota + DiffRules" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: Yota + ForwardDiff" begin include("gradients.jl") end
 
 @info @sprintf("Yota tests took %.1f seconds", time()-t4)
 =#
@@ -68,9 +73,15 @@ t5 = time()
 using Zygote
 
 _gradient(x...) = Zygote.gradient(x...)
-@testset "backward gradients: Zygote" begin include("gradients.jl") end
 
-@testset "comlex gradients with Zygote" begin
+@tullio grad=Base
+@testset "gradients: Zygote + DiffRules" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: Zygote + ForwardDiff" begin include("gradients.jl") end
+
+@tullio grad=Base
+@testset "complex gradients with Zygote" begin
 
     x0 = [1,2,3] .+ [5im, 0, -11im]
     # y0 = rand(Int8,3) .+ im .* rand(Int8,3) .+ 0.0
@@ -123,9 +134,13 @@ end
 t6 = time()
 using ReverseDiff
 
-_gradient(f, xs...) = ReverseDiff.gradient(f, xs)
-@testset "backward gradients: ReverseDiff" begin include("gradients.jl") end
+@tullio grad=Base
+@testset "gradients: ReverseDiff + DiffRules" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: ReverseDiff + ForwardDiff" begin include("gradients.jl") end
 
 @info @sprintf("ReverseDiff tests took %.1f seconds", time()-t6)
 =#
 #===== done! =====#
+

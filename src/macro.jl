@@ -116,7 +116,7 @@ AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
 
 function parse_options(exs...)
-    opts = Dict(
+    opts = Dict{Symbol,Any}(
         :verbose => VERBOSE[],
         :threads => THREADS[],
         :grad => GRAD[],
