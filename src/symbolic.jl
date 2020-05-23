@@ -20,8 +20,8 @@ function insert_symbolic_gradient(act!, store)
     unique!(targets)
     inbody = map(targets) do (dt, t)
         drdt = leibnitz(store.right, t)
-        deltar = simplitimes(drdt, :($dZ[$(store.leftraw...)]))
-        :($dt = $dt + $deltar)
+        deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        :($dt = $dt + conj($deltar))
     end
     ex_body = commonsubex(quote $(inbody...) end)
 

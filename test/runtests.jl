@@ -70,6 +70,52 @@ using Zygote
 _gradient(x...) = Zygote.gradient(x...)
 @testset "backward gradients: Zygote" begin include("gradients.jl") end
 
+@testset "comlex gradients with Zygote" begin
+
+    x0 = [1,2,3] .+ [5im, 0, -11im]
+    # y0 = rand(Int8,3) .+ im .* rand(Int8,3) .+ 0.0
+    @testset "analytic" begin
+
+        g1 = _gradient(x -> real(sum(x)), x0)[1]
+        g1i = _gradient(x -> imag(sum(x)), x0)[1]
+        @test g1 ≈ _gradient(x -> real(@tullio y := x[i]), x0)[1]
+        @test g1i ≈ _gradient(x -> imag(@tullio y := x[i]), x0)[1]
+
+        g2 = _gradient(x -> real(sum(exp, x)), x0)[1]
+        g2i = _gradient(x -> imag(sum(exp, x)), x0)[1]
+        @test g2 ≈ _gradient(x -> real(@tullio y := exp(x[i])), x0)[1]
+        @test g2i ≈ _gradient(x -> imag(@tullio y := exp(x[i])), x0)[1]
+
+        g3 = _gradient(x -> real(sum(1 ./ (x.+im).^2)), x0)[1]
+        g3i = _gradient(x -> imag(sum(1 ./ (x.+im).^2)), x0)[1]
+        @test g3 ≈ _gradient(x -> real(@tullio y := 1/(x[i] + im)^2), x0)[1]
+        @test g3 ≈ _gradient(x -> real(@tullio y := inv(x[i] + im)^2), x0)[1]
+        @test g3i ≈ _gradient(x -> imag(@tullio y := 1/(x[i] + im)^2), x0)[1]
+        @test g3i ≈ _gradient(x -> imag(@tullio y := inv(x[i] + im)^2), x0)[1]
+
+    end
+    @testset "non-analytic" begin
+
+        g4 = _gradient(x -> real(sum(x * x')), x0)[1]
+        g4i = _gradient(x -> imag(sum(x * x')), x0)[1] # zero!
+        @test_broken g4 ≈ _gradient(x -> real(@tullio y := x[i] * conj(x[j])), x0)[1]
+        @test_broken g4i ≈ _gradient(x -> imag(@tullio y := x[i] * conj(x[j])), x0)[1]
+        @test_broken g4 ≈ _gradient(x -> real(@tullio y := x[i] * adjoint(x[j])), x0)[1]
+        @test_broken g4i ≈ _gradient(x -> imag(@tullio y := x[i] * adjoint(x[j])), x0)[1]
+
+        g5 = _gradient(x -> real(sum(abs2.(x .+ 2 .+ im))), x0)[1]
+        g5i = _gradient(x -> imag(sum(abs2.(x .+ 2 .+ im))), x0)[1] # zero!
+        @test_broken g5 ≈ _gradient(x -> real(@tullio y := abs2(x[i] + 2 + im)), x0)[1]
+        @test_broken g5i ≈ _gradient(x -> real(@tullio y := abs2(x[i] + 2 + im)), x0)[1]
+
+        g6 = _gradient(x -> real(sum(abs.(x.^3))), x0)[1]
+        g6i = _gradient(x -> imag(sum(abs.(x.^3))), x0)[1] # zero!
+        @test_broken g6 ≈ _gradient(x -> real(@tullio y := abs(x[i]^3)), x0)[1]
+        @test_broken g6i ≈ _gradient(x -> real(@tullio y := abs(x[i]^3)), x0)[1]
+
+    end
+end
+
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
 
 #===== ReverseDiff =====#
