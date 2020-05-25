@@ -159,10 +159,11 @@ end
 
 checklegal(opt, val) =
     if OPTS[opt] isa Vector
-        val in OPTS[opt] || error(string("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]"))
-    elseif val isa OPTS[opt]
-        val >= 0 || error(string("keyword $opt accepts false or a positive integer"))
-    # Silently allows val::Expr, for threads=64^3 to work
+        val in OPTS[opt] || error("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]")
+    elseif val isa Expr || val isa Symbol
+        # allows threads=64^3 to work
+    elseif OPTS[opt] == Integer
+        val isa Integer && val >= 0 || error("keyword $opt accepts false or a positive integer")
     end
 
 verboseprint(store) = begin

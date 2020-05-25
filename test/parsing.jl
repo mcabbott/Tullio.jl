@@ -304,3 +304,27 @@ end
     @test dimnames(M) == (:row, :col, :i)
 
 end
+
+@testset "options" begin
+
+    # keyword threads accepts false or a positive integer
+    @tullio A[i] := (1:10)[i]^2  threads=false
+    @tullio A[i] := (1:10)[i]^2  threads=2^2 # Expr
+    block = 64
+    @tullio A[i] := (1:10)[i]^2  threads=block # Symbol
+    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  threads=:maybe
+
+    # keyword verbose accepts values [true, false, 2]
+    @tullio A[i] := (1:10)[i]^2  verbose=1
+    @tullio A[i] := (1:10)[i]^2  verbose=false
+    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=3
+
+    # keyword grad accepts values [false, Base, Dual]
+    @tullio A[i] := (1:10)[i]^2  grad=false
+    @tullio A[i] := (1:10)[i]^2  grad=Base
+    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  grad=true
+
+    # recognised keywords are [:threads, :verbose, :avx, :cuda, :grad]
+    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  key=nothing
+
+end
