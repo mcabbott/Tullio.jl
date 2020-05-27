@@ -171,7 +171,7 @@ verboseprint(store) = begin
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
-        foreach(ex -> printstyled(MacroTools_prettify(ex) , "\n", color=:green), r)
+        foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), r)
     end
 end
 
