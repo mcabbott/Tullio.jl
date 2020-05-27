@@ -202,7 +202,7 @@ productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
 maximumlength(Is::Tuple) = max(length.(Is)...)
 maximumlength(::Tuple{}) = 0
 
-maybe32divsize(::Type{<:AbstractArray{T}}) where T<:Number = 32 ÷ sizeof(T)
+maybe32divsize(::Type{<:AbstractArray{T}}) where T<:Number = max(1, 32 ÷ sizeof(T))
 maybe32divsize(::Type) = 4
 
 """
