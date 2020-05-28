@@ -52,21 +52,24 @@ _gradient(x...) = Tracker.gradient(x...)
 
 @info @sprintf("Tracker tests took %.1f seconds", time()-t3)
 
-#===== Yota =====#
-#=
+#===== KernelAbstractions =====#
+
 t4 = time()
-using Yota
+using KernelAbstractions
 
-_gradient(x...) = Yota.grad(x...)[2]
+@testset "KernelAbstractions + gradients" begin
+    A = (rand(3,4));
+    B = (rand(4,5));
+    @tullio C[i,k] := A[i,j] * B[j,k]  threads=false  # verbose=2
+    @test C ≈ A * B
 
-@tullio grad=Base
-@testset "gradients: Yota + DiffRules" begin include("gradients.jl") end
+    @tullio threads=false
+    include("gradients.jl")
+    @tullio threads=true
+end
 
-@tullio grad=Dual
-@testset "gradients: Yota + ForwardDiff" begin include("gradients.jl") end
+@info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 
-@info @sprintf("Yota tests took %.1f seconds", time()-t4)
-=#
 #===== Zygote =====#
 
 t5 = time()
@@ -142,5 +145,21 @@ using ReverseDiff
 
 @info @sprintf("ReverseDiff tests took %.1f seconds", time()-t6)
 =#
-#===== done! =====#
 
+#===== Yota =====#
+#=
+t7 = time()
+using Yota
+
+_gradient(x...) = Yota.grad(x...)[2]
+
+@tullio grad=Base
+@testset "gradients: Yota + DiffRules" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: Yota + ForwardDiff" begin include("gradients.jl") end
+
+@info @sprintf("Yota tests took %.1f seconds", time()-t7)
+=#
+
+#===== done! =====#
