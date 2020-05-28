@@ -120,8 +120,9 @@ using Tullio, Test, LinearAlgebra
     @test B == (4:13) .// (1:3)'
 
     # internal name leaks
-    @test !isdefined(@__MODULE__, Tullio.ZED)
-    @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
+    for sy in Tullio.SYMBOLS
+        @test !isdefined(@__MODULE__, Tullio.ZED)
+    end
 
 end
 
@@ -178,8 +179,9 @@ end
     @test B == A[[mod(i^4, 1:10) for i in 1:10]]
 
     # internal name leaks
-    @test !isdefined(@__MODULE__, Tullio.ZED)
-    @test !isdefined(@__MODULE__, Symbol(Tullio.AXIS, :i))
+    for sy in Tullio.SYMBOLS
+        @test !isdefined(@__MODULE__, Tullio.ZED)
+    end
 
 end
 
@@ -283,6 +285,11 @@ using OffsetArrays
     @tullio I[i,j] := 0 * A[i+j] + 0 * B[j]
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
+
+    # multiplication not implemented
+    @test_throws LoadError @eval @tullio C[i] = A[i*j] + A[i]
+    @test_throws LoadError @eval @tullio C[i] = A[i⊗j] + A[i]
+    @test_throws LoadError @eval @tullio C[i] = A[(i,j)] + A[i]
 
 end
 

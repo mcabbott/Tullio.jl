@@ -181,9 +181,16 @@ end
 RHS, AXIS = :𝓇𝒽𝓈, :𝒶𝓍
 ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜𝒸𝒸, :♻
 EPS, DEL, EXPR = :𝜀, :𝛥, :ℰ𝓍
+MAKE, ACT! = :ℳ𝒶𝓀ℯ, :𝒜𝒸𝓉!
 
-# These get defined globally, with a random number appended:
-MAKE, ACT! = :𝒞𝓇ℯ𝒶𝓉ℯ, :𝒜𝒸𝓉! # :ℳ𝒶𝓀ℯ
+# @gensym RHS MAKE ACT!
+# @gensym AXIS ZED TYP ACC KEEP
+# @gensym EPS DEL EXPR
+
+SYMBOLS = [
+    RHS, MAKE, ACT!, AXIS, ZED, TYP, ACC, KEEP, EPS, DEL, EXPR,
+    Symbol(:∇, MAKE), Symbol(:∇, ACT!), Symbol(DEL, ZED), Symbol(AXIS, :i),
+    ] # to test for leaks
 
 #========== input parsing ==========#
 
@@ -542,9 +549,6 @@ end
 
 function action_functions(store)
 
-    rn = abs(rand(Int16))
-    act!, make = Symbol(ACT!, rn), Symbol(MAKE, rn)
-
     axisleft = map(i -> Symbol(AXIS, i), store.leftind)
     axisred = map(i -> Symbol(AXIS, i), store.redind)
     axislist = vcat(axisleft, axisred)
@@ -574,17 +578,17 @@ function action_functions(store)
         )
 
     if isempty(store.redind)
-        make_many_actors(act!,
+        make_many_actors(ACT!,
             vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
             nothing, store.leftind, nothing, Symbol[], ex_nored, nothing, store)
     else
-        make_many_actors(act!,
+        make_many_actors(ACT!,
             vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
     # make_many_actors and backward_definitions both push into store.outpre
-    ∇make = backward_definitions(make, act!, store)
+    ∇make = backward_definitions(store)
 
     #===== action! =====#
 
@@ -594,7 +598,7 @@ function action_functions(store)
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     push!(store.outex, quote
-        $threader($act!, $ST, $(store.leftarray),
+        $threader($ACT!, $ST, $(store.leftarray),
             tuple($(store.arrays...), $(store.scalars...),),
             tuple($(axisleft...),), tuple($(axisred...),);
             block = $block, keep = $keep)
@@ -606,11 +610,11 @@ function action_functions(store)
         sofar = Expr(:block, store.outex...)
         empty!(store.outex)
         ex = quote
-            let $act! = $act!
-                function $make($(store.arrays...), $(store.scalars...), )
+            let $ACT! = $ACT!
+                function $MAKE($(store.arrays...), $(store.scalars...), )
                     $sofar
                 end
-                $Eval($make, $∇make)($(store.arrays...), $(store.scalars...), )
+                $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
             end
         end
         # and assign the result if necc:
@@ -693,7 +697,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         isdefined(store.mod, :KernelAbstractions) &&
         isdefined(store.mod, :CuArrays)
 
-        kernel = Symbol(act!, :🇨🇺)
+        kernel = gensym(:🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         try kex1 = macroexpand(store.mod, quote
@@ -746,18 +750,18 @@ recurseloops(ex, list::Vector) =
 
 #===== define gradient hooks =====#
 
-function backward_definitions(make, act!, store)
+function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
     ok = false
     if store.grad == :Dual
         isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
-        insert_forward_gradient(act!, store)
+        insert_forward_gradient(store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"
     elseif store.grad == :Base
         try
-            insert_symbolic_gradient(act!, store)
+            insert_symbolic_gradient(store)
             ok = true
             store.verbose == 2 && @info "success wtih Symbolic gradient"
         catch err
@@ -768,8 +772,8 @@ function backward_definitions(make, act!, store)
     ok == false && return nothing # failed to make a gradient
 
     dZ = Symbol(DEL, ZED)
-    ∇make = Symbol(:∇, make)
-    ∇act! = Symbol(:∇, act!)
+    ∇make = Symbol(:∇, MAKE)
+    ∇act! = Symbol(:∇, ACT!)
 
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
@@ -791,7 +795,7 @@ function backward_definitions(make, act!, store)
         store.threads
     push!(store.outpre, quote
 
-        $∇make = let $∇act! = $∇act!
+        local $∇make = let $∇act! = $∇act!
             local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)

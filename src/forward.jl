@@ -1,9 +1,9 @@
 
 #========== backward gradient using ForwardDiff ==========#
 
-function insert_forward_gradient(act!, store)
+function insert_forward_gradient(store)
     dZ = Symbol(DEL, ZED)
-    ∇act! = Symbol(:∇, act!)
+    ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)

@@ -3,10 +3,10 @@
 
 using DiffRules
 
-function insert_symbolic_gradient(act!, store)
+function insert_symbolic_gradient(store)
 
     dZ = Symbol(DEL, ZED)
-    ∇act! = Symbol(:∇, act!)
+    ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
