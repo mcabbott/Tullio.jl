@@ -683,7 +683,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     $expost
                 end
 
-            end) # quote
+            end) # macroexpand quote
             push!(store.outpre, lex)
             store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
@@ -693,9 +693,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     axouter = map(i -> Symbol(AXIS, i), outer)
 
-    if store.cuda > 0 &&
-        isdefined(store.mod, :KernelAbstractions) &&
-        isdefined(store.mod, :CuArrays)
+    if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
 
         kernel = gensym(:🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
@@ -708,6 +706,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 end
 
             end)
+            push!(store.outpre, kex1)
             kex2 = quote
 
                 local function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
@@ -718,10 +717,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     KernelAbstractions.wait($ACC)
                 end
 
-                # For testing, this probably wants threads=false
-                # Less specific than LoopVectorization signature
+            end
+            if isdefined(store.mod, :CuArray) # just the type (for dispatch) not the package (now CUDA.jl)
+                push!(store.outpre, kex2)
+            end
+            kex3 = quote
+
                 local function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
-                    @debug "KernelAbstractions CPU actor:" typeof.(tuple($(args...)))
+                    @debug "KernelAbstractions CPU actor"
                     cpu_kern! = $kernel(CPU(), Threads.nthreads())
                     $(asserts...)
                     $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
@@ -729,7 +732,11 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 end
 
             end
-            push!(store.outpre, kex1, kex2)
+            if store.threads==false
+                # This CPU kernel can't be called by threader, and so threads=false
+                # offers a way to control whether it gets used or not. By default, not.
+                push!(store.outpre, kex3)
+            end
             store.verbose == 2 && @info "success wtih KernelAbstractions $note"
         catch err
             store.verbose > 0 && @error "KernelAbstractions failed $note" err
