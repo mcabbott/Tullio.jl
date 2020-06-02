@@ -20,9 +20,9 @@ But it works best with various other packages, if you load them:
 * It will use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
 
 * It will use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
-<!--
+
 * It will use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands, namely strict Einstein-convention contractions. (Disable with `tensor=false`.)
--->
+
 Gradients are handled as follows:
 
 * It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.)

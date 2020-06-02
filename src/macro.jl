@@ -48,9 +48,16 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
+        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
     end
-    verbose, threads, grad, avx, cuda = opts
+    verbose, threads, grad, avx, cuda, tensor = opts
+
+    if tensor && isdefined(mod, :TensorOperations) && grad != :Dual
+        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad))
+        if res != nothing # then forward & backward both handled by try_tensor
+            return Expr(:block, res...) |> esc
+        end
+    end
 
     store = DotDict(mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
@@ -114,6 +121,7 @@ THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
+TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
@@ -122,6 +130,7 @@ function parse_options(exs...)
         :grad => GRAD[],
         :avx => AVX[],
         :cuda => CUDA[],
+        :tensor => TENSOR[],
         )
     expr = nothing
     ranges = Tuple[]
@@ -153,8 +162,10 @@ function parse_options(exs...)
         THREADS[] = opts[:threads]
         GRAD[] = opts[:grad]
         AVX[] = opts[:avx]
+        CUDA[] = opts[:cuda]
+        TENSOR[] = opts[:tensor]
     end
-    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda]), ranges, expr
+    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
 end
 
 checklegal(opt, val) =
@@ -166,14 +177,13 @@ checklegal(opt, val) =
         val isa Integer && val >= 0 || error("keyword $opt accepts false or a positive integer")
     end
 
-verboseprint(store) = begin
+verboseprint(store) =
     foreach(propertynames(store)) do k
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
         foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), r)
     end
-end
 
 #========== symbols ==========#
 
