@@ -4,8 +4,6 @@ using LinearAlgebra # dot
 # using Einsum
 using Tullio: @einsum
 
-# @tullio avx=false
-
 @testset "Test that vars in Main aren't overwritten by einsum" begin
     i = -1
     y = randn(10)
@@ -245,9 +243,12 @@ end
     X = randn(10)
 
     # without preallocation
-    # @einsum A[i] := X[i] + k
-    @einsum A[i] := X[i] + $k  # Tullio requires $k, it becomes a function argument
-    # @einsum B[i] := X[i] - k
+    @einsum A[i] := X[i] + k
+    @einsum B[i] := X[i] - k
+    @test isapprox(A, X .+ k)
+    @test isapprox(B, X .- k)
+
+    @einsum A[i] := X[i] + $k  # Tullio prefers $k, it becomes a function argument
     @einsum B[i] := X[i] - $k
     @test isapprox(A, X .+ k)
     @test isapprox(B, X .- k)
@@ -265,18 +266,24 @@ end
     X = randn(10)
 
     # without preallocation
-    # @einsum A[i] := X[i] * k
-    @einsum A[i] := X[i] * $k  # Tullio requires $k, it becomes a function argument
-    # @einsum B[i] := X[i] / k
+    @einsum A[i] := X[i] * k
+    @einsum B[i] := X[i] / k
+    @test isapprox(A, X .* k)
+    @test isapprox(B, X ./ k)
+
+    @einsum A[i] := X[i] * $k  # Tullio prefers $k, it becomes a function argument
     @einsum B[i] := X[i] / $k
     @test isapprox(A, X .* k)
     @test isapprox(B, X ./ k)
 
     # with preallocation
     C, D = zeros(10), zeros(10)
-    # @einsum C[i] = X[i] * k
-    @einsum C[i] = X[i] * $k
-    # @einsum D[i] = X[i] / k
+    @einsum C[i] = X[i] * k
+    @einsum D[i] = X[i] / k
+    @test isapprox(C, X .* k)
+    @test isapprox(D, X ./ k)
+
+    @einsum C[i] = X[i] * $k  # Tullio prefers $k, it becomes a function argument
     @einsum D[i] = X[i] / $k
     @test isapprox(C, X .* k)
     @test isapprox(D, X ./ k)
@@ -286,7 +293,7 @@ end
     A = randn(10, 2)
     j = 2
     # @einsum B[i] := A[i, :j] # error on Julia 1.0, i.e. this broke at some point in Einsum.jl
-    @einsum B[i] := A[i, $j]   # Tullio's notation
+    @einsum B[i] := A[i, $j]   # Tullio's notation, here the $ is not optional!
     @test all(B .== A[:, j])
     @einsum C[i] := A[i, 1]
     @test all(C .== A[:, 1])

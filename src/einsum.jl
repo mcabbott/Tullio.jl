@@ -5,8 +5,6 @@ Since this package is almost superset of `Einsum.jl`, you can probable drop that
 write `using Tullio: @einsum` to use the new macro under the old name.
 
 Differences:
-* Constants need dollar signs like `A[i,1,\$c] + \$d`, as the macro creates a function
-  which may not run in the caller's scope.
 * Updating `A` with weird things like `*=` uses an awful hack which may be less efficient,
   but does make tests pass!
 * Options `threads=false, avx=false, grad=false` are selected for you.
