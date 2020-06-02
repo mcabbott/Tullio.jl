@@ -62,6 +62,20 @@ using Requires
 
 end
 
+# CUDA replaces CuArrays, Julia >=1.4 only.
+@init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
+    using .CUDA
+
+    Tullio.threader(fun!::Function, T::Type{<:CuArray},
+        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+        fun!(T, Z, As..., Is..., Js..., keep)
+
+    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
+        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
+        fun!(T, As..., Is..., Js...,)
+
+end
+
 @init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
     @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
         # dual numbers + svec, should live in PaddedMatricesForwardDiff?
