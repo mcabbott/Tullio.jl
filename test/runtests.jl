@@ -42,6 +42,8 @@ end
 
 t3 = time()
 using Tracker
+
+GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
 
 @tullio grad=Base
@@ -75,6 +77,7 @@ end
 t5 = time()
 using Zygote
 
+GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
 
 @tullio grad=Base
@@ -137,6 +140,9 @@ end
 t6 = time()
 using ReverseDiff
 
+GRAD = :ReverseDiff
+_gradient(x...) = ReverseDiff.gradient(x...) # ??
+
 @tullio grad=Base
 @testset "gradients: ReverseDiff + DiffRules" begin include("gradients.jl") end
 
@@ -151,6 +157,7 @@ using ReverseDiff
 t7 = time()
 using Yota
 
+GRAD = :Yota
 _gradient(x...) = Yota.grad(x...)[2]
 
 @tullio grad=Base

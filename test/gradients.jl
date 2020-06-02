@@ -1,6 +1,6 @@
 
 using Tullio, Test, ForwardDiff
-# using Tracker; _gradient(x...) = Tracker.gradient(x...)
+# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
 
 # simple
 @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
@@ -36,7 +36,11 @@ dx, dy = _gradient(sum∘mm, x1, y1)
 # Using zero-dim arrays fails on ReverseDiff & Tracker
 # Tracker.gradient(x -> x[], fill(1.0))
 # ReverseDiff.gradient(x -> x[], fill(1.0)) # is ambiguous
-@test_skip _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+if GRAD in [:Tracker, :ReverseDiff]
+    @test_skip _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+else
+    @test _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+end
 # one-element vectors are fine:
 @test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 # which is what's now used for this:
@@ -66,3 +70,18 @@ if Tullio.GRAD[] == :Dual
 end
 =#
 
+@testset "@inferred" begin # re-using a few functions from above
+
+    mat = rand(3,3)
+    @test @inferred(h2(mat, mat)) ≈ vec(sum(mat .+ mat', dims=2))
+    @test @inferred(flog(mat, mat)) isa Vector
+
+    if GRAD == :Zygote
+        @test_broken @inferred(_gradient(sum∘h2, rand(2,3), rand(3,2))) isa Tuple
+        @test_broken @inferred(_gradient(sum∘flog, mat, mat)) isa Tuple
+    else
+        @test @inferred(_gradient(sum∘h2, rand(2,3), rand(3,2))) isa Tuple
+        @test @inferred(_gradient(sum∘flog, mat, mat)) isa Tuple
+    end
+
+end
