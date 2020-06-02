@@ -41,3 +41,28 @@ dx, dy = _gradient(sum∘mm, x1, y1)
 @test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 # which is what's now used for this:
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+
+#=
+# shifts, etc
+c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
+m1 = rand(10,10,2)
+k1 = rand(3,3)
+g_m = ForwardDiff.gradient(N -> sum(sin, c1(N, k1)), m1)
+g_k = ForwardDiff.gradient(K -> sum(sin, c1(m1, K)), k1)
+@test g_m ≈ _gradient(N -> sum(sin, c1(N, k1)), m1)[1]  atol=0.01
+@test g_k ≈ _gradient(K -> sum(sin, c1(m1, K)), k1)[1]  atol=0.01
+
+c2(mat, kern) = @tullio out[x,y,n] := begin
+        i = mod(x+a, axes(mat,1))
+        j = mod(y+b, axes(mat,2))
+        @inbounds mat[i,j,n] * abs(kern[a,b])
+    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
+
+if Tullio.GRAD[] == :Dual
+    g_m = ForwardDiff.gradient(N -> sum(sin, c2(N, k1)), m1)
+    g_k = ForwardDiff.gradient(K -> sum(sin, c2(m1, K)), k1)
+    @test g_m ≈ _gradient(N -> sum(sin, c2(N, k1)), m1)[1]  atol=0.01
+    @test g_k ≈ _gradient(K -> sum(sin, c2(m1, K)), k1)[1]  atol=0.01
+end
+=#
+
