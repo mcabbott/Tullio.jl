@@ -10,19 +10,18 @@ function try_tensor(expr, ranges, store)
     else
         fail = "TensorOperations not used, expected left := right etc"
     end
-    if @capture_(expr.args[1], Z_[leftind__])
+    if @capture_(expr.args[1], Z_[leftind__]) && all(a -> a isa Symbol, leftind)
     else
         fail = "TensorOperations not used, expected A[i,j,k] := ..."
     end
     MacroTools_postwalk(expr.args[2]) do ex
         ex isa Expr || return ex
-        if ex.head == :call && ex.args[1] == :*
-        elseif ex.head == :ref
+        if ex.head == :call && ex.args[1] == :* && all(a -> a isa Expr || a isa Number, ex.args[2:end])
+            # Todo: allow A[i] * $c
+        elseif ex.head == :ref && all(a -> a isa Symbol, ex.args)
         elseif ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)==2 # -A[i]
-        elseif ex.head == :call
-            fail = "TensorOperations not used, can't handle $(ex.args[1])"
         else
-            fail = "TensorOperations not used, can't handle $(ex.head)"
+            fail = "TensorOperations not used, can't handle $(ex)"
         end
         ex
     end
@@ -139,8 +138,9 @@ function tensor_grad(right, leftind, store)
     )]
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
-        backsteps_fill = fillarrayreplace(backsteps, dZ)
-        ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
+        ex_value = :($dZ = collect($dZ)) # Todo: do this efficiently!
+        # backsteps_fill = fillarrayreplace(backsteps, dZ)
+        # ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
         push!(outex, :(
             function $∇make($dZ::Zygote.Fill, $(args...))
                 $ex_value

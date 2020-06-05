@@ -185,17 +185,19 @@ end
 
 end
 
-@testset "without packages" begin
+if !@isdefined OffsetArray
+    @testset "without packages" begin
 
-    A = [i^2 for i in 1:10]
+        A = [i^2 for i in 1:10]
 
-    # without OffsetArrays
-    @test axes(@tullio B[i] := A[2i+1] + A[i]) === (Base.OneTo(4),)
-    @test_throws Exception @tullio C[i] := A[2i+5]
+        # without OffsetArrays
+        @test axes(@tullio B[i] := A[2i+1] + A[i]) === (Base.OneTo(4),)
+        @test_throws Exception @tullio C[i] := A[2i+5]
 
-    # without NamedDims
-    @test_throws Exception @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
+        # without NamedDims
+        @test_throws Exception @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
 
+    end
 end
 
 using OffsetArrays

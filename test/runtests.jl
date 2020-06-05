@@ -72,17 +72,6 @@ end
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 
-#===== TensorOperations =====#
-
-using TensorOperations
-
-@testset "TensorOperations + gradients" begin
-
-    @tullio grad=Base
-    include("gradients.jl")
-
-end
-
 #===== Zygote =====#
 
 t5 = time()
@@ -179,5 +168,52 @@ _gradient(x...) = Yota.grad(x...)[2]
 
 @info @sprintf("Yota tests took %.1f seconds", time()-t7)
 =#
+
+#===== LoopVectorization =====#
+#=
+t8 = time()
+using LoopVectorization
+
+GRAD = :Tracker
+_gradient(x...) = Tracker.gradient(x...)
+
+@tullio grad=Base
+@testset "gradients: Tracker + DiffRules + LoopVectorization" begin include("gradients.jl") end
+
+@tullio grad=Dual
+@testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
+
+GRAD = :Zygote
+_gradient(x...) = Zygote.gradient(x...)
+
+@tullio grad=Base
+@testset "gradients: Zygote + LoopVectorization" begin include("gradients.jl") end
+
+@testset "parsing + LoopVectorization" begin include("parsing.jl") end
+
+@info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
+=#
+#===== TensorOperations =====#
+
+t9 = time()
+using TensorOperations
+
+using Tracker
+GRAD = :Tracker
+_gradient(x...) = Tracker.gradient(x...)
+
+@tullio grad=Base
+@testset "gradients: Tracker + TensorOperations" begin include("gradients.jl") end
+
+using Zygote
+GRAD = :Zygote
+_gradient(x...) = Zygote.gradient(x...)
+
+@tullio grad=Base
+@testset "gradients: Zygote + TensorOperations" begin include("gradients.jl") end
+
+@testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
+
+@info @sprintf("TensorOperations tests took %.1f seconds", time()-t9)
 
 #===== done! =====#
