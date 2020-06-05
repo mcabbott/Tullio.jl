@@ -72,6 +72,17 @@ end
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 
+#===== TensorOperations =====#
+
+using TensorOperations
+
+@testset "TensorOperations + gradients" begin
+
+    @tullio grad=Base
+    include("gradients.jl")
+
+end
+
 #===== Zygote =====#
 
 t5 = time()
