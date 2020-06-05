@@ -4,36 +4,55 @@
 # When not, it will return nothing, and we go back the the loops.
 
 function try_tensor(expr, ranges, store)
+
+    fail = nothing
+    if expr isa Expr && expr.head in [:(:=), :(=), :(+=)]
+    else
+        fail = "TensorOperations not used, expected left := right etc"
+    end
+    if @capture_(expr.args[1], Z_[leftind__])
+    else
+        fail = "TensorOperations not used, expected A[i,j,k] := ..."
+    end
+    MacroTools_postwalk(expr.args[2]) do ex
+        ex isa Expr || return ex
+        if ex.head == :call && ex.args[1] == :*
+        elseif ex.head == :ref
+        elseif ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)==2 # -A[i]
+        elseif ex.head == :call
+            fail = "TensorOperations not used, can't handle $(ex.args[1])"
+        else
+            fail = "TensorOperations not used, can't handle $(ex.head)"
+        end
+        ex
+    end
+    if fail != nothing
+        store.verbose > 0 && @warn fail
+        return nothing
+    end
+
     outex = []
     try
         tex = macroexpand(store.mod, :(TensorOperations.@tensor $expr))
 
         if @capture_(expr, left_ := right_)
-
             #===== new array =====#
 
-            @capture_(left, Z_[leftind__]) || error("expected A[...] := ...")
-
-            arrays, indices, scalars = [], [], []
             MacroTools_postwalk(right) do ex
                 ex isa Expr || return ex
-                # Check that it only has one term -- else our conventions disagree
-                if ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)>=3
-                    error("@tullio can only use @tensor on expresions with one term")
-
                 # Save array and scalar arguments
-                elseif @capture_(ex, A_[ijk__])
-                    push!(arrays, arrayonly(A))
-                    push!(indices, ijk)
+                if @capture_(ex, A_[ijk__])
+                    push!(store.arrays, arrayonly(A))
+                    push!(store.indices, ijk)
                 elseif ex.head == :call && ex.args[1] == :*
                     foreach(ex.args[2:end]) do a
-                        a isa Symbol && push!(scalars, a)
+                        a isa Symbol && push!(store.scalars, a)
                     end
                 end
                 ex
             end
 
-            args = unique(vcat(arrays, scalars))
+            args = unique(vcat(store.arrays, store.scalars))
             push!(outex, quote
                 function $MAKE($(args...),)
                     $tex
@@ -41,12 +60,8 @@ function try_tensor(expr, ranges, store)
             end)
 
             if store.grad != false
-
-                #===== gradients =====#
-
-                ∇make, backdef = tensor_grad(right, arrays, indices, scalars, leftind)
-                push!(outex, backdef)
-
+                ∇make, backdefs = tensor_grad(right, leftind, store)
+                append!(outex, backdefs)
                 push!(outex, :( $Z = $Eval($MAKE, $∇make)($(args...)) ))
             else
                 push!(outex, :( $Z = $Eval($MAKE, $nothing)($(args...)) ))
@@ -54,22 +69,21 @@ function try_tensor(expr, ranges, store)
 
         else
             #===== in-place =====#
+            push!(outex, tex)
+        end
 
-            MacroTools_postwalk(expr) do ex
-                # Check that it only has one term
-                if ex isa Expr && ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)>=3
-                    error("@tullio can only use @tensor on expresions with one term")
-                end
+        # @tensor may return "throw(TensorOperations.IndexError("non-matching indices ..."
+        for line in outex
+            MacroTools_postwalk(line) do ex
+                ex isa Expr && ex.head==:call && ex.args[1] == :throw && error(string(ex.args[2]))
                 ex
             end
-
-            push!(outex, tex)
         end
         store.verbose == 2 && verbose_tensor(outex)
         return outex
 
     catch err
-        store.verbose > 0 && @error "TensorOperations failed" err
+        store.verbose > 0 && @warn "TensorOperations failed" err
         return nothing
     end
 end
@@ -81,16 +95,19 @@ verbose_tensor(outex) = begin
 end
 
 
+
+
+
 #========== symbolic gradient ==========#
 # Originally TensorGrad.jl (an unregistered package),
 # all terms are again @tensor expressions.
 
-function tensor_grad(right, arrays, indices, scalars, leftind)
+function tensor_grad(right, leftind, store)
     dZ = Symbol(DEL, ZED)
     ∇make = Symbol(:∇, MAKE)
     backsteps, backseen = [], []
 
-    for (B, Binds) in zip(arrays, indices)
+    for (B, Binds) in zip(store.arrays, store.indices)
         deltaB = Symbol(DEL, B)
 
         newright, extra, ijk = replace_B_with_Δ(B, Binds, right, leftind)
@@ -98,30 +115,45 @@ function tensor_grad(right, arrays, indices, scalars, leftind)
         append!(backsteps, extra)
 
         if B in backseen
-            addon = :( @tensor $deltaB[$(ijk...)] = $deltaB[$(ijk...)] + $newright )
+            addon = macroexpand(store.mod, :( @tensor $deltaB[$(ijk...)] = $deltaB[$(ijk...)] + $newright ))
             push!(backsteps, addon)
         else
             push!(backseen, B)
             symB = Symbol(DEL, B, '_', join(ijk))
-            create = :( @tensor( $deltaB[$(ijk...)] := $newright ) )
+            create = macroexpand(store.mod, :( @tensor( $deltaB[$(ijk...)] := $newright ) ))
             push!(backsteps, create)
         end
     end
 
-    args = unique(vcat(arrays, scalars))
-    backtuple = vcat(map(B -> Symbol(DEL, B), unique(arrays)), map(_ -> nothing, unique(scalars)))
+    args = unique(vcat(store.arrays, store.scalars))
+    backtuple = vcat(
+        map(B -> Symbol(DEL, B), unique(store.arrays)),
+        map(_ -> nothing, unique(store.scalars)),
+        )
 
-    out = :(
+    outex = [:(
         function $∇make($dZ, $(args...))
             $(backsteps...)
             return ($(backtuple...),)
         end
-    )
-    # Todo: make a version for Zygote.Fill
+    )]
 
-    ∇make, out
+    if isdefined(store.mod, :Zygote) # special case for FillArrays
+        backsteps_fill = fillarrayreplace(backsteps, dZ)
+        ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
+        push!(outex, :(
+            function $∇make($dZ::Zygote.Fill, $(args...))
+                $ex_value
+                $(backsteps_fill...)
+                return ($(backtuple...),)
+            end
+        ))
+    end
+
+    ∇make, outex
 end
 
+using LinearAlgebra
 
 function replace_B_with_Δ(B, Bijk, right, leftind)
     dZ = Symbol(DEL, ZED)
@@ -153,7 +185,7 @@ function replace_B_with_Δ(B, Bijk, right, leftind)
 
                 # This definition is added up front:
                 push!(extra, quote
-                    local $delta = LinearAlgebra.Diagonal(fill!(similar($B, real(eltype($B)), size($B,$n)),true))
+                    local $delta = $Diagonal(fill!(similar($B, real(eltype($B)), size($B,$n)),true))
                 end)
                 # This factor is included in the new RHS:
                 push!(deltas, :( $delta[$i,$j] ))

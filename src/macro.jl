@@ -53,7 +53,8 @@ function _tullio(exs...; mod=Main)
     verbose, threads, grad, avx, cuda, tensor = opts
 
     if tensor && isdefined(mod, :TensorOperations) && grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad))
+        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad,
+            arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end
@@ -113,6 +114,7 @@ OPTS = Dict(
     :grad => [false, :Base, :Dual],
     :avx => Integer,
     :cuda => Integer,
+    :tensor => [true, false],
     )
 
 VERBOSE = Ref{Any}(false)
