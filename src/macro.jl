@@ -774,7 +774,6 @@ function backward_definitions(store)
 
     ok = false
     if store.grad == :Dual
-        isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
         insert_forward_gradient(store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"

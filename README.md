@@ -27,8 +27,7 @@ Gradients are handled as follows:
 
 * It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.)
 
-* If [ForwardDiff](..) is also loaded, the option `grad=Dual` uses that to differentiate
-  the right hand side. This allows for more complicated expressions.
+* The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side. This allows for more complicated expressions.
 
 The expression need not be just one line, for example:
 
