@@ -12,10 +12,11 @@ This is a package is for writing array operations in index notation, such as:
 @tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l
 ```
 
-Used by itself the macro writes ordinary loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
+Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
 One difference is that it can parse more expressions (such as the convolution `M`, and worse).
 Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
-But it works best with various other packages, if you load them:
+
+But it works best with various other packages, which need to be loaded before calling the macro:
 
 * It will use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
 
@@ -25,7 +26,7 @@ But it works best with various other packages, if you load them:
 
 Gradients are handled as follows:
 
-* It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.)
+* It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.) When using `@tensor`, this writes another `@tensor` expression for each input array. Otherwise, it generates one set of loops to fill in all the gradient arrays at once.  
 
 * The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side. This allows for more complicated expressions.
 
