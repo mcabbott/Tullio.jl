@@ -19,12 +19,17 @@ If they are over-constrained, shifted indices run over the intersection allowed 
 while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(B,1)` above).
 OffsetArrays.jl must be loaded in order to create an array whose indices don't start at 1.
 
-    @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
+    @tullio  avx=false  threads=false  tensor=false  C[i,k] = A[i,j] * B[j,k]
 
 By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays;
 the options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 Option `threads=10^3` sets the threshold at which to divide work between two threads
 (in this case `10×10` matrices).
+
+    @tullio  tensor=false  C[i,k] = A[i,j] * B[j,k]
+
+By default it used TensorOperations.jl for operations which this understands
+(Einstein convention contractions) if it is loaded. Disabled by `tensor=false`.
 
     @tullio  grad=false  C[i,k] := ...
 
@@ -33,11 +38,11 @@ define gradient hooks for these, unless disabled by `grad=false`.
 The reverse gradient itself is calculated in one of two ways,
 either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
-You can use `Tullio.@printgrad` to show the symbolic output.
 
-    @tullio  verbose=2
+    @tullio  verbose=true
 
-This prints out everythinng the macro knows & generates. `verbose=1` prints some information.
+This prints out inferred index ranges, symbolic gradient results, and messages
+about failures to use various packages. `verbose=2` prints everything it knows.
 Options given without an expression change the global defaults, instead of applying just once.
 """
 macro tullio(exs...)
@@ -699,7 +704,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             push!(store.outpre, lex)
             store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
-            store.verbose > 0 && @error "LoopVectorization failed $note" err
+            store.verbose > 0 && @warn "LoopVectorization failed $note" err
         end
     end
 
@@ -751,7 +756,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             end
             store.verbose == 2 && @info "success wtih KernelAbstractions $note"
         catch err
-            store.verbose > 0 && @error "KernelAbstractions failed $note" err
+            store.verbose > 0 && @warn "KernelAbstractions failed $note" err
         end
     end
 end
@@ -783,7 +788,7 @@ function backward_definitions(store)
             ok = true
             store.verbose == 2 && @info "success wtih Symbolic gradient"
         catch err
-            store.verbose > 0 && @error "Symbolic gradient failed" err
+            store.verbose > 0 && @warn "Symbolic gradient failed" err
         end
     end
 

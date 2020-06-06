@@ -23,6 +23,7 @@ function insert_symbolic_gradient(store)
         deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
         :($dt = $dt + conj($deltar))
     end
+    store.verbose>0 && @info "symbolic gradients" inbody
     ex_body = commonsubex(quote $(inbody...) end)
 
     make_many_actors(∇act!,
