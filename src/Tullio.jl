@@ -8,6 +8,8 @@ include("tools.jl")
 
 include("macro.jl")
 
+include("tensor.jl")
+
 include("symbolic.jl")
 
 include("forward.jl")

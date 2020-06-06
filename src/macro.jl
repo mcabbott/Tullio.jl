@@ -19,12 +19,17 @@ If they are over-constrained, shifted indices run over the intersection allowed 
 while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(B,1)` above).
 OffsetArrays.jl must be loaded in order to create an array whose indices don't start at 1.
 
-    @tullio  avx=false  threads=false  C[i,k] = A[i,j] * B[j,k]
+    @tullio  avx=false  threads=false  tensor=false  C[i,k] = A[i,j] * B[j,k]
 
 By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays;
 the options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
 Option `threads=10^3` sets the threshold at which to divide work between two threads
 (in this case `10×10` matrices).
+
+    @tullio  tensor=false  C[i,k] = A[i,j] * B[j,k]
+
+By default it used TensorOperations.jl for operations which this understands
+(Einstein convention contractions) if it is loaded. Disabled by `tensor=false`.
 
     @tullio  grad=false  C[i,k] := ...
 
@@ -33,11 +38,11 @@ define gradient hooks for these, unless disabled by `grad=false`.
 The reverse gradient itself is calculated in one of two ways,
 either by symbolic differentiation of the RHS (the default, `grad=Base`)
 or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
-You can use `Tullio.@printgrad` to show the symbolic output.
 
-    @tullio  verbose=2
+    @tullio  verbose=true
 
-This prints out everythinng the macro knows & generates. `verbose=1` prints some information.
+This prints out inferred index ranges, symbolic gradient results, and messages
+about failures to use various packages. `verbose=2` prints everything it knows.
 Options given without an expression change the global defaults, instead of applying just once.
 """
 macro tullio(exs...)
@@ -48,9 +53,17 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[])
+        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
     end
-    verbose, threads, grad, avx, cuda = opts
+    verbose, threads, grad, avx, cuda, tensor = opts
+
+    if tensor && isdefined(mod, :TensorOperations) && grad != :Dual
+        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad,
+            arrays = Symbol[], indices = [], scalars = Symbol[]))
+        if res != nothing # then forward & backward both handled by try_tensor
+            return Expr(:block, res...) |> esc
+        end
+    end
 
     store = DotDict(mod = mod, verbose = verbose,
         threads = threads, grad = grad, avx = avx, cuda = cuda,
@@ -106,6 +119,7 @@ OPTS = Dict(
     :grad => [false, :Base, :Dual],
     :avx => Integer,
     :cuda => Integer,
+    :tensor => [true, false],
     )
 
 VERBOSE = Ref{Any}(false)
@@ -114,6 +128,7 @@ THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
 CUDA = Ref{Any}(256)
+TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
@@ -122,6 +137,7 @@ function parse_options(exs...)
         :grad => GRAD[],
         :avx => AVX[],
         :cuda => CUDA[],
+        :tensor => TENSOR[],
         )
     expr = nothing
     ranges = Tuple[]
@@ -153,8 +169,10 @@ function parse_options(exs...)
         THREADS[] = opts[:threads]
         GRAD[] = opts[:grad]
         AVX[] = opts[:avx]
+        CUDA[] = opts[:cuda]
+        TENSOR[] = opts[:tensor]
     end
-    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda]), ranges, expr
+    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
 end
 
 checklegal(opt, val) =
@@ -166,14 +184,13 @@ checklegal(opt, val) =
         val isa Integer && val >= 0 || error("keyword $opt accepts false or a positive integer")
     end
 
-verboseprint(store) = begin
+verboseprint(store) =
     foreach(propertynames(store)) do k
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
         foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), r)
     end
-end
 
 #========== symbols ==========#
 
@@ -687,7 +704,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             push!(store.outpre, lex)
             store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
-            store.verbose > 0 && @error "LoopVectorization failed $note" err
+            store.verbose > 0 && @warn "LoopVectorization failed $note" err
         end
     end
 
@@ -739,7 +756,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             end
             store.verbose == 2 && @info "success wtih KernelAbstractions $note"
         catch err
-            store.verbose > 0 && @error "KernelAbstractions failed $note" err
+            store.verbose > 0 && @warn "KernelAbstractions failed $note" err
         end
     end
 end
@@ -762,7 +779,6 @@ function backward_definitions(store)
 
     ok = false
     if store.grad == :Dual
-        isdefined(store.mod, :ForwardDiff) || error("grad=Dual can only be used when ForwardDiff is visible")
         insert_forward_gradient(store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"
@@ -772,7 +788,7 @@ function backward_definitions(store)
             ok = true
             store.verbose == 2 && @info "success wtih Symbolic gradient"
         catch err
-            store.verbose > 0 && @error "Symbolic gradient failed" err
+            store.verbose > 0 && @warn "Symbolic gradient failed" err
         end
     end
 
