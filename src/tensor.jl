@@ -19,8 +19,10 @@ function try_tensor(expr, ranges, store)
         if ex.head == :call && ex.args[1] == :* && all(a -> a isa Expr || a isa Number, ex.args[2:end])
             # Todo: allow A[i] * $c
         elseif ex.head == :ref && all(a -> a isa Symbol, ex.args)
-        elseif ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)==2 # -A[i]
+        elseif ex.head == :call && ex.args[1] in [:+, :-] && length(ex.args)==2
+            # Allows -A[i]. Could allow conj() too, but gradient would be wrong.
         else
+            # Disallows anything containing +, since A[i] + B[i,k,k] has differing meanings.
             fail = "TensorOperations not used, can't handle $(ex)"
         end
         ex
@@ -41,8 +43,12 @@ function try_tensor(expr, ranges, store)
                 ex isa Expr || return ex
                 # Save array and scalar arguments
                 if @capture_(ex, A_[ijk__])
-                    push!(store.arrays, arrayonly(A))
+                    A1 = arrayonly(A)
+                    push!(store.arrays, A1)
                     push!(store.indices, ijk)
+                    n = length(ijk)
+                    str = "expected a $n-array $A1"
+                    push!(outex, :( ndims($A1) == $n || error($str) ))
                 elseif ex.head == :call && ex.args[1] == :*
                     foreach(ex.args[2:end]) do a
                         a isa Symbol && push!(store.scalars, a)
@@ -53,7 +59,7 @@ function try_tensor(expr, ranges, store)
 
             args = unique(vcat(store.arrays, store.scalars))
             push!(outex, quote
-                function $MAKE($(args...),)
+                local function $MAKE($(args...),)
                     $tex
                 end
             end)
@@ -116,11 +122,13 @@ function tensor_grad(right, leftind, store)
         if B in backseen
             addon = macroexpand(store.mod, :( @tensor $deltaB[$(ijk...)] = $deltaB[$(ijk...)] + $newright ))
             push!(backsteps, addon)
+            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] += " newright
         else
             push!(backseen, B)
             symB = Symbol(DEL, B, '_', join(ijk))
             create = macroexpand(store.mod, :( @tensor( $deltaB[$(ijk...)] := $newright ) ))
             push!(backsteps, create)
+            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] := " newright
         end
     end
 
@@ -131,22 +139,23 @@ function tensor_grad(right, leftind, store)
         )
 
     outex = [:(
-        function $∇make($dZ, $(args...))
+        local function $∇make($dZ, $(args...))
             $(backsteps...)
             return ($(backtuple...),)
         end
     )]
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
-        ex_value = :($dZ = collect($dZ)) # Todo: do this efficiently!
         # backsteps_fill = fillarrayreplace(backsteps, dZ)
         # ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
         push!(outex, :(
-            function $∇make($dZ::Zygote.Fill, $(args...))
-                $ex_value
-                $(backsteps_fill...)
-                return ($(backtuple...),)
-            end
+            local $∇make($dZ::Zygote.Fill, $(args...)) = $∇make(collect($dZ), $(args...))
+            # Todo: make this work without collect!
+            # local function $∇make($dZ::Zygote.Fill, $(args...))
+            #     $ex_value
+            #     $(backsteps_fill...)
+            #     return ($(backtuple...),)
+            # end
         ))
     end
 
@@ -165,11 +174,12 @@ function replace_B_with_Δ(B, Bijk, right, leftind)
     out = MacroTools_postwalk(right) do x
         if @capture_(x, A_[ijk__]) && A==B && ijk == Bijk
             countB += 1
-            return :( $dZ[$(leftind...)] )
+            return :( conj($dZ[$(leftind...)]) )
         else
             return x
         end
     end
+    out = :(conj($out))
 
     # Deal with partial traces -- repeated indices on same array
     extra, deltas = [], []
