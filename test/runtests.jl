@@ -68,6 +68,10 @@ using KernelAbstractions
     @tullio threads=false
     include("gradients.jl")
     @tullio threads=true
+
+    for sy in Tullio.SYMBOLS
+        @test !isdefined(@__MODULE__, sy)
+    end
 end
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
