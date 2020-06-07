@@ -131,6 +131,7 @@ function range_expr_walk(r::Expr, ex::Expr)
 end
 
 range_expr_walk(range::Expr, s::Symbol) = range, s
+range_expr_walk(range::Expr, n::Integer) = range, nothing
 
 is_const(::Int) = true
 is_const(::Any) = false

@@ -303,6 +303,10 @@ end
     N = NamedDimsArray(rand(Int8,3,10), (:r, :c))
 
     @tullio A[i,j] := N[i, j] + 100 * (1:10)[j]
+    @test A == N .+ 100 .* (1:10)'
+
+    @tullio B[i] := N[r=i, c=1]
+    @test B == N[:,1]
 
     @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j]
     @test_broken A == C'
