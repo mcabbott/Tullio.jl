@@ -5,24 +5,23 @@
 This is a package is for writing array operations in index notation, such as:
 
 ```julia
-@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]   # sum over i,j
+@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]   # sum over i,j, and create M
 
-@tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y
+@tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y, and write into S
 
-@tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l
+@tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l, and add to values in A
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
 One difference is that it can parse more expressions (such as the convolution `M`, and worse).
 Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
+But it also co-operates with various other packages, provided they are loaded before the macro is called:
 
-But it works best with various other packages, which need to be loaded before calling the macro:
+* It can use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
 
-* It will use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
+* It can use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
 
-* It will use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
-
-* It will use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands, namely strict Einstein-convention contractions. (Disable with `tensor=false`.)
+* It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
 Gradients are handled as follows:
 
@@ -47,6 +46,8 @@ It knows that it should not sum over indices `i,j`, but since it can't be sure
 of their ranges, it will not add `@inbounds` in such cases. 
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
 
+The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
+and notices when it is unable to use the packages mentioned above.
 
 <details><summary><b>Notation</b></summary>
 
@@ -75,6 +76,10 @@ N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
 
 # Functions which create arrays are evaluated once:
 @tullio R[i,j] := abs.((rand(Int8, 5)[i], rand(Int8, 5)[j]))
+
+using NamedDims, AxisKeys # Dimension names, plus pretty printing:
+@tullio M[row=i, col=j, z=k] := A[i+j-1]  (j in 1:15, k in 1:2)
+@tullio S[i] := M[col=j-i, z=k, row=i+1] # sum over j,k
 ```
 
 </details>
@@ -139,23 +144,27 @@ end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 <details><summary><b>Options</b></summary>
 
 The default setting is:
-```@tullio threads=true avx=true grad=Base verbose=false A[i,j] := ...``` 
+```@tullio threads=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
+* `tensor=false` turns off the use of `TensorOperations`.
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
-* `verbose=true` prints things like the index ranges inferred. `verbose=2` prints absolutely everything.
+* `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.
 * `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
 
 Implicit:
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
 * Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
-* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` &  `Zygote`, if these are loaded.
-* GPU kernels are only constructed when both `KernelAbstractions` and `CuArrays` are visible.
+* Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` & `Zygote`. These packages need not be loaded when the macro is run.
+* GPU kernels are only constructed when both `KernelAbstractions` and `CuArray` are visible. The default `cuda=256` is passed to `kernel(CUDA(), 256)`.
+* The CPU kernels from `KernelAbstractions` are called only when `threads=false`; they are not at present very fast, but perhaps useful for testing.
 
 Extras:
 * `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
+* `A[i] := B[i, $col] - C[i, 2]` is how you fix one index to a constant (to prevent `col` being summed over).
+* `A[i] := $d * B[i]` is the preferred way to include other constants. Note that no gradient is calculated for `d`. 
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
 </details>
@@ -187,4 +196,4 @@ Things you can't run:
 
 * [ArrayMeta.jl](https://github.com/shashi/ArrayMeta.jl) was a Julia 0.5 take on some of this.
 
-* [Tokamak.jl](https://github.com/tkelman/Tokamak.jl) was another.
+* [Tokamak.jl](https://github.com/MikeInnes/Tokamak) was another, see [readme here](https://github.com/tkelman/Tokamak.jl).
