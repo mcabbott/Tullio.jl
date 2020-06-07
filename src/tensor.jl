@@ -60,6 +60,7 @@ function try_tensor(expr, ranges, store)
             args = unique(vcat(store.arrays, store.scalars))
             push!(outex, quote
                 local function $MAKE($(args...),)
+                    local $Z
                     $tex
                 end
             end)
