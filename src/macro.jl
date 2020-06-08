@@ -297,16 +297,20 @@ saveconstraints(A, inds, store, right=true) = begin
     foreach(enumerate(inds)) do (d,ex)
         is_const(ex) && return
         containsany(ex, store.notfree) && return
-        range_i, i = range_expr_walk(length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d)), ex)
+        axis_i = length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d))
+        range_i, i = range_expr_walk(axis_i, ex)
         if i isa Symbol
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, [])
             push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
-            push!(is, i...)
-            push!(store.shiftedind, i...)
+            push!(is, filter(!isnothing, i)...)
+            push!(store.shiftedind, filter(!isnothing, i)...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
+        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
+            str = "extrema of index $ex must fit within $A1"
+            push!(store.outpre, :(issubset($range_i, $axis_i) || error($str)))
         end
     end
     if right
@@ -446,7 +450,15 @@ function index_ranges(store)
     done = Dict{Symbol,Any}()
 
     for (i,j,r_i,r_j) in store.pairconstraints
-        if haskey(store.constraints, i) && i in todo
+
+        if isnothing(i) # case of A[j + I[k]]
+            v = get!(store.constraints, j, [])
+            push!(v, r_j)
+        elseif isnothing(j)
+            v = get!(store.constraints, i, [])
+            push!(v, r_i)
+
+        elseif haskey(store.constraints, i) && i in todo
             resolveintersect(i, store, done) # use existing knowledge to fix i's range
             pop!(todo, i)
             v = get!(store.constraints, j, []) # and then allow j's range to depend on that

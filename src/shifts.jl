@@ -1,7 +1,7 @@
 
 #========== adjusting index ranges, runtime ==========#
 
-# This is to get the range of j in A[2i], from axes(A,1):
+# This is to get the range of j in A[2j], from axes(A,1):
 
 function divrange(r::AbstractUnitRange, f::Integer)
     if f > 0
@@ -61,6 +61,15 @@ issubset(addranges(1:10, 1:3) .- 1, 1:10)
 issubset(addranges(1:10, 1:3) .- 3, 1:10)
 =#
 
+# This is for A[I[j]] (where this range must be a subset of axes(A,1))
+# and for A[I[j]+k] (where it enters into the calculation of k's range).
+
+function extremerange(A)
+    α, ω = extrema(A)
+    α isa Integer && ω isa Integer || error("expected integers!")
+    α:ω
+end
+
 #========== functions used by the macro ==========#
 
 @nospecialize
@@ -74,12 +83,20 @@ Understands operations `+, -, *, ÷`.
 (Don't really need `÷`, as this results in a non-`UnitRange`
 which can't be a valid index.)
 
-If the expression is something like `A[2i+j]`, then it returns a tuple of ranges
+If the expression is from something like `A[2i+j]`, then it returns a tuple of ranges
 and a tuple of symbols. The range for `:j` contains `:$(AXIS)i` and v-v.
+
+If the expression is from `A[I[j]]` then it returns `(min:max, nothing)`,
+and the caller should check `issubset(min:max, axes(A,1))`.
 """
-function range_expr_walk(r::Expr, ex::Expr)
+function range_expr_walk(r::Expr, ex::Expr, con=[])
     ex.head == :kw && return range_expr_kw(r, ex)
-    ex.head == :ref && return (r,nothing) # case of M[I[i], j] with r=size(M,1)
+    if ex.head == :ref # case of M[I[j], k] with r=size(M,1)
+        A = ex.args[1]
+        push!(con, :(minimum($A) in $r && maximum($A) in $r || error("not safe!")))
+        # return (r,nothing)
+        return (:($extremerange($A)),nothing)
+    end
     ex.head == :call || error("not sure what to do with $ex")
     if length(ex.args) == 2
         op, a = ex.args
@@ -164,6 +181,10 @@ the range of values taken by the expression, in terms of `Symbol($AXIS, i)`.
 """
 range_unwrap(i::Symbol) = Symbol(AXIS, i)
 range_unwrap(ex::Expr) = begin
+    if ex.head == :ref # case of A[I[j]+k] comes here
+        A = ex.args[1]
+        return :($extremerange($A))
+    end
     ex.head == :call || error("don't know how to handle $ex")
     if length(ex.args) == 2
         op, a = ex.args

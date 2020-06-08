@@ -66,6 +66,9 @@ using OffsetArrays # Convolve a filter:
 K = OffsetArray([1,-1,2,-1,1], -2:2)
 @tullio C[i] := A[i+j] * K[j]  # j ∈ -2:2 implies i ∈ 3:19
 
+# Index by the values in K
+@tullio D[i,j] := A[2K[j]+i] ÷ K[j] # extrema(K)==(-1,2) implies i ∈ 3:17
+
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)

@@ -98,6 +98,17 @@ using Tullio, Test, LinearAlgebra
     @tullio M[i,j] := (r=i, c=j)  (i in tri, j in tri)
     @test M[3,3] == (r=3, c=3)
 
+    # indexing by an array
+    inds = vcat(1:3, 1:3)
+    @tullio AI[i] := A[inds[i]]
+    @test AI == A[inds]
+    jnds = -5:5
+    @test_throws Exception @tullio AJ[j] := A[jnds[j]]
+    @test_throws BoundsError A[jnds]
+    knds = 1:3.0
+    @test_throws Exception @tullio AK[j] := A[knds[j]]
+    @test_throws ArgumentError A[knds]
+
     # primes
     @test A == @tullio P[i′] := A[i']
     @test A == @tullio P[i'] := A[i′]
@@ -287,6 +298,13 @@ using OffsetArrays
     @tullio I[i,j] := 0 * A[i+j] + 0 * B[j]
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
+
+    # indexing by an array
+    inds = [-1,0,0,0,1]
+    @tullio K[i,j] := A[inds[i]+j]
+    @test axes(K) == (1:5, 2:9)
+    @tullio K2[i,j] := A[j+2inds[i]]
+    @test axes(K2) == (1:5, 3:8)
 
     # multiplication not implemented
     @test_throws LoadError @eval @tullio C[i] = A[i*j] + A[i]

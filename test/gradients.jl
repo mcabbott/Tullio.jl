@@ -46,6 +46,14 @@ end
 # which is what's now used for this:
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
+# indexing
+inds = vcat(1:3, 1:2)
+if Tullio.GRAD[] != :Dual
+    @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+else
+    @test_broken _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+end
+
 #=
 # shifts, etc
 c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
