@@ -305,8 +305,8 @@ saveconstraints(A, inds, store, right=true) = begin
             v = get!(store.constraints, i, [])
             push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
-            push!(is, filter(!isnothing, i)...)
-            push!(store.shiftedind, filter(!isnothing, i)...)
+            push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
+            push!(store.shiftedind, filter(!isnothing, collect(i))...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
         elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
             str = "extrema of index $ex must fit within $A1"

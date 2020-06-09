@@ -46,11 +46,6 @@ using Tullio, Test, LinearAlgebra
     @tullio S += A[i]/2
     @test S ≈ sum(A)
 
-    # inner
-    J = repeat(1:3, 4);
-    @tullio G[i,k] := F[i,J[k]]
-    @test G[3,1] == G[3,4] == G[3,7]
-
     # fixed
     @tullio F[i] := D[i,5]
     @test F[5] == 5
@@ -99,6 +94,10 @@ using Tullio, Test, LinearAlgebra
     @test M[3,3] == (r=3, c=3)
 
     # indexing by an array
+    J = repeat(1:3, 4);
+    @tullio G[i,k] := M[i,J[k]]
+    @test G[3,1] == G[3,4] == G[3,7]
+
     inds = vcat(1:3, 1:3)
     @tullio AI[i] := A[inds[i]]
     @test AI == A[inds]
@@ -302,9 +301,15 @@ using OffsetArrays
     # indexing by an array
     inds = [-1,0,0,0,1]
     @tullio K[i,j] := A[inds[i]+j]
+    @test K[2,3] == K[3,3] == K[4,3]
     @test axes(K) == (1:5, 2:9)
+
     @tullio K2[i,j] := A[j+2inds[i]]
     @test axes(K2) == (1:5, 3:8)
+
+    j = 7
+    @test_skip @tullio K3[i,j] := A[j+2inds[i]+$j]
+    @test_broken vec(K2) == vec(K3)
 
     # multiplication not implemented
     @test_throws LoadError @eval @tullio C[i] = A[i*j] + A[i]
@@ -328,7 +333,7 @@ end
 
     @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j]
     @test_broken A == C'
-    @test_broken dimnames(C) == (:_, :_)
+    @test_broken dimnames(C) == (:_, :_) # bug with similar in NamedDims
 
     # writing
     @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
