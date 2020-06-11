@@ -52,7 +52,7 @@ and notices when it is unable to use the packages mentioned above.
 <details><summary><b>Notation</b></summary>
 
 ```julia
-using Pkg; pkg"add https://github.com/mcabbott/Tullio.jl"
+using Pkg; pkg"add Tullio" # now registered
 using Tullio
 A = [abs2(i - 11) for i in 1:21]
 
@@ -112,12 +112,13 @@ X = rand(1000,1000);
 <details><summary><b>Derivatives & GPU</b></summary>
 
 ```julia
-using Tullio, Tracker # This is defined with a gradient:
+using Tullio
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k] 
 
 A = rand(3,40); B = rand(40,500);
 A * B ≈ mul(A, B) # true
 
+using Tracker
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
