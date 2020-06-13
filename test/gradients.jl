@@ -164,16 +164,21 @@ if Tullio.GRAD[] != :Dual
 
         p1(x) = @tullio (*) z = x[i]
         @test _gradient(p1, 1:4)[1] == ForwardDiff.gradient(p1, 1:4)
+        @test _gradient(p1, -1:3)[1] == ForwardDiff.gradient(p1, -1:3) # one zero
+        @test _gradient(p1, [1,0,2,0])[1] == ForwardDiff.gradient(p1, [1,0,2,0])
 
-        @test_broken _gradient(p1, -1:3)[1] == ForwardDiff.gradient(p1, -1:3)
-
-        p2(m,v) = @tullio y[i] := (m[i,j] + 3*v[j])^2 / sqrt(v[i])
+        p2(m,v) = @tullio (*) y[i] := (m[i,j] + 3*v[j])^2 # / sqrt(v[i])
         m1 = rand(4,4) .+ 1
         v1 = rand(4) .+ 1
         dm = ForwardDiff.gradient(m -> sum(p2(m,v1)), m1)
         @test dm ≈ _gradient(sum∘p2, m1, v1)[1]
         dv = ForwardDiff.gradient(v -> sum(p2(m1,v)), v1)
-        @test dv ≈ _gradient(sum∘p2, m1, v1)[2]
+        @test_broken dv ≈ _gradient(sum∘p2, m1, v1)[2]
+
+        m1[2,3] = 0
+        p3(m) = @tullio (*) y[i] := 4 * m[i,j]
+        dm = ForwardDiff.gradient(sum∘p3, m1)
+        @test dm ≈ _gradient(sum∘p3, m1)[1]
 
     end
 end

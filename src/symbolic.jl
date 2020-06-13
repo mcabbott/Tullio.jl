@@ -7,7 +7,6 @@ function insert_symbolic_gradient(store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
-    rest = Symbol(ACC, :rest)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
@@ -33,22 +32,22 @@ function insert_symbolic_gradient(store)
             push!(inbody, :($dt = $dt + conj($deltar)))
         elseif store.redfun == :*
             push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
-            push!(prebody, :($dt = conj($deltar) * $rest))
+            push!(prebody, :($dt = conj($deltar) * $ACC))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
     ex_body = commonsubex(quote $(inbody...) end)
 
-    ex_pre = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
-        product_grad(prebody, rest, store)
+    ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
+        product_grad(prebody, store)
     else
-        nothing
+        nothing, nothing
     end
 
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, out_ind, ex_pre, in_ind, ex_body, nothing, store, " (symbolic gradient)")
+        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, " (symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
@@ -57,7 +56,7 @@ function insert_symbolic_gradient(store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
-            ex_value, out_ind, ex_pre2, in_ind, ex_body2, nothing, store, " (method for FillArrays)")
+            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, " (method for FillArrays)")
     end
 
 end
@@ -118,8 +117,53 @@ Wait, shared/nonshared isn't the right division anymore.
 It's left/redind that you care about.
 
 =#
-product_grad(prebody, rest, store) = begin
-    :($ZED[$(store.leftraw...)] == 0 && @warn "can't handle products with zero just yet")
+product_grad(prebody, store) = begin
+    cnt = Symbol(DEL,:𝒸ℴ𝓊𝓃𝓉,0)
+
+    inds_orig = :(($(store.redind...),))
+    inds_prime = :(($(map(i -> Symbol(i,'′',DEL), store.redind)...),))
+    inds_zero = :(($(map(i -> 0, store.redind)...),))
+
+    loop_search = recurseloops(:(
+        # find and save the index at which RHS is zero
+        if iszero($(store.right))
+            $cnt += 1
+            $inds_prime = $inds_orig
+        end
+    ), copy(store.redind))
+
+    loop_accum = recurseloops(:(
+        # product of RHS at all redind except the one which gives zero
+        $ACC = $ACC * ifelse($inds_orig == $inds_prime, 1, $(store.right))
+    ), copy(store.redind))
+
+    store.verbose>0 && @info "symbolic gradients extra..." prebody
+    ex_prebody = commonsubex(quote $(prebody...) end)
+
+    ex_pre = quote
+        if iszero($ZED[$(store.leftraw...)])
+            local $cnt = 0
+            local $inds_prime = $inds_zero
+            $loop_search
+            if $cnt == 1
+                local $ACC = one($TYP)
+                $loop_accum
+                let $inds_orig = $inds_prime
+                    $ex_prebody
+                end
+            end # elseif more than one zero, then leave 𝛥x .== 0
+            # continue # i.e. skip the ordinary routine, which divides
+            @goto JUMP
+        end
+    end
+
+    ex_post = quote
+        @label JUMP
+    end
+
+    push!(store.notfree, cnt) # hack to disable @inbounds, avoids ERROR: syntax: misplaced label
+
+    ex_pre, ex_post
 end
 
 #========== symbolic differentiation ==========#
