@@ -158,3 +158,23 @@ end
     @test gradtest(con14, (3,3,9,9))
 
 end
+
+if Tullio.GRAD[] != :Dual
+    @testset "products" begin
+
+        p1(x) = @tullio (*) z = x[i]
+        @test _gradient(p1, 1:4)[1] == ForwardDiff.gradient(p1, 1:4)
+
+        @test_broken _gradient(p1, -1:3)[1] == ForwardDiff.gradient(p1, -1:3)
+
+        p2(m,v) = @tullio y[i] := (m[i,j] + 3*v[j])^2 / sqrt(v[i])
+        m1 = rand(4,4) .+ 1
+        v1 = rand(4) .+ 1
+        dm = ForwardDiff.gradient(m -> sum(p2(m,v1)), m1)
+        @test dm ≈ _gradient(sum∘p2, m1, v1)[1]
+        dv = ForwardDiff.gradient(v -> sum(p2(m1,v)), v1)
+        @test dv ≈ _gradient(sum∘p2, m1, v1)[2]
+
+    end
+end
+

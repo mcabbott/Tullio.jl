@@ -55,9 +55,9 @@ function _tullio(exs...; mod=Main)
     if isnothing(ex) # then we simply updated global settings
         return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
     end
-    verbose, threads, grad, avx, cuda, tensor = opts
+    redfun, verbose, threads, grad, avx, cuda, tensor = opts
 
-    if tensor && isdefined(mod, :TensorOperations) && grad != :Dual
+    if tensor && redfun == :+ && isdefined(mod, :TensorOperations) && grad != :Dual
         res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad,
             arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
@@ -70,7 +70,7 @@ function _tullio(exs...; mod=Main)
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
-        redfun = :+, # no way to set this just yet
+        redfun = redfun,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -132,6 +132,7 @@ TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
+        :redfun => :+,
         :verbose => VERBOSE[],
         :threads => THREADS[],
         :grad => GRAD[],
@@ -156,6 +157,10 @@ function parse_options(exs...)
                 push!(ranges, (el.args[2], el.args[3]))
             end
 
+        # Reduction function
+        elseif ex isa Symbol
+            opts[:redfun] = ex
+
         # The main course!
         elseif ex isa Expr
             isnothing(expr) || error("too many expressions! recognised keywords are $(keys(opts))")
@@ -172,7 +177,7 @@ function parse_options(exs...)
         CUDA[] = opts[:cuda]
         TENSOR[] = opts[:tensor]
     end
-    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
+    (opts[:redfun], opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
 end
 
 checklegal(opt, val) =
@@ -213,12 +218,21 @@ SYMBOLS = [
 
 function parse_input(expr, store)
 
-    if @capture_(expr, left_ += right_ )
-        push!(store.flags, :plusequals)
-    elseif @capture_(expr, left_ := right_ )
+    if @capture_(expr, left_ := right_ )
         push!(store.flags, :newarray)
     elseif @capture_(expr, left_ = right_ )
-    else error("can't understand input, expected A[] := B[], A[] = B[], or A[] += B[], got $ex")
+    elseif @capture_(expr, left_ += right_ )
+        push!(store.flags, :plusequals)
+        store.redfun == :+ || error("can't use += with reduction $(store.redfun)")
+    elseif @capture_(expr, left_ *= right_ )
+        push!(store.flags, :plusequals) # slightly abusing the name of the flag!
+        if store.redfun == :+ # default, then we change it?
+            store.redfun = :*
+        elseif store.redfun == :*
+        else
+            error("can't use *= with reduction $(store.redfun)")
+        end
+    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $ex")
     end
 
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
@@ -586,7 +600,7 @@ function action_functions(store)
 
     init = store.redfun == :* ? :(one($TYP)) :
         store.redfun == :max ? :(typemin($TYP)) :
-        store.redfun == :min ? :(typemin($TYP)) :
+        store.redfun == :min ? :(typemax($TYP)) :
         :(zero($TYP))
 
     # Right now this would allow *= only with reduction * too. Could separate them:
@@ -790,7 +804,7 @@ function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
     ok = false
-    if store.grad == :Dual
+    if store.grad == :Dual && store.redfun == :+
         insert_forward_gradient(store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"
@@ -831,11 +845,11 @@ function backward_definitions(store)
     push!(store.outpre, quote
 
         local $∇make = let $∇act! = $∇act!
-            local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+            local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
+                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
                     tuple($(shared...),), tuple($(nonshared...), );
                     block = $block)
                 return ($(returns...),)

@@ -24,7 +24,7 @@ function insert_forward_gradient(store)
     ex_iter = :($ZED = $(epsilonright); $(readepsilons...))
 
     make_many_actors(∇act!,
-        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store, " (gradient using ForwardDiff)")
 
@@ -33,7 +33,7 @@ function insert_forward_gradient(store)
         ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
 
         make_many_actors(∇act!,
-            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
+            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
             :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store, " (method for FillArrays)")
 
         # push!(store.outeval, quote

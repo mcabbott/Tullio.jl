@@ -7,40 +7,122 @@ function insert_symbolic_gradient(store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
+    rest = Symbol(ACC, :rest)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
-    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
-
-    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
+    out_ind, in_ind = if store.redfun == :+
+        nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
+        store.sharedind, nonshared
+    elseif store.redfun == :*
+        store.leftind, store.redind
+    else
+        error("can't take gradients with reduction $(store.redfun) (but max/min would not be hard to add)")
+    end
+    axislist = map(i -> Symbol(AXIS, i), vcat(out_ind, in_ind))
 
     targets = []
     MacroTools_postwalk(symbwalk(targets), store.right)
     # append!(targets, scalars)
-    unique!(targets)
-    inbody = map(targets) do (dt, t)
+
+    inbody, prebody = [], []
+    for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
         deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
-        :($dt = $dt + conj($deltar))
+        if store.redfun == :+
+            push!(inbody, :($dt = $dt + conj($deltar)))
+        elseif store.redfun == :*
+            push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
+            push!(prebody, :($dt = conj($deltar) * $rest))
+        end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
     ex_body = commonsubex(quote $(inbody...) end)
 
+    ex_pre = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
+        product_grad(prebody, rest, store)
+    else
+        nothing
+    end
+
     make_many_actors(∇act!,
-        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store, " (symbolic gradient)")
+        nothing, out_ind, ex_pre, in_ind, ex_body, nothing, store, " (symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
+        ex_pre2 = fillarrayreplace(ex_pre, dZ)
         ex_value = :($(Symbol(dZ, :_value)) = $dZ.value) # @avx likes this outside the loop
 
         make_many_actors(∇act!,
-            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
-            ex_value, store.sharedind, nothing, nonshared, ex_body2, nothing, store, " (method for FillArrays)")
+            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
+            ex_value, out_ind, ex_pre2, in_ind, ex_body2, nothing, store, " (method for FillArrays)")
     end
 
 end
+
+
+#=
+Consider @tullio (*) Z[i] := A[i,j] + B[i]
+
+When Z[i] != 0, then every factor was nonzero, and so we want
+    ΔA[i,j] = delta * lhs / rhs * leibnitz(rhs, A[i,j]) = ΔZ[i] * Z[i] / (A[i,j] + B[i]) * 1
+    ΔB[j] = delta * lhs / rhs * leibnitz(rhs, B[i,j])   = ΔZ[i] * Z[i] / (A[i,j] + B[i]) * 1
+notice the common factor.
+
+When Z[i] == 0, then most stay zero, only when rhs=0 we can't divide so must do this:
+
+    ΔA[i,j] = delta * prod_rest * leibnitz(rhs, A[i,j])
+    ΔB[j] = delta * prod_rest * leibnitz(rhs, B[j])
+
+Ideally you could branch before doing the inner loops.
+You will need knowledge of the LHS, not kept at the moment.
+
+
+for i in 1:10 # outer loop(s)
+
+    if Z[i] == 0 # code handled by this function?
+        cnt = 0
+        j0 = 0 # ...
+        for j in 1:10 # loop to look for zeros
+            if A[i,j] + B[i] == 0
+                cnt += 1
+                j0 = j # ...
+            end
+        end
+        if cnt == 1 # if exactly one zero
+            rest = 1.0
+            for j in 1:10 # ...
+                rest = rest * ifelse(j==j0 ? 1 : A[i,j] + B[i])
+            end
+            let j=j0 # ...
+                # run CSE on these -- "prebody"
+                ΔA[i,j] = ΔZ[i] * rest * 1
+                ΔB[j] = ΔZ[i] * rest * 1
+            end
+        end
+        continue
+    end
+
+    # easy case, divide
+    for j in 1:10
+        # run CSE on these -- "inbody" as before
+        ΔA[i,j] = ΔZ[i] * Z[i] * inv(A[i,j] + B[i]) * 1
+        ΔB[j] = ΔZ[i] * Z[i] * inv(A[i,j] + B[i]) * 1
+    end
+
+end
+
+Wait, shared/nonshared isn't the right division anymore.
+It's left/redind that you care about.
+
+=#
+product_grad(prebody, rest, store) = begin
+    :($ZED[$(store.leftraw...)] == 0 && @warn "can't handle products with zero just yet")
+end
+
+#========== symbolic differentiation ==========#
 
 # This could probably use https://github.com/dfdx/XGrad.jl
 # or https://github.com/SciML/ModelingToolkit.jl
@@ -311,7 +393,7 @@ using Tullio: @printgrad
 @printgrad  (log(x) - log(y)) * z   x y z
 @printgrad  log(x)*z - log(y)* z   x y z
 
-@printgrad  exp(2x)   x)
+@printgrad  exp(2x)   x
 @printgrad  exp(x/y)   x y
 @printgrad  exp((x-y)^2/2)   x y
 

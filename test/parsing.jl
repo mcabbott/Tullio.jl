@@ -108,6 +108,10 @@ using Tullio, Test, LinearAlgebra
     @test_throws Exception @tullio AK[j] := A[knds[j]]
     @test_throws ArgumentError A[knds]
 
+    # masking
+    @tullio M[i,j] := A[i] * A[j] * (i<=j)
+    @test M == UpperTriangular(A .* A')
+
     # primes
     @test A == @tullio P[i′] := A[i']
     @test A == @tullio P[i'] := A[i′]
@@ -315,6 +319,41 @@ using OffsetArrays
     @test_throws LoadError @eval @tullio C[i] = A[i*j] + A[i]
     @test_throws LoadError @eval @tullio C[i] = A[i⊗j] + A[i]
     @test_throws LoadError @eval @tullio C[i] = A[(i,j)] + A[i]
+
+end
+
+@testset "other reductions" begin
+
+    A = [i^2 for i in 1:10]
+
+    # basics
+    @test [prod(A)] == @tullio (*) P[_] := float(A[i])
+    @test maximum(A) == @tullio (max) m := float(A[i])
+    @test minimum(A) == @tullio (min) m := float(A[i]) # fails with @avx
+
+    # in-place
+    C = copy(A)
+    @test cumprod(A) == @tullio (*) C[k] = ifelse(i<=k, A[i], 1)
+    @test cumprod(A).^2 == @tullio (*) C[k] *= i<=k ? A[i] : 1
+
+    M = rand(1:9, 4,5)
+    @test vec(prod(M,dims=2)) == @tullio (*) B[i] := M[i,j]
+
+    # indexing
+    ind = vcat(1:3, 1:3)
+    V = 1:6
+    @tullio (*) Z[j] := M[ind[k],j] * exp(-V[k]) # product over k
+    @test Z ≈ vec(prod(M[ind,:] .* exp.(.-V), dims=1))
+
+    # scalar update ("plusequals" internally)
+    s = 1.0
+    @tullio (*) s *= float(A[i])
+    @test s == prod(A)
+    @tullio s *= float(A[i]) # works without specifying (*), is this a good idea?
+    @test s == float(prod(A))^2
+
+    @test_throws Exception @eval @tullio s += (*) A[i]
+    @test_throws Exception @eval @tullio s *= (max) A[i]
 
 end
 

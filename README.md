@@ -10,6 +10,8 @@ This is a package is for writing array operations in index notation, such as:
 @tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y, and write into S
 
 @tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l, and add to values in A
+
+@tullio (*) Z[j] := M[ind[k],j] * exp(-V[k]) # product over k
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
