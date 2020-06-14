@@ -10,15 +10,16 @@ function insert_symbolic_gradient(store)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
+    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
+    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
+
     out_ind, in_ind = if store.redfun == :+
-        nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
         store.sharedind, nonshared
-    elseif store.redfun == :*
-        store.leftind, store.redind
+    elseif store.redfun in [:*, :min, :max]
+        store.leftind, store.redind # but don't change axislist, matches argument order
     else
         error("can't take gradients with reduction $(store.redfun) (but max/min would not be hard to add)")
     end
-    axislist = map(i -> Symbol(AXIS, i), vcat(out_ind, in_ind))
 
     targets = []
     MacroTools_postwalk(symbwalk(targets), store.right)
@@ -33,6 +34,8 @@ function insert_symbolic_gradient(store)
         elseif store.redfun == :*
             push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
             push!(prebody, :($dt = conj($deltar) * $ACC))
+        elseif store.redfun in [:min, :max]
+            push!(inbody, :($dt = $dZ[$(store.leftraw...)]))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
@@ -42,6 +45,13 @@ function insert_symbolic_gradient(store)
         product_grad(prebody, store)
     else
         nothing, nothing
+    end
+    if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
+        ex_body = :(
+            if $ZED[$(store.leftraw...)] == $(store.right)
+                $ex_body
+            end
+        )
     end
 
     make_many_actors(∇act!,

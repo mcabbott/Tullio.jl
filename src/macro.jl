@@ -227,6 +227,7 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ *= right_ )
         push!(store.flags, :plusequals) # slightly abusing the name of the flag!
         if store.redfun == :+ # default, then we change it?
+            store.verbose>0 && @info "inferring reduction by *, because of lhs *= rhs"
             store.redfun = :*
         elseif store.redfun == :*
         else

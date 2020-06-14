@@ -339,6 +339,12 @@ end
     M = rand(1:9, 4,5)
     @test vec(prod(M,dims=2)) == @tullio (*) B[i] := M[i,j]
 
+    # more dimensions
+    Q = rand(1:10^3, 4,5,6)
+    @test vec(maximum(Q,dims=(2,3))) == @tullio (max) R[i] := Q[i,j,k]
+    @test vec(minimum(Q,dims=(1,3))).+2 == @tullio (min) P[j] := Q[i,j,k]+2
+    @test dropdims(maximum(Q, dims=2), dims=2) == @tullio (max) S[i,k] := Q[i,j,k]
+
     # indexing
     ind = vcat(1:3, 1:3)
     V = 1:6

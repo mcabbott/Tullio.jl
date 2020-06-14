@@ -1,5 +1,5 @@
 
-using Tullio, Test, ForwardDiff
+using Tullio, Test, ForwardDiff, Random
 # using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
 
 # simple
@@ -177,8 +177,31 @@ if Tullio.GRAD[] != :Dual
 
         m1[2,3] = 0
         p3(m) = @tullio (*) y[i] := 4 * m[i,j]
-        dm = ForwardDiff.gradient(sum∘p3, m1)
-        @test dm ≈ _gradient(sum∘p3, m1)[1]
+        @test _gradient(sum∘p3, m1)[1] ≈ ForwardDiff.gradient(sum∘p3, m1)
+        m1[3,4] = -1
+        p4(m) = @tullio (*) y[i] := sin(1 + m[i,j])
+        @test _gradient(sum∘p4, m1)[1] ≈ ForwardDiff.gradient(sum∘p4, m1)
+
+    end
+    @testset "min/max" begin
+
+        f1(x) = @tullio (max) z = x[i]
+        f2(x) = @tullio (min) z = x[i] avx=false
+        @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
+        @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4) # error with @avx
+
+        _gradient(f1, [1,2,3,3])[1]
+        ForwardDiff.gradient(f1, [1,2,3,3]) # I prefer mine?
+
+        m4 = reshape(shuffle(1:3*4*5*6), 3,4,5,6);
+
+        f3(x) = @tullio (max) y[i,k,l] := x[i,j,k,l]
+        @test all(==(1), sum(_gradient(sum∘f3, m4)[1], dims=2))
+        @test _gradient(sum∘f3, m4)[1] ≈ ForwardDiff.gradient(sum∘f3, m4)
+
+        f4(x) = @tullio (min) y[j] := x[i,j,k,l]
+        @test all(==(1), sum(_gradient(sum∘f4, m4)[1], dims=(1,3,4)))
+        @test _gradient(sum∘f4, m4)[1] ≈ ForwardDiff.gradient(sum∘f4, m4)
 
     end
 end
