@@ -35,7 +35,7 @@ function insert_symbolic_gradient(store)
             push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
             push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
-            push!(inbody, :($dt = $dZ[$(store.leftraw...)]))
+            push!(inbody, :($dt = $deltar)) # only when max attained, i.e. rhs == lhs!
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
@@ -73,7 +73,7 @@ end
 
 
 #=
-Consider @tullio (*) Z[i] := A[i,j] + B[i]
+Consider @tullio (*) Z[i] := A[i,j] + B[j]
 
 When Z[i] != 0, then every factor was nonzero, and so we want
     ΔA[i,j] = delta * lhs / rhs * leibnitz(rhs, A[i,j]) = ΔZ[i] * Z[i] / (A[i,j] + B[i]) * 1

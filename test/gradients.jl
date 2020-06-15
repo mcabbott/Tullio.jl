@@ -168,6 +168,7 @@ if Tullio.GRAD[] != :Dual
         @test _gradient(p1, [1,0,2,0])[1] == ForwardDiff.gradient(p1, [1,0,2,0])
 
         p2(m,v) = @tullio (*) y[i] := (m[i,j] + 3*v[j])^2 # / sqrt(v[i])
+        p2(m,v) = @tullio (*) y[i] := m[i,j] * v[j]
         m1 = rand(4,4) .+ 1
         v1 = rand(4) .+ 1
         dm = ForwardDiff.gradient(m -> sum(p2(m,v1)), m1)
@@ -190,8 +191,8 @@ if Tullio.GRAD[] != :Dual
         @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
         @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4) # error with @avx
 
-        _gradient(f1, [1,2,3,3])[1]
-        ForwardDiff.gradient(f1, [1,2,3,3]) # I prefer mine?
+        @test _gradient(f1, [1,2,3,3])[1] == [0,0,1,1]
+        ForwardDiff.gradient(f1, [1,2,3,3]) == [0,0,0,1] # I prefer mine?
 
         m4 = reshape(shuffle(1:3*4*5*6), 3,4,5,6);
 
@@ -202,6 +203,27 @@ if Tullio.GRAD[] != :Dual
         f4(x) = @tullio (min) y[j] := x[i,j,k,l]
         @test all(==(1), sum(_gradient(sum∘f4, m4)[1], dims=(1,3,4)))
         @test _gradient(sum∘f4, m4)[1] ≈ ForwardDiff.gradient(sum∘f4, m4)
+
+        m2 = reshape(shuffle(1:16), 4,4);
+        v2 = shuffle(1:4)
+
+        f5(x,y) = @tullio (max) z[i] := x[i,j] + 0.01*y[i]
+        dm = ForwardDiff.gradient(m -> sum(f5(m,v2)), m2)
+        @test dm ≈_gradient(sum∘f5, m2, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f5(m2,v)), v2)
+        @test dv ≈_gradient(sum∘f5, m2, v2)[2]
+
+        f6(x,y) = @tullio (max) z[i] := x[i,j] + 0.01*y[j] # max is now along y, not perp
+        dm = ForwardDiff.gradient(m -> sum(f6(m,v2)), m2)
+        _gradient(sum∘f6, m2, v2)[1] # @test dm ≈
+        dv = ForwardDiff.gradient(v -> sum(f6(m2,v)), v2)
+        _gradient(sum∘f6, m2, v2)[2] # @test dv ≈
+
+        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j])
+        dm = ForwardDiff.gradient(m -> sum(f7(m,v2)), m2)
+        @test dm ≈_gradient(sum∘f7, m2, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f7(m2,v)), v2)
+        _gradient(sum∘f7, m2, v2)[2] # @test dv ≈
 
     end
 end
