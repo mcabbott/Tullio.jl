@@ -53,24 +53,22 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
+        return (verbose=VERBOSE[], fastmath=FASTMATH[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
     end
-    redfun, verbose, threads, grad, avx, cuda, tensor = opts
 
-    if tensor && redfun == :+ && isdefined(mod, :TensorOperations) && grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad,
+    if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
+        res = try_tensor(ex, ranges, DotDict(;mod = mod, opts...,
             arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end
     end
 
-    store = DotDict(mod = mod, verbose = verbose,
-        threads = threads, grad = grad, avx = avx, cuda = cuda,
+    store = DotDict(; mod = mod, opts...,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
-        redfun = redfun,
+        # redfun = opts.redfun,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -105,7 +103,7 @@ function _tullio(exs...; mod=Main)
 
     action_functions(store)
 
-    verbose == 2 && verboseprint(store)
+    opts.verbose == 2 && verboseprint(store)
 
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
@@ -114,7 +112,7 @@ end
 
 OPTS = Dict(
     :verbose => Any[true, false, 2],
-    :inbounds => [true, false],
+    :fastmath => [true, false],
     :threads => Integer,
     :grad => [false, :Base, :Dual],
     :avx => Integer,
@@ -123,7 +121,7 @@ OPTS = Dict(
     )
 
 VERBOSE = Ref{Any}(false)
-INBOUNDS = Ref(true)
+FASTMATH = Ref(true)
 THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
@@ -134,6 +132,7 @@ function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
         :verbose => VERBOSE[],
+        :fastmath => FASTMATH[],
         :threads => THREADS[],
         :grad => GRAD[],
         :avx => AVX[],
@@ -171,13 +170,22 @@ function parse_options(exs...)
     end
     if isnothing(expr) # if run with no expression, it updates global options
         VERBOSE[] = opts[:verbose]
+        FASTMATH[] = opts[:fastmath]
         THREADS[] = opts[:threads]
         GRAD[] = opts[:grad]
         AVX[] = opts[:avx]
         CUDA[] = opts[:cuda]
         TENSOR[] = opts[:tensor]
     end
-    (opts[:redfun], opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
+    (redfun=opts[:redfun],
+        verbose=opts[:verbose],
+        fastmath=opts[:fastmath],
+        threads=opts[:threads],
+        grad=opts[:grad],
+        avx=opts[:avx],
+        cuda=opts[:cuda],
+        tensor=opts[:tensor]
+    ), ranges, expr
 end
 
 checklegal(opt, val) =
@@ -697,10 +705,16 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
-    if isempty(store.notfree)
+    if store.fastmath && isempty(store.notfree)
         push!(store.outpre, quote
             local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
+            end
+        end)
+    elseif isempty(store.notfree)
+        push!(store.outpre, quote
+            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+                @inbounds ($ex1; $ex2)
             end
         end)
     else
