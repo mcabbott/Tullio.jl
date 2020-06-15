@@ -47,10 +47,18 @@ end
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
 # indexing
-inds = vcat(1:3, 1:2)
+
 if Tullio.GRAD[] != :Dual
+    inds = vcat(1:3, 1:2)
     @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+
+    # I expected this to fail, due to threads?
+    ind2 = rand(1:10, 1024)
+    dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
+    @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+
 else
+    inds = vcat(1:3, 1:2)
     @test_broken _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 end
 
