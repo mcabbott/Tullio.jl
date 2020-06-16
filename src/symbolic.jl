@@ -3,20 +3,17 @@
 
 using DiffRules
 
-function insert_symbolic_gradient(store)
+function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
-    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
-    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
-
     out_ind, in_ind = if store.redfun == :+
-        store.sharedind, nonshared
+        store.sharedind, setdiff(vcat(store.leftind, store.redind), store.sharedind)
     elseif store.redfun in [:*, :min, :max]
-        store.leftind, store.redind # but don't change axislist, matches argument order
+        store.leftind, store.redind
     else
         error("can't take gradients with reduction $(store.redfun) (but max/min would not be hard to add)")
     end

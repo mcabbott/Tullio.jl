@@ -1,13 +1,12 @@
 
 #========== backward gradient using ForwardDiff ==========#
 
-function insert_forward_gradient(store)
+function insert_forward_gradient(axislist, store)
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
-    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
 
     epsilondict = Dict{Symbol,Expr}()
 

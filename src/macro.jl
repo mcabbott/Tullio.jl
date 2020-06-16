@@ -78,7 +78,8 @@ function _tullio(exs...; mod=Main)
     # Whole RHS, untouched, plus things extracted:
         right = nothing,
         rightind = Symbol[],
-        sharedind = Symbol[],  # indices appearing on every RHS array
+        sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
+        unsafeind = Symbol[], # indices which must never be divided among threads
         arrays = Symbol[],
         scalars = Symbol[],
         cost = 1,
@@ -255,15 +256,18 @@ function parse_input(expr, store)
     end
     leftraw1 = tidyleftraw(primeindices(leftraw), store)
     store.leftind = filter(i -> i isa Symbol, leftraw1) # this gives correct outer loop order
-    !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
-
     store.leftraw = tidyleftraw2(leftraw1, store)
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
-    :newarray in store.flags || saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-    :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
+    if :newarray in store.flags
+        !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
+        Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
+    else
+        saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
+        detectunsafe(left, store)
+    end
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
@@ -426,6 +430,20 @@ tidyleftraw2(leftraw, store) = map(leftraw) do i
     end
     i
 end
+
+detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
+        @capture_(ex, A_[inds__]) || return ex
+        for i in inds
+            MacroTools_postwalk(i) do x
+                @capture_(x, B_[inner__]) || return x
+                # Now we have found an array which indexes another one, mark its indices unsafe
+                append!(store.unsafeind, filter(j -> j isa Symbol, inner))
+                unique!(store.unsafeind)
+                x
+            end
+        end
+        ex
+    end
 
 function parse_ranges(ranges, store) # now runs after parse_input
     for (i,r) in ranges
@@ -601,9 +619,13 @@ end
 
 function action_functions(store)
 
-    axisleft = map(i -> Symbol(AXIS, i), store.leftind)
-    axisred = map(i -> Symbol(AXIS, i), store.redind)
-    axislist = vcat(axisleft, axisred)
+    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeind))
+    axisred = map(i -> Symbol(AXIS, i), setdiff(store.redind, store.unsafeind))
+    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
+    axislist = vcat(axisunsafe, axisleft, axisred)
+    # Order of these is convenient for threader(), which divides axisleft up freely,
+    # divides axisred up with re-starts, and treads axisunsafe like scalar arguments.
+    # This is independent of the grouping inner/outer for make_many_actors().
 
     #===== constructing loops =====#
 
@@ -651,7 +673,7 @@ function action_functions(store)
         store.threads
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...),),
+            tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
             tuple($(axisleft...),), tuple($(axisred...),);
             block = $block, keep = $keep)
         $(store.leftarray)
@@ -818,14 +840,21 @@ recurseloops(ex, list::Vector) =
 function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
+    detectunsafe(store.right, store)
+    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
+    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsafeind))
+    loopind = vcat(store.leftind, store.redind)
+    axisnonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind, store.unsafeind))
+    axislist = vcat(axisunsafe, axisshared, axisnonshared) # order of arguments of ∇act!
+
     ok = false
     if store.grad == :Dual && store.redfun == :+
-        insert_forward_gradient(store)
+        insert_forward_gradient(axislist, store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"
     elseif store.grad == :Base
         try
-            insert_symbolic_gradient(store)
+            insert_symbolic_gradient(axislist, store)
             ok = true
             store.verbose == 2 && @info "success wtih Symbolic gradient"
         catch err
@@ -848,11 +877,6 @@ function backward_definitions(store)
     returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
     # returns = vcat(gradarrays, gradscalars)
 
-    loopind = vcat(store.leftind, store.redind)
-    # "sharedind" go first in argument list, they are safe to thread over
-    shared = map(i -> Symbol(AXIS, i), store.sharedind)
-    nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
-
     ST = :($storage_type($(gradarrays...), $(store.arrays...)))
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
@@ -864,8 +888,8 @@ function backward_definitions(store)
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
-                    tuple($(shared...),), tuple($(nonshared...), );
+                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...), $(axisunsafe...), ),
+                    tuple($(axisshared...),), tuple($(axisnonshared...), );
                     block = $block)
                 return ($(returns...),)
             end
