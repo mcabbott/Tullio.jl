@@ -17,33 +17,14 @@ Shifts and scaling of indices are allowed, including shifts by other indices.
 Ranges can be provided as shown, for under-constrained indices.
 If they are over-constrained, shifted indices run over the intersection allowed by all constraints,
 while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(B,1)` above).
-OffsetArrays.jl must be loaded in order to create an array whose indices don't start at 1.
 
-    @tullio  avx=false  threads=false  tensor=false  C[i,k] = A[i,j] * B[j,k]
+    @tullio (*) L[i] := A[J[k]+2, i] / B[k]^2
 
-By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays;
-the options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
-Option `threads=10^3` sets the threshold at which to divide work between two threads
-(in this case `10×10` matrices).
+This is a product instead of a sum, which can also enabled by writing `L[i] *= ...`.
+You can use any reduction function such as `@tullio (max) M[i] := ...`.
+When indexing by `J`, this demands `issubset(J, axes(A,1) .- 2)`.
 
-    @tullio  tensor=false  C[i,k] = A[i,j] * B[j,k]
-
-By default it used TensorOperations.jl for operations which this understands
-(Einstein convention contractions) if it is loaded. Disabled by `tensor=false`.
-
-    @tullio  grad=false  C[i,k] := ...
-
-If any of Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will
-define gradient hooks for these, unless disabled by `grad=false`.
-The reverse gradient itself is calculated in one of two ways,
-either by symbolic differentiation of the RHS (the default, `grad=Base`)
-or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
-
-    @tullio  verbose=true
-
-This prints out inferred index ranges, symbolic gradient results, and messages
-about failures to use various packages. `verbose=2` prints everything it knows.
-Options given without an expression change the global defaults, instead of applying just once.
+See the readme for further further options.
 """
 macro tullio(exs...)
     _tullio(exs...; mod=__module__)
