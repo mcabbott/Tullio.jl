@@ -410,3 +410,22 @@ end
     @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  key=nothing
 
 end
+
+@testset "bugs" begin
+
+    # https://github.com/mcabbott/Tullio.jl/issues/10
+    arr = [1 2; 3 4]
+    function f10(arr)
+        @tullio res1 = arr[i, k] - arr[i - 1, k]
+        @tullio res2 = arr[i, k] - arr[i, k + 1]
+        return res1 + res2
+    end
+    @test_broken f10(arr) == 2
+
+    let
+        B = rand(3,3)
+        @tullio tot = B[i, k] - B[i - 1, k]
+        @test_broken !(𝒜𝒸𝓉! isa Function)
+    end
+
+end
