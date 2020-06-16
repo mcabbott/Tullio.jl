@@ -15,7 +15,7 @@ function insert_symbolic_gradient(axislist, store)
     elseif store.redfun in [:min, :max] # :*,
         store.leftind, store.redind
     else
-        error("can't take gradients with reduction $(store.redfun) (but max/min would not be hard to add)")
+        error("can't take gradients with reduction $(store.redfun)")
     end
 
     targets = []

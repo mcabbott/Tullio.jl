@@ -150,7 +150,7 @@ end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 <details><summary><b>Options</b></summary>
 
 The default setting is:
-```@tullio threads=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
+```@tullio threads=true fastmath=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
