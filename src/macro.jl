@@ -638,8 +638,8 @@ function action_functions(store)
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
-    ex_init = :( $ACC = ifelse($KEEP === nothing, $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] ) # both OK, ifelse is tidier!
+    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
+    # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
@@ -685,7 +685,7 @@ function action_functions(store)
         empty!(store.outex)
         ex = quote
             let $ACT! = $ACT!
-                function $MAKE($(store.arrays...), $(store.scalars...), )
+                local function $MAKE($(store.arrays...), $(store.scalars...), )
                     $sofar
                 end
                 $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
