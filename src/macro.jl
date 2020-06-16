@@ -17,33 +17,14 @@ Shifts and scaling of indices are allowed, including shifts by other indices.
 Ranges can be provided as shown, for under-constrained indices.
 If they are over-constrained, shifted indices run over the intersection allowed by all constraints,
 while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(B,1)` above).
-OffsetArrays.jl must be loaded in order to create an array whose indices don't start at 1.
 
-    @tullio  avx=false  threads=false  tensor=false  C[i,k] = A[i,j] * B[j,k]
+    @tullio (*) L[i] := A[J[k]+2, i] / B[k]^2
 
-By default it uses LoopVectorization.jl if this is loaded, and `Threads.@spawn` for big enough arrays;
-the options shown disable both. Option `avx=4` will instead use `@avx unroll=4 for i in ...` loops.
-Option `threads=10^3` sets the threshold at which to divide work between two threads
-(in this case `10×10` matrices).
+This is a product instead of a sum, which can also enabled by writing `L[i] *= ...`.
+You can use any reduction function such as `@tullio (max) M[i] := ...`.
+When indexing by `J`, this demands `issubset(J, axes(A,1) .- 2)`.
 
-    @tullio  tensor=false  C[i,k] = A[i,j] * B[j,k]
-
-By default it used TensorOperations.jl for operations which this understands
-(Einstein convention contractions) if it is loaded. Disabled by `tensor=false`.
-
-    @tullio  grad=false  C[i,k] := ...
-
-If any of Zygote.jl/Tracker.jl/ReverseDiff.jl are loaded, then it will
-define gradient hooks for these, unless disabled by `grad=false`.
-The reverse gradient itself is calculated in one of two ways,
-either by symbolic differentiation of the RHS (the default, `grad=Base`)
-or by using dual numbers from ForwardDiff.jl (option `grad=Dual`).
-
-    @tullio  verbose=true
-
-This prints out inferred index ranges, symbolic gradient results, and messages
-about failures to use various packages. `verbose=2` prints everything it knows.
-Options given without an expression change the global defaults, instead of applying just once.
+See the readme for further further options.
 """
 macro tullio(exs...)
     _tullio(exs...; mod=__module__)
@@ -53,24 +34,22 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=VERBOSE[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
+        return (verbose=VERBOSE[], fastmath=FASTMATH[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
     end
-    verbose, threads, grad, avx, cuda, tensor = opts
 
-    if tensor && isdefined(mod, :TensorOperations) && grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(mod = mod, verbose = verbose, grad = grad,
+    if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
+        res = try_tensor(ex, ranges, DotDict(;mod = mod, opts...,
             arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end
     end
 
-    store = DotDict(mod = mod, verbose = verbose,
-        threads = threads, grad = grad, avx = avx, cuda = cuda,
+    store = DotDict(; mod = mod, opts...,
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
-        redfun = :+, # no way to set this just yet
+        # redfun = opts.redfun,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -80,7 +59,8 @@ function _tullio(exs...; mod=Main)
     # Whole RHS, untouched, plus things extracted:
         right = nothing,
         rightind = Symbol[],
-        sharedind = Symbol[],  # indices appearing on every RHS array
+        sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
+        unsafeind = Symbol[], # indices which must never be divided among threads
         arrays = Symbol[],
         scalars = Symbol[],
         cost = 1,
@@ -105,7 +85,7 @@ function _tullio(exs...; mod=Main)
 
     action_functions(store)
 
-    verbose == 2 && verboseprint(store)
+    opts.verbose == 2 && verboseprint(store)
 
     Expr(:block, store.outpre..., store.outex...) |> esc
 end
@@ -114,7 +94,7 @@ end
 
 OPTS = Dict(
     :verbose => Any[true, false, 2],
-    :inbounds => [true, false],
+    :fastmath => [true, false],
     :threads => Integer,
     :grad => [false, :Base, :Dual],
     :avx => Integer,
@@ -123,7 +103,7 @@ OPTS = Dict(
     )
 
 VERBOSE = Ref{Any}(false)
-INBOUNDS = Ref(true)
+FASTMATH = Ref(true)
 THREADS = Ref{Any}(true)
 GRAD = Ref{Any}(:Base)
 AVX = Ref{Any}(true)
@@ -132,7 +112,9 @@ TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
+        :redfun => :+,
         :verbose => VERBOSE[],
+        :fastmath => FASTMATH[],
         :threads => THREADS[],
         :grad => GRAD[],
         :avx => AVX[],
@@ -156,6 +138,10 @@ function parse_options(exs...)
                 push!(ranges, (el.args[2], el.args[3]))
             end
 
+        # Reduction function
+        elseif ex isa Symbol
+            opts[:redfun] = ex
+
         # The main course!
         elseif ex isa Expr
             isnothing(expr) || error("too many expressions! recognised keywords are $(keys(opts))")
@@ -166,13 +152,22 @@ function parse_options(exs...)
     end
     if isnothing(expr) # if run with no expression, it updates global options
         VERBOSE[] = opts[:verbose]
+        FASTMATH[] = opts[:fastmath]
         THREADS[] = opts[:threads]
         GRAD[] = opts[:grad]
         AVX[] = opts[:avx]
         CUDA[] = opts[:cuda]
         TENSOR[] = opts[:tensor]
     end
-    (opts[:verbose], opts[:threads], opts[:grad], opts[:avx], opts[:cuda], opts[:tensor]), ranges, expr
+    (redfun=opts[:redfun],
+        verbose=opts[:verbose],
+        fastmath=opts[:fastmath],
+        threads=opts[:threads],
+        grad=opts[:grad],
+        avx=opts[:avx],
+        cuda=opts[:cuda],
+        tensor=opts[:tensor]
+    ), ranges, expr
 end
 
 checklegal(opt, val) =
@@ -213,12 +208,22 @@ SYMBOLS = [
 
 function parse_input(expr, store)
 
-    if @capture_(expr, left_ += right_ )
-        push!(store.flags, :plusequals)
-    elseif @capture_(expr, left_ := right_ )
+    if @capture_(expr, left_ := right_ )
         push!(store.flags, :newarray)
     elseif @capture_(expr, left_ = right_ )
-    else error("can't understand input, expected A[] := B[], A[] = B[], or A[] += B[], got $ex")
+    elseif @capture_(expr, left_ += right_ )
+        push!(store.flags, :plusequals)
+        store.redfun == :+ || error("can't use += with reduction $(store.redfun)")
+    elseif @capture_(expr, left_ *= right_ )
+        push!(store.flags, :plusequals) # slightly abusing the name of the flag!
+        if store.redfun == :+ # default, then we change it?
+            store.verbose>0 && @info "inferring reduction by *, because of lhs *= rhs"
+            store.redfun = :*
+        elseif store.redfun == :*
+        else
+            error("can't use *= with reduction $(store.redfun)")
+        end
+    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $ex")
     end
 
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
@@ -232,15 +237,18 @@ function parse_input(expr, store)
     end
     leftraw1 = tidyleftraw(primeindices(leftraw), store)
     store.leftind = filter(i -> i isa Symbol, leftraw1) # this gives correct outer loop order
-    !allunique(store.leftind) && :newarray in store.flags && push!(store.flags, :zero)
-
     store.leftraw = tidyleftraw2(leftraw1, store)
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
-    :newarray in store.flags || saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-    :newarray in store.flags && Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
+    if :newarray in store.flags
+        !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
+        Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
+    else
+        saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
+        detectunsafe(left, store)
+    end
 
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
@@ -403,6 +411,20 @@ tidyleftraw2(leftraw, store) = map(leftraw) do i
     end
     i
 end
+
+detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
+        @capture_(ex, A_[inds__]) || return ex
+        for i in inds
+            MacroTools_postwalk(i) do x
+                @capture_(x, B_[inner__]) || return x
+                # Now we have found an array which indexes another one, mark its indices unsafe
+                append!(store.unsafeind, filter(j -> j isa Symbol, inner))
+                unique!(store.unsafeind)
+                x
+            end
+        end
+        ex
+    end
 
 function parse_ranges(ranges, store) # now runs after parse_input
     for (i,r) in ranges
@@ -578,23 +600,27 @@ end
 
 function action_functions(store)
 
-    axisleft = map(i -> Symbol(AXIS, i), store.leftind)
-    axisred = map(i -> Symbol(AXIS, i), store.redind)
-    axislist = vcat(axisleft, axisred)
+    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeind))
+    axisred = map(i -> Symbol(AXIS, i), setdiff(store.redind, store.unsafeind))
+    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
+    axislist = vcat(axisunsafe, axisleft, axisred)
+    # Order of these is convenient for threader(), which divides axisleft up freely,
+    # divides axisred up with re-starts, and treads axisunsafe like scalar arguments.
+    # This is independent of the grouping inner/outer for make_many_actors().
 
     #===== constructing loops =====#
 
     init = store.redfun == :* ? :(one($TYP)) :
         store.redfun == :max ? :(typemin($TYP)) :
-        store.redfun == :min ? :(typemin($TYP)) :
+        store.redfun == :min ? :(typemax($TYP)) :
         :(zero($TYP))
 
     # Right now this would allow *= only with reduction * too. Could separate them:
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
-    ex_init = :( $ACC = ifelse($KEEP === nothing, $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = $KEEP === nothing ? $init : $ZED[$(store.leftraw...)] ) # both OK, ifelse is tidier!
+    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
+    # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
@@ -628,7 +654,7 @@ function action_functions(store)
         store.threads
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...),),
+            tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
             tuple($(axisleft...),), tuple($(axisred...),);
             block = $block, keep = $keep)
         $(store.leftarray)
@@ -640,7 +666,7 @@ function action_functions(store)
         empty!(store.outex)
         ex = quote
             let $ACT! = $ACT!
-                function $MAKE($(store.arrays...), $(store.scalars...), )
+                local function $MAKE($(store.arrays...), $(store.scalars...), )
                     $sofar
                 end
                 $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
@@ -682,10 +708,16 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
-    if isempty(store.notfree)
+    if store.fastmath && isempty(store.notfree)
         push!(store.outpre, quote
             local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
+            end
+        end)
+    elseif isempty(store.notfree)
+        push!(store.outpre, quote
+            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+                @inbounds ($ex1; $ex2)
             end
         end)
     else
@@ -789,14 +821,21 @@ recurseloops(ex, list::Vector) =
 function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
+    detectunsafe(store.right, store)
+    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
+    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsafeind))
+    loopind = vcat(store.leftind, store.redind)
+    axisnonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind, store.unsafeind))
+    axislist = vcat(axisunsafe, axisshared, axisnonshared) # order of arguments of ∇act!
+
     ok = false
-    if store.grad == :Dual
-        insert_forward_gradient(store)
+    if store.grad == :Dual && store.redfun == :+
+        insert_forward_gradient(axislist, store)
         ok = true
         store.verbose == 2 && @info "using ForwardDiff gradient"
     elseif store.grad == :Base
         try
-            insert_symbolic_gradient(store)
+            insert_symbolic_gradient(axislist, store)
             ok = true
             store.verbose == 2 && @info "success wtih Symbolic gradient"
         catch err
@@ -819,11 +858,6 @@ function backward_definitions(store)
     returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
     # returns = vcat(gradarrays, gradscalars)
 
-    loopind = vcat(store.leftind, store.redind)
-    # "sharedind" go first in argument list, they are safe to thread over
-    shared = map(i -> Symbol(AXIS, i), store.sharedind)
-    nonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind))
-
     ST = :($storage_type($(gradarrays...), $(store.arrays...)))
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
@@ -831,12 +865,12 @@ function backward_definitions(store)
     push!(store.outpre, quote
 
         local $∇make = let $∇act! = $∇act!
-            local function $∇make($dZ::AbstractArray{$TYP}, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+            local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $(store.arrays...), $(store.scalars...),),
-                    tuple($(shared...),), tuple($(nonshared...), );
+                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...), $(axisunsafe...), ),
+                    tuple($(axisshared...),), tuple($(axisnonshared...), );
                     block = $block)
                 return ($(returns...),)
             end

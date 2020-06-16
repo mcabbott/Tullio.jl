@@ -10,6 +10,8 @@ This is a package is for writing array operations in index notation, such as:
 @tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y, and write into S
 
 @tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l, and add to values in A
+
+@tullio (*) Z[j] := M[ind[k],j] * exp(-V[k]) # product over k
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
@@ -148,7 +150,7 @@ end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 <details><summary><b>Options</b></summary>
 
 The default setting is:
-```@tullio threads=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
+```@tullio threads=true fastmath=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).

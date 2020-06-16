@@ -2,9 +2,10 @@
 using .Zygote
 
 Zygote.@adjoint function (ev::Eval)(args...)
-    ev.fwd(args...), Δ -> begin
+    Z = ev.fwd(args...)
+    Z, Δ -> begin
         isnothing(ev.rev) && error("no gradient definition here!")
-        tuple(nothing, ev.rev(Δ, args...)...)
+        tuple(nothing, ev.rev(Δ, Z, args...)...)
     end
 end
 

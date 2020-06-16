@@ -102,8 +102,6 @@ end
 
 
 
-
-
 #========== symbolic gradient ==========#
 # Originally TensorGrad.jl (an unregistered package),
 # all terms are again @tensor expressions.
@@ -140,7 +138,7 @@ function tensor_grad(right, leftind, store)
         )
 
     outex = [:(
-        local function $∇make($dZ, $(args...))
+        local function $∇make($dZ, $ZED, $(args...))
             $(backsteps...)
             return ($(backtuple...),)
         end
@@ -150,9 +148,9 @@ function tensor_grad(right, leftind, store)
         # backsteps_fill = fillarrayreplace(backsteps, dZ)
         # ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
         push!(outex, :(
-            local $∇make($dZ::Zygote.Fill, $(args...)) = $∇make(collect($dZ), $(args...))
+            local $∇make($dZ::Zygote.Fill, $ZED, $(args...)) = $∇make(collect($dZ), $ZED, $(args...))
             # Todo: make this work without collect!
-            # local function $∇make($dZ::Zygote.Fill, $(args...))
+            # local function $∇make($dZ::Zygote.Fill, $ZED, $(args...))
             #     $ex_value
             #     $(backsteps_fill...)
             #     return ($(backtuple...),)

@@ -3,44 +3,125 @@
 
 using DiffRules
 
-function insert_symbolic_gradient(store)
+function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
-    nonshared = setdiff(vcat(store.leftind, store.redind), store.sharedind)
-
-    axislist = map(i -> Symbol(AXIS, i), vcat(store.sharedind, nonshared))
+    out_ind, in_ind = if store.redfun == :+
+        store.sharedind, setdiff(vcat(store.leftind, store.redind), store.sharedind)
+    elseif store.redfun in [:min, :max] # :*,
+        store.leftind, store.redind
+    else
+        error("can't take gradients with reduction $(store.redfun)")
+    end
 
     targets = []
     MacroTools_postwalk(symbwalk(targets), store.right)
     # append!(targets, scalars)
-    unique!(targets)
-    inbody = map(targets) do (dt, t)
+
+    inbody, prebody = [], []
+    for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
         deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
-        :($dt = $dt + conj($deltar))
+        if store.redfun == :+
+            push!(inbody, :($dt = $dt + conj($deltar)))
+        # elseif store.redfun == :*
+        #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
+        #     push!(prebody, :($dt = conj($deltar) * $ACC))
+        elseif store.redfun in [:min, :max]
+            push!(inbody, :($dt += $deltar)) # only when max attained, i.e. rhs == lhs!
+        end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
     ex_body = commonsubex(quote $(inbody...) end)
 
+    ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
+        product_grad(prebody, store)
+    else
+        nothing, nothing
+    end
+    if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
+        ex_body = :(
+            if $ZED[$(store.leftraw...)] == $(store.right)
+                $ex_body
+            end
+        )
+    end
+
     make_many_actors(∇act!,
-        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+        vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, store.sharedind, nothing, nonshared, ex_body, nothing, store, " (symbolic gradient)")
+        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, " (symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
+        ex_pre2 = fillarrayreplace(ex_pre, dZ)
         ex_value = :($(Symbol(dZ, :_value)) = $dZ.value) # @avx likes this outside the loop
 
         make_many_actors(∇act!,
-            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), store.arrays, store.scalars, axislist),
-            ex_value, store.sharedind, nothing, nonshared, ex_body2, nothing, store, " (method for FillArrays)")
+            vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
+            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, " (method for FillArrays)")
     end
 
 end
+
+
+# This works for simple cases, but the general case is more complicatd.
+#=
+product_grad(prebody, store) = begin
+    cnt = Symbol(DEL,:𝒸ℴ𝓊𝓃𝓉,0)
+
+    inds_orig = :(($(store.redind...),))
+    inds_prime = :(($(map(i -> Symbol(i,'′',DEL), store.redind)...),))
+    inds_zero = :(($(map(i -> 0, store.redind)...),))
+
+    loop_search = recurseloops(:(
+        # find and save the index at which RHS is zero
+        if iszero($(store.right))
+            $cnt += 1
+            $inds_prime = $inds_orig
+        end
+    ), copy(store.redind))
+
+    loop_accum = recurseloops(:(
+        # product of RHS at all redind except the one which gives zero
+        $ACC = $ACC * ifelse($inds_orig == $inds_prime, 1, $(store.right))
+    ), copy(store.redind))
+
+    store.verbose>0 && @info "symbolic gradients extra..." prebody
+    ex_prebody = commonsubex(quote $(prebody...) end)
+
+    ex_pre = quote
+        if iszero($ZED[$(store.leftraw...)])
+            local $cnt = 0
+            local $inds_prime = $inds_zero
+            $loop_search
+            if $cnt == 1
+                local $ACC = one($TYP)
+                $loop_accum
+                let $inds_orig = $inds_prime
+                    $ex_prebody
+                end
+            end # elseif more than one zero, then leave 𝛥x .== 0
+            # continue # i.e. skip the ordinary routine, which divides
+            @goto JUMP
+        end
+    end
+
+    ex_post = quote
+        @label JUMP
+    end
+
+    push!(store.notfree, cnt) # hack to disable @inbounds, avoids ERROR: syntax: misplaced label
+
+    ex_pre, ex_post
+end
+=#
+
+#========== symbolic differentiation ==========#
 
 # This could probably use https://github.com/dfdx/XGrad.jl
 # or https://github.com/SciML/ModelingToolkit.jl
@@ -311,7 +392,7 @@ using Tullio: @printgrad
 @printgrad  (log(x) - log(y)) * z   x y z
 @printgrad  log(x)*z - log(y)* z   x y z
 
-@printgrad  exp(2x)   x)
+@printgrad  exp(2x)   x
 @printgrad  exp(x/y)   x y
 @printgrad  exp((x-y)^2/2)   x y
 

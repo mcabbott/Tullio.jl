@@ -1,5 +1,5 @@
 
-using Tullio, Test, ForwardDiff
+using Tullio, Test, ForwardDiff, Random
 # using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
 
 # simple
@@ -47,10 +47,18 @@ end
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
 # indexing
-inds = vcat(1:3, 1:2)
+
 if Tullio.GRAD[] != :Dual
+    inds = vcat(1:3, 1:2)
     @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+
+    # I expected this to fail, due to threads?
+    ind2 = rand(1:10, 1024)
+    dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
+    @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+
 else
+    inds = vcat(1:3, 1:2)
     @test_broken _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 end
 
@@ -158,3 +166,93 @@ end
     @test gradtest(con14, (3,3,9,9))
 
 end
+
+if Tullio.GRAD[] != :Dual
+#=
+    @testset "products" begin
+
+        p1(x) = @tullio (*) z = x[i]
+        @test _gradient(p1, 1:4)[1] == ForwardDiff.gradient(p1, 1:4)
+        @test _gradient(p1, -1:3)[1] == ForwardDiff.gradient(p1, -1:3) # one zero
+        @test _gradient(p1, [1,0,2,0])[1] == ForwardDiff.gradient(p1, [1,0,2,0])
+
+        p2(m,v) = @tullio (*) y[i] := (m[i,j] + 3*v[j])^2 # / sqrt(v[i])
+        p2(m,v) = @tullio (*) y[i] := m[i,j] * v[j]
+        m1 = rand(4,4) .+ 1
+        v1 = rand(4) .+ 1
+        dm = ForwardDiff.gradient(m -> sum(p2(m,v1)), m1)
+        @test dm ≈ _gradient(sum∘p2, m1, v1)[1]
+        dv = ForwardDiff.gradient(v -> sum(p2(m1,v)), v1)
+        @test_broken dv ≈ _gradient(sum∘p2, m1, v1)[2]
+
+        m1[2,3] = 0
+        p3(m) = @tullio (*) y[i] := 4 * m[i,j]
+        @test _gradient(sum∘p3, m1)[1] ≈ ForwardDiff.gradient(sum∘p3, m1)
+        m1[3,4] = -1
+        p4(m) = @tullio (*) y[i] := sin(1 + m[i,j])
+        @test _gradient(sum∘p4, m1)[1] ≈ ForwardDiff.gradient(sum∘p4, m1)
+
+    end
+=#
+    @testset "min/max" begin
+
+        f1(x) = @tullio (max) z = x[i] # avx fails
+        f2(x) = @tullio (min) z = x[i] avx=false
+
+        @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
+        @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4)
+
+        @test _gradient(f1, [1,2,3,3])[1] == [0,0,1,1]
+        ForwardDiff.gradient(f1, [1,2,3,3]) == [0,0,0,1] # I prefer mine?
+
+        m4 = reshape(shuffle(1:3*4*5*2), 3,4,5,2);
+
+        f3(x) = @tullio (max) y[i,k,l] := x[i,j,k,l]
+
+        @test all(==(1), sum(_gradient(sum∘f3, m4)[1], dims=2))
+        @test _gradient(sum∘f3, m4)[1] ≈ ForwardDiff.gradient(sum∘f3, m4)
+
+        f4(x) = @tullio (min) y[j] := x[i,j,k,l]
+
+        @test all(==(1), sum(_gradient(sum∘f4, m4)[1], dims=(1,3,4)))
+        @test _gradient(sum∘f4, m4)[1] ≈ ForwardDiff.gradient(sum∘f4, m4)
+
+        m2 = reshape(shuffle(1:16), 4,4);
+        v2 = shuffle(1:4)
+
+        f5(x,y) = @tullio (max) z[i] := x[i,j] + 0.01*y[i]
+
+        dm = ForwardDiff.gradient(m -> sum(f5(m,v2)), m2)
+        @test dm ≈_gradient(sum∘f5, m2, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f5(m2,v)), v2)
+        @test dv ≈_gradient(sum∘f5, m2, v2)[2]
+
+        f6(x,y) = @tullio (max) z[i] := x[i,j] + 0.01*y[j] # max is now along y, not perp
+
+        dm = ForwardDiff.gradient(m -> sum(f6(m,v2)), m2)
+        @test dm ≈ _gradient(sum∘f6, m2, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f6(m2,v)), v2)
+        @test dv ≈ _gradient(sum∘f6, m2, v2)[2]
+
+        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j])
+
+        dm = ForwardDiff.gradient(m -> sum(f7(m,v2)), m2)
+        @test dm ≈_gradient(sum∘f7, m2, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f7(m2,v)), v2)
+        @test dv ≈ _gradient(sum∘f7, m2, v2)[2]
+
+        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3
+        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3
+
+        dm = ForwardDiff.gradient(m -> sum(f8(m,v2)), m4)
+        @test dm ≈_gradient(sum∘f8, m4, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f8(m4,v)), v2)
+        @test dv ≈ _gradient(sum∘f8, m4, v2)[2]
+        dm = ForwardDiff.gradient(m -> sum(f9(m,v2)), m4)
+        @test dm ≈_gradient(sum∘f9, m4, v2)[1]
+        dv = ForwardDiff.gradient(v -> sum(f9(m4,v)), v2)
+        @test dv ≈ _gradient(sum∘f9, m4, v2)[2]
+
+    end
+end
+
