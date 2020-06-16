@@ -168,6 +168,7 @@ end
 end
 
 if Tullio.GRAD[] != :Dual
+#=
     @testset "products" begin
 
         p1(x) = @tullio (*) z = x[i]
@@ -192,6 +193,7 @@ if Tullio.GRAD[] != :Dual
         @test _gradient(sum∘p4, m1)[1] ≈ ForwardDiff.gradient(sum∘p4, m1)
 
     end
+=#
     @testset "min/max" begin
 
         f1(x) = @tullio (max) z = x[i]

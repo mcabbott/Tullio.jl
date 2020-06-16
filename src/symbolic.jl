@@ -12,7 +12,7 @@ function insert_symbolic_gradient(axislist, store)
 
     out_ind, in_ind = if store.redfun == :+
         store.sharedind, setdiff(vcat(store.leftind, store.redind), store.sharedind)
-    elseif store.redfun in [:*, :min, :max]
+    elseif store.redfun in [:min, :max] # :*,
         store.leftind, store.redind
     else
         error("can't take gradients with reduction $(store.redfun) (but max/min would not be hard to add)")
@@ -28,9 +28,9 @@ function insert_symbolic_gradient(axislist, store)
         deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
         if store.redfun == :+
             push!(inbody, :($dt = $dt + conj($deltar)))
-        elseif store.redfun == :*
-            push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
-            push!(prebody, :($dt = conj($deltar) * $ACC))
+        # elseif store.redfun == :*
+        #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
+        #     push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
             push!(inbody, :($dt = $deltar)) # only when max attained, i.e. rhs == lhs!
         end
@@ -69,61 +69,8 @@ function insert_symbolic_gradient(axislist, store)
 end
 
 
+# This works for simple cases, but the general case is more complicatd.
 #=
-Consider @tullio (*) Z[i] := A[i,j] + B[j]
-
-When Z[i] != 0, then every factor was nonzero, and so we want
-    ΔA[i,j] = delta * lhs / rhs * leibnitz(rhs, A[i,j]) = ΔZ[i] * Z[i] / (A[i,j] + B[i]) * 1
-    ΔB[j] = delta * lhs / rhs * leibnitz(rhs, B[i,j])   = ΔZ[i] * Z[i] / (A[i,j] + B[i]) * 1
-notice the common factor.
-
-When Z[i] == 0, then most stay zero, only when rhs=0 we can't divide so must do this:
-
-    ΔA[i,j] = delta * prod_rest * leibnitz(rhs, A[i,j])
-    ΔB[j] = delta * prod_rest * leibnitz(rhs, B[j])
-
-Ideally you could branch before doing the inner loops.
-You will need knowledge of the LHS, not kept at the moment.
-
-
-for i in 1:10 # outer loop(s)
-
-    if Z[i] == 0 # code handled by this function?
-        cnt = 0
-        j0 = 0 # ...
-        for j in 1:10 # loop to look for zeros
-            if A[i,j] + B[i] == 0
-                cnt += 1
-                j0 = j # ...
-            end
-        end
-        if cnt == 1 # if exactly one zero
-            rest = 1.0
-            for j in 1:10 # ...
-                rest = rest * ifelse(j==j0 ? 1 : A[i,j] + B[i])
-            end
-            let j=j0 # ...
-                # run CSE on these -- "prebody"
-                ΔA[i,j] = ΔZ[i] * rest * 1
-                ΔB[j] = ΔZ[i] * rest * 1
-            end
-        end
-        continue
-    end
-
-    # easy case, divide
-    for j in 1:10
-        # run CSE on these -- "inbody" as before
-        ΔA[i,j] = ΔZ[i] * Z[i] * inv(A[i,j] + B[i]) * 1
-        ΔB[j] = ΔZ[i] * Z[i] * inv(A[i,j] + B[i]) * 1
-    end
-
-end
-
-Wait, shared/nonshared isn't the right division anymore.
-It's left/redind that you care about.
-
-=#
 product_grad(prebody, store) = begin
     cnt = Symbol(DEL,:𝒸ℴ𝓊𝓃𝓉,0)
 
@@ -172,6 +119,7 @@ product_grad(prebody, store) = begin
 
     ex_pre, ex_post
 end
+=#
 
 #========== symbolic differentiation ==========#
 
