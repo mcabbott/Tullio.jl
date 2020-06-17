@@ -5,13 +5,13 @@
 This is a package is for writing array operations in index notation, such as:
 
 ```julia
-@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]   # sum over i,j, and create M
+@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]     # sum over i,j, and create M
 
-@tullio S[x] = P[x,y] * log(Q[x,y] / R[y])   # sum over y, and write into S
+@tullio S[x] = P[x,y] * log(Q[x,y] / R[y])     # sum over y, and write into S
 
-@tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j] # sum over k,l, and add to values in A
+@tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j]   # sum over k,l, and add to values in A
 
-@tullio (*) Z[j] := M[ind[k],j] * exp(-V[k]) # product over k
+@tullio (*) Z[j] := X[ind[k],j] * exp(-Y[k])   # product over k
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
@@ -34,7 +34,7 @@ Gradients are handled as follows:
 The expression need not be just one line, for example:
 
 ```julia
-@tullio out[x,y,n] := begin                  # sum over a,b
+@tullio out[x,y,n] := begin              # sum over a,b
         i = mod(x+a, axes(mat,1))
         j = mod(y+b, axes(mat,2))
         @inbounds mat[i,j,n] * abs(kern[a,b])
@@ -158,12 +158,14 @@ The default setting is:
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.
 * `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
+* `@tullio (*) A[i,j] := ...` is a product, as is `@tullio A[i,j] *= ...`. 
 
 Implicit:
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
 * Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` & `Zygote`. These packages need not be loaded when the macro is run.
+* Gradients are only defined for reductions over `(+)` (default) and `min`, `max`.
 * GPU kernels are only constructed when both `KernelAbstractions` and `CuArray` are visible. The default `cuda=256` is passed to `kernel(CUDA(), 256)`.
 * The CPU kernels from `KernelAbstractions` are called only when `threads=false`; they are not at present very fast, but perhaps useful for testing.
 
