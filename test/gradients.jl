@@ -48,7 +48,7 @@ end
 
 # indexing
 
-if Tullio.GRAD[] != :Dual
+if Tullio._GRAD[] != :Dual
     inds = vcat(1:3, 1:2)
     @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 
@@ -78,7 +78,7 @@ c2(mat, kern) = @tullio out[x,y,n] := begin
         @inbounds mat[i,j,n] * abs(kern[a,b])
     end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
 
-if Tullio.GRAD[] == :Dual
+if Tullio._GRAD[] == :Dual
     g_m = ForwardDiff.gradient(N -> sum(sin, c2(N, k1)), m1)
     g_k = ForwardDiff.gradient(K -> sum(sin, c2(m1, K)), k1)
     @test g_m ≈ _gradient(N -> sum(sin, c2(N, k1)), m1)[1]  atol=0.01
@@ -167,7 +167,7 @@ end
 
 end
 
-if Tullio.GRAD[] != :Dual
+if Tullio._GRAD[] != :Dual
 #=
     @testset "products" begin
 

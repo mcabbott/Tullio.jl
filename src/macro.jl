@@ -34,7 +34,7 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=VERBOSE[], fastmath=FASTMATH[], threads=THREADS[], grad=GRAD[], avx=AVX[], cuda=CUDA[], tensor=TENSOR[])
+        return (verbose=_VERBOSE[], fastmath=_FASTMATH[], threads=_THREADS[], grad=_GRAD[], avx=_AVX[], cuda=_CUDA[], tensor=_TENSOR[])
     end
 
     if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
@@ -102,24 +102,24 @@ OPTS = Dict(
     :tensor => [true, false],
     )
 
-VERBOSE = Ref{Any}(false)
-FASTMATH = Ref(true)
-THREADS = Ref{Any}(true)
-GRAD = Ref{Any}(:Base)
-AVX = Ref{Any}(true)
-CUDA = Ref{Any}(256)
-TENSOR = Ref(true)
+_VERBOSE = Ref{Any}(false)
+_FASTMATH = Ref(true)
+_THREADS = Ref{Any}(true)
+_GRAD = Ref{Any}(:Base)
+_AVX = Ref{Any}(true)
+_CUDA = Ref{Any}(256)
+_TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
-        :verbose => VERBOSE[],
-        :fastmath => FASTMATH[],
-        :threads => THREADS[],
-        :grad => GRAD[],
-        :avx => AVX[],
-        :cuda => CUDA[],
-        :tensor => TENSOR[],
+        :verbose => _VERBOSE[],
+        :fastmath => _FASTMATH[],
+        :threads => _THREADS[],
+        :grad => _GRAD[],
+        :avx => _AVX[],
+        :cuda => _CUDA[],
+        :tensor => _TENSOR[],
         )
     expr = nothing
     ranges = Tuple[]
@@ -151,13 +151,13 @@ function parse_options(exs...)
         end
     end
     if isnothing(expr) # if run with no expression, it updates global options
-        VERBOSE[] = opts[:verbose]
-        FASTMATH[] = opts[:fastmath]
-        THREADS[] = opts[:threads]
-        GRAD[] = opts[:grad]
-        AVX[] = opts[:avx]
-        CUDA[] = opts[:cuda]
-        TENSOR[] = opts[:tensor]
+        _VERBOSE[] = opts[:verbose]
+        _FASTMATH[] = opts[:fastmath]
+        _THREADS[] = opts[:threads]
+        _GRAD[] = opts[:grad]
+        _AVX[] = opts[:avx]
+        _CUDA[] = opts[:cuda]
+        _TENSOR[] = opts[:tensor]
     end
     (redfun=opts[:redfun],
         verbose=opts[:verbose],
