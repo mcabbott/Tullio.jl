@@ -32,7 +32,7 @@ function try_tensor(expr, ranges, store)
         return nothing
     end
 
-    outex = []
+    outex = [] # you could simplify, only one expression really
     try
         tex = macroexpand(store.mod, :(TensorOperations.@tensor $expr))
 
@@ -57,22 +57,24 @@ function try_tensor(expr, ranges, store)
                 ex
             end
 
-            args = unique(vcat(store.arrays, store.scalars))
-            push!(outex, quote
-                local function $MAKE($(args...),)
-                    local $Z
-                    $tex
-                end
-            end)
+            if store.grad == false
+                push!(outex, tex)
+            else
+                args = unique(vcat(store.arrays, store.scalars))
+                push!(outex, quote
+                    local function $MAKE($(args...),)
+                        local $Z
+                        $tex
+                    end
+                end)
 
-            if store.grad != false
                 ∇make, backdefs = tensor_grad(right, leftind, store)
                 append!(outex, backdefs)
-                push!(outex, :( $Z = $Eval($MAKE, $∇make)($(args...)) ))
-            else
-                push!(outex, :( $Z = $Eval($MAKE, $nothing)($(args...)) ))
+                outex = [:($Z = let
+                    $(outex...)
+                    $Eval($MAKE, $∇make)($(args...))
+                end)]
             end
-
         else
             #===== in-place =====#
             push!(outex, tex)
