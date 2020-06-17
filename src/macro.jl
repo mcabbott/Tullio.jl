@@ -83,11 +83,11 @@ function _tullio(exs...; mod=Main)
 
     output_array(store)
 
-    action_functions(store)
+    ex = action_functions(store)
 
     opts.verbose == 2 && verboseprint(store)
 
-    Expr(:block, store.outpre..., store.outex...) |> esc
+    ex |> esc
 end
 
 #========== options, etc ==========#
@@ -642,8 +642,12 @@ function action_functions(store)
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
-    # make_many_actors and backward_definitions both push into store.outpre
-    ∇make = backward_definitions(store)
+    ∇make = if :newarray in store.flags
+        # make_many_actors and backward_definitions both push into store.outpre
+        backward_definitions(store)
+    else
+        nothing
+    end
 
     #===== action! =====#
 
@@ -662,24 +666,39 @@ function action_functions(store)
 
     if :newarray in store.flags
         # then slurp up outex to make a function:
-        sofar = Expr(:block, store.outex...)
-        empty!(store.outex)
         ex = quote
             let $ACT! = $ACT!
                 local function $MAKE($(store.arrays...), $(store.scalars...), )
-                    $sofar
+                    $(store.outex...)
                 end
                 $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
             end
         end
+
+        # wrap pre and out in one let block so that ACT! doesn't escape:
+        ex = :(let
+            $(store.outpre...)
+            $ex
+        end)
+
         # and assign the result if necc:
         if store.leftarray != ZED
             push!(store.outex, :($(store.leftarray) = $ex ))
+            return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
              push!(store.outex, :($(store.leftscalar) = sum($ex)))
+             return :($(store.leftscalar) = sum($ex))
         else # case of [i,j] := ... with no name given
-            push!(store.outex, ex)
+            # push!(store.outex, ex)
+            return ex
         end
+
+    else
+        # in-place, no MAKE function, but still keep ACT! from escaping
+        return :(let
+            $(store.outpre...)
+            $(store.outex...)
+        end)
     end
 end
 

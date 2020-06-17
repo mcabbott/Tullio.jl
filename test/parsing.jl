@@ -420,12 +420,12 @@ end
         @tullio res2 = arr[i, k] - arr[i, k + 1]
         return res1 + res2
     end
-    @test_broken f10(arr) == 2
+    @test f10(arr) == 2
 
     let
         B = rand(3,3)
         @tullio tot = B[i, k] - B[i - 1, k]
-        @test_broken !(𝒜𝒸𝓉! isa Function)
+        @test_throws UndefVarError 𝒜𝒸𝓉! isa Function
     end
 
 end
