@@ -544,13 +544,13 @@ function output_array(store)
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T0 = Symbol(TYP,0)
-        str = "unable to infer eltype from RHS = $(store.right)"
+        warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
             local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
             local $TYP = if Base.isconcretetype($T0)
                 $T0
             else
-                @debug $str
+                $warn
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)
@@ -787,24 +787,41 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
             end)
             push!(store.outpre, kex1)
-            kex2 = quote
+            if isdefined(store.mod, :CuArrays) && isdefined(store.mod, :CuArray) # old-style, CuArrays.jl
+                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CuArrays actor $($note)") : nothing
+                kex2 = quote
 
-                local function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
-                    @debug "KernelAbstractions CuArrays actor"
-                    cu_kern! = $kernel(CUDA(), $(store.cuda))
-                    $(asserts...)
-                    $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
-                    KernelAbstractions.wait($ACC)
+                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                        $info2
+                        cu_kern! = $kernel(CUDA(), $(store.cuda))
+                        $(asserts...)
+                        $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                        KernelAbstractions.wait($ACC)
+                    end
+
                 end
-
-            end
-            if isdefined(store.mod, :CuArray) # just the type (for dispatch) not the package (now CUDA.jl)
                 push!(store.outpre, kex2)
             end
+            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
+                info2bis = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
+                kex2bis = quote
+
+                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                        $info2bis
+                        cu_kern! = $kernel(CUDADevice(), $(store.cuda))
+                        $(asserts...)
+                        $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                        KernelAbstractions.wait($ACC)
+                    end
+
+                end
+                push!(store.outpre, kex2bis)
+            end
+            info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
             kex3 = quote
 
-                local function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
-                    @debug "KernelAbstractions CPU actor"
+                local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+                    $info3
                     cpu_kern! = $kernel(CPU(), Threads.nthreads())
                     $(asserts...)
                     $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
