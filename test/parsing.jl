@@ -377,8 +377,8 @@ end
     @test B == N[:,1]
 
     @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j]
-    @test_broken A == C'
-    @test_broken dimnames(C) == (:_, :_) # bug with similar in NamedDims
+    @test A == C'
+    @test dimnames(C) == (:_, :_) # similar(parent(A)) avoids a bug
 
     # writing
     @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]

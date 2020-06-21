@@ -573,9 +573,10 @@ function output_array(store)
 
         simex = if isempty(store.arrays)
             # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
-            :( similar([], $TYP, tuple($(outaxes...))) )
+            :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
-            :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
+            # parent() is a trick to avoid a NamedDims bug
+            :( similar(parent($(store.arrays[1])), $TYP, tuple($(outaxes...),)) )
         end
         if isempty(store.leftnames)
             push!(store.outex, :( local $(store.leftarray) = $simex ))
