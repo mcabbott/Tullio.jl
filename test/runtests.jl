@@ -105,7 +105,8 @@ _gradient(x...) = Zygote.gradient(x...)
         g2 = _gradient(x -> real(sum(exp, x)), x0)[1]
         g2i = _gradient(x -> imag(sum(exp, x)), x0)[1]
         @test g2 ≈ _gradient(x -> real(@tullio y := exp(x[i])), x0)[1]
-        @test g2i ≈ _gradient(x -> imag(@tullio y := exp(x[i])), x0)[1]
+        @test_broken g2i ≈ _gradient(x -> imag(@tullio y := exp(x[i])), x0)[1]
+        # https://github.com/FluxML/Zygote.jl/issues/705
 
         g3 = _gradient(x -> real(sum(1 ./ (x.+im).^2)), x0)[1]
         g3i = _gradient(x -> imag(sum(1 ./ (x.+im).^2)), x0)[1]
