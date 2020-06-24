@@ -390,7 +390,7 @@ end
 
     # keyword threads accepts false or a positive integer
     @tullio A[i] := (1:10)[i]^2  threads=false
-    @test_skip @tullio A[i] := (1:10)[i]^2  threads=2^2 # Expr
+    @tullio A[i] := (1:10)[i]^2  threads=2^2
     # when using KernelAbstractions, something leaks from the 1st leading 2nd to error
     block = 64
     @tullio A[i] := (1:10)[i]^2  threads=block # Symbol
