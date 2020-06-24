@@ -14,6 +14,7 @@ Requires = "1"
 julia = "1.3"
 
 [extras]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
@@ -30,4 +31,4 @@ Yota = "cd998857-8626-517d-b929-70ad188a48f0"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
-test = ["Test", "FillArrays", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "NamedDims", "OffsetArrays", "Printf", "Random", "ReverseDiff", "TensorOperations", "Tracker", "Yota", "Zygote"]
+test = ["Test", "CUDA", "FillArrays", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "NamedDims", "OffsetArrays", "Printf", "Random", "ReverseDiff", "TensorOperations", "Tracker", "Yota", "Zygote"]

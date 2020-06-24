@@ -3,6 +3,7 @@ using Tullio, Test
 using CUDA, KernelAbstractions
 CUDA.allowscalar(false)
 using Tracker
+@tullio grad=Base
 
 # matmul
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]

@@ -65,12 +65,20 @@ using KernelAbstractions
     @tullio C[i,k] := A[i,j] * B[j,k]  threads=false  # verbose=2
     @test C ≈ A * B
 
-    @tullio threads=false
+    @tullio threads=false # else KernelAbstractions CPU kernels not used
     include("gradients.jl")
     @tullio threads=true
 
     for sy in Tullio.SYMBOLS
         @test !isdefined(@__MODULE__, sy)
+    end
+end
+
+using CUDA
+
+if CUDA.has_cuda_gpu()
+    @testset "===== CUDA tests on GPU =====" begin
+        include("cuda.jl")
     end
 end
 

@@ -5,11 +5,6 @@ test:1.4:
   extends:
     - .julia:1.4
     - .test
-
-test:1.4:
-  extends:
-    - .julia:1.4
-    - .test
   tags:
     - nvidia
   image: nvidia/cuda:latest
@@ -18,4 +13,8 @@ test:nightly:
   extends:
     - .julia:nightly
     - .test
+  tags:
+    - nvidia
   allow_failure: true
+
+# https://github.com/JuliaGPU/gitlab-ci
