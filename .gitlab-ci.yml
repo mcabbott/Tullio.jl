@@ -1,0 +1,21 @@
+include:
+  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v6.yml'
+
+test:1.4:
+  extends:
+    - .julia:1.4
+    - .test
+
+test:1.4:
+  extends:
+    - .julia:1.4
+    - .test
+  tags:
+    - nvidia
+  image: nvidia/cuda:latest
+
+test:nightly:
+  extends:
+    - .julia:nightly
+    - .test
+  allow_failure: true
