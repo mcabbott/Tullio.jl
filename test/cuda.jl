@@ -24,12 +24,14 @@ A = rand(3,40); B = rand(40,500);
 @test cD isa CuArray
 @test cD ≈ cu(D)
 
+#=
 # ranges
 @tullio E[i,j] := A[i,j+k-1] + (-1:0.5:1)[k]
 @test axes(E) == (1:3, 1:36)
 @tullio cE[i,j] := cu(A)[i,j+k-1] + (-1:0.5:1)[k]
 @test cE isa CuArray
 @test cE ≈ cu(E)
+=#
 
 # product
 @tullio (*) F[j] := A[i,j]
