@@ -125,6 +125,7 @@ end
 
 # This could probably use https://github.com/dfdx/XGrad.jl
 # or https://github.com/SciML/ModelingToolkit.jl
+# or https://github.com/JuliaMath/Calculus.jl/blob/master/src/differentiate.jl
 # or now I found this: https://github.com/HarrisonGrodin/Simplify.jl
 # but seemed simple enough to just write out, using rules from:
 # http://www.juliadiff.org/DiffRules.jl/latest/
@@ -194,14 +195,15 @@ mydiffrule(f, xs...) = begin
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
     f == :sqrt && return mysqrtrule(xs...)
-    f == :trunc && return map(_->0, xs)
-    f == :round && return map(_->0, xs)
+    f in BASE_NOGRAD && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
         return DiffRules.diffrule(:SpecialFunctions, f, xs...)
     error("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
 end
+
+BASE_NOGRAD = [:(==), :(!=), :(<), :(<=), :(>), :(>=), :trunc, :round]
 
 # Goals of these rules, besides correctness, are:
 # 1. don't cause promotion of Float32, e.g. by factors (1/2)
