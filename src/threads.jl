@@ -40,6 +40,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple; block, keep=nothing)
     if !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
         fun!(T, Z, As..., I0s..., J0s..., keep) # don't thread ranges like 10:-1:1
+        return nothing
     end
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
@@ -52,7 +53,7 @@ function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tup
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
-    nothing
+    return nothing
 end
 
 """
@@ -86,10 +87,10 @@ function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple,
             Threads.@spawn thread_halves(fun!, T, As, I1s, Js, block, div(spawns,2), keep)
             Threads.@spawn thread_halves(fun!, T, As, I2s, Js, block, div(spawns,2), keep)
         end
-    else
+    elseif length(Is) + length(Js) >= 2
         block_halves(fun!, T, As, Is, Js, keep)
-        # @info "thread_halves on $(Threads.threadid())" Is Js
-        # fun!(T, As..., Is..., Js..., keep)
+    else
+        fun!(T, As..., Is..., Js..., keep)
     end
     nothing
 end
@@ -108,6 +109,7 @@ function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, 
         block_halves(fun!, T, As, Is, J1s, keep)
         block_halves(fun!, T, As, Is, J2s, true)
     end
+    nothing
 end
 
 
