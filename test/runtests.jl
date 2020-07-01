@@ -124,6 +124,7 @@ _gradient(x...) = Zygote.gradient(x...)
         @test g3i ≈ _gradient(x -> imag(@tullio y := inv(x[i] + im)^2), x0)[1]
 
     end
+    #=
     @testset "non-analytic" begin
 
         g4 = _gradient(x -> real(sum(x * x')), x0)[1]
@@ -144,6 +145,7 @@ _gradient(x...) = Zygote.gradient(x...)
         @test_broken g6i ≈ _gradient(x -> real(@tullio y := abs(x[i]^3)), x0)[1]
 
     end
+    =#
 end
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
