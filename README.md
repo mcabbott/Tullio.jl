@@ -25,11 +25,11 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
-Gradients are handled as follows:
+The macro also tries to provide a gradient for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.) This is done in one of two ways:
 
-* It will try to take a symbolic derivative of the right hand side expression, for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.) When using `@tensor`, this writes another `@tensor` expression for each input array. Otherwise, it generates one set of loops to fill in all the gradient arrays at once.  
+* By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
 
-* The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side. This allows for more complicated expressions.
+* The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side (only for reductions over `+`). This allows for more complicated expressions.
 
 The expression need not be just one line, for example:
 
@@ -41,11 +41,9 @@ The expression need not be just one line, for example:
     end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
 ```
 
-Here the macro cannot infer the range of the output's indices `x,y`, 
-so they must be provided explicitly. (If writing into an existing array, 
-with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.) 
-It knows that it should not sum over indices `i,j`, but since it can't be sure 
-of their ranges, it will not add `@inbounds` in such cases. 
+Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
+(If writing into an existing array, with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.)
+It knows that it should not sum over indices `i,j`, but since it can't be sure  of their ranges, it will not add `@inbounds` in such cases.
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
 
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
@@ -74,6 +72,10 @@ K = OffsetArray([1,-1,2,-1,1], -2:2)
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
+
+# Reduction over any function:
+@tullio (*) P[i] := A[i+k]  (k in 0:2) # product
+@tullio (max) X[i,_] := D[i,j]         # maximum(D, dims=2), almost
 
 # Access to fields & arrays -- this uses j ∈ eachindex(first(N).c)
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
@@ -124,12 +126,15 @@ using Tracker
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
-using CuArrays, KernelAbstractions # Now defined with a GPU version:
+using CUDA, KernelAbstractions # Now defined with a GPU version:
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
 cu(A * B) ≈ mul(cu(A), cu(B)) # true
 
 cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1] # true
+
+# Reduction over min/max:
+Tracker.gradient(x -> (@tullio (max) res := x[i]^3), [1,2,3,-2,-1,3])[1]
 ```
 
 </details>
@@ -144,6 +149,23 @@ mat = zeros(10,10,1); mat[1,1] = 101;
     yj = mod(y+j, axes(mat,2))
     @inbounds trunc(Int, mat[xi, yj, c] * kern[i,j]) # and disables automatic @inbounds,
 end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
+
+fs = [sin, cos, tan]
+xs = randn(3,100)
+
+@tullio ys[r,c] := (fs[r])(xs[r,c]) # works, but not the gradient
+
+function rowmap(fs, xs)
+    axes(fs,1) == axes(xs,1) || error()
+    @tullio ys[r,c] := begin
+        @inbounds f = getindex($fs, r) # not writing fs[r] avoids trying to make Δfs
+        @inbounds f(xs[r,c]) # assignment f = ... has again disabled @inbounds.
+    end grad=Dual
+end
+
+using Zygote, ForwardDiff
+Zygote.gradient(sum∘rowmap, fs, ones(3,2))
+[f'(1) for f in fs]
 ```
 
 </details>
