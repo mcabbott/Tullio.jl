@@ -74,6 +74,7 @@ using KernelAbstractions
     end
 end
 
+#=
 using CUDA
 
 if CUDA.has_cuda_gpu()
@@ -81,6 +82,7 @@ if CUDA.has_cuda_gpu()
         include("cuda.jl")
     end
 end
+=#
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 
@@ -113,8 +115,7 @@ _gradient(x...) = Zygote.gradient(x...)
         g2 = _gradient(x -> real(sum(exp, x)), x0)[1]
         g2i = _gradient(x -> imag(sum(exp, x)), x0)[1]
         @test g2 ≈ _gradient(x -> real(@tullio y := exp(x[i])), x0)[1]
-        @test_broken g2i ≈ _gradient(x -> imag(@tullio y := exp(x[i])), x0)[1]
-        # https://github.com/FluxML/Zygote.jl/issues/705
+        @test g2i ≈ _gradient(x -> imag(@tullio y := exp(x[i])), x0)[1]
 
         g3 = _gradient(x -> real(sum(1 ./ (x.+im).^2)), x0)[1]
         g3i = _gradient(x -> imag(sum(1 ./ (x.+im).^2)), x0)[1]
@@ -124,7 +125,6 @@ _gradient(x...) = Zygote.gradient(x...)
         @test g3i ≈ _gradient(x -> imag(@tullio y := inv(x[i] + im)^2), x0)[1]
 
     end
-    #=
     @testset "non-analytic" begin
 
         g4 = _gradient(x -> real(sum(x * x')), x0)[1]
@@ -145,7 +145,6 @@ _gradient(x...) = Zygote.gradient(x...)
         @test_broken g6i ≈ _gradient(x -> real(@tullio y := abs(x[i]^3)), x0)[1]
 
     end
-    =#
 end
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
