@@ -25,7 +25,7 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
-The macro also tries to provide a gradient for use with any of [Tracker](https://github.com/FluxML/Tracker.jl), [Zygote](https://github.com/FluxML/Zygote.jl) or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). (Disable with `grad=false`.) This is done in one of two ways:
+The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). --> (Disable with `grad=false`.) This is done in one of two ways:
 
 * By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
 
@@ -122,7 +122,7 @@ mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 A = rand(3,40); B = rand(40,500);
 A * B ≈ mul(A, B) # true
 
-using Tracker
+using Tracker # or Zygote
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
