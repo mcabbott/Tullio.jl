@@ -60,6 +60,11 @@ using Requires
         As::Tuple, Is::Tuple, Js::Tuple; block=0) =
         fun!(T, As..., Is..., Js...,)
 
+    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: CuArray{T,N}, B <: AbstractRange{S}} where {T,N,S} =
+           N==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
+    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: AbstractRange{T}, B <: CuArray{S,M}} where {T,S,M} =
+           M==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
+
 end
 
 # CUDA replaces CuArrays, Julia >=1.4 only.
@@ -73,6 +78,12 @@ end
     Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
         As::Tuple, Is::Tuple, Js::Tuple; block=0) =
         fun!(T, As..., Is..., Js...,)
+
+    # Mixing CuArrays & ranges is OK
+    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: CuArray{T,N}, B <: AbstractRange{S}} where {T,N,S} =
+           N==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
+    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: AbstractRange{T}, B <: CuArray{S,M}} where {T,S,M} =
+           M==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
 
 end
 
