@@ -840,6 +840,44 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             store.verbose > 0 && @warn "KernelAbstractions failed $note" err
         end
     end
+#=
+    if isdefined(store.mod, :StaticArrays)
+        # This needs to write code for a @generated function.
+        in_out = vcat(inner, outer)
+        in_out_quote = map(QuoteNode, in_out)
+        out_size = map(i -> :(length($(Symbol(AXIS, i)))), outer)
+
+        val_ex = if isempty(inner) # no reduction
+            :(symreplace($ex5, $in_out_quote, $in_out))
+        else
+            # in_loops = recurseloops(:(push!(terms, $ex5)), inner)
+            # quote
+            #     terms = []
+            #     in_loops
+        end
+
+        out_loops = recurseloops(:(push!($RHS, $val_ex)), outer)
+
+@show store.right out_loops out_size
+
+        quote
+            @generated function $act!($(args...)) where {$TYP}
+                $RHS = []
+                # for i in outer
+                #     terms = []
+                #     for j in inner
+                #         rhs = symreplace(right, in_out, vcat(inner, outer))
+                #         push!(terms, rhs)
+                #     end
+                #     push!(res, term)
+                # end
+                $out_loops
+                SArray{Tuple{$(out_size...)}}($(RHS...))
+            end
+        end
+
+    end
+=#
 end
 
 
@@ -852,6 +890,13 @@ recurseloops(ex, list::Vector) =
         ex = :(for $i in $r; $ex; end)
         return recurseloops(ex, list[2:end])
     end
+
+symreplace(expr, src, dst) = MacroTools_postwalk(expr) do ex
+        ex isa Symbol || return ex
+        i = findfirst(isequal(ex), src)
+        isnothing(i) ? ex : dst[i]
+    end
+
 
 #===== define gradient hooks =====#
 
