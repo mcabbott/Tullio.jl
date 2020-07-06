@@ -660,8 +660,7 @@ function action_functions(store)
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
             tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
-            tuple($(axisleft...),), tuple($(axisred...),);
-            block = $block, keep = $keep)
+            tuple($(axisleft...),), tuple($(axisred...),), $block, $keep)
         $(store.leftarray)
     end)
 
@@ -669,7 +668,7 @@ function action_functions(store)
         # then slurp up outex to make a function:
         ex = quote
             let $ACT! = $ACT!
-                local function $MAKE($(store.arrays...), $(store.scalars...), )
+                local @inline function $MAKE($(store.arrays...), $(store.scalars...), )
                     $(store.outex...)
                 end
                 $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
@@ -730,19 +729,19 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if store.fastmath && isempty(store.notfree)
         push!(store.outpre, quote
-            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
             end
         end)
     elseif isempty(store.notfree)
         push!(store.outpre, quote
-            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 @inbounds ($ex1; $ex2)
             end
         end)
     else
         push!(store.outpre, quote
-            local function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
                 ($ex1; $ex2)
             end
         end)
@@ -758,7 +757,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         try lex = macroexpand(store.mod, quote
 
-                local function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
+                local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
                     LoopVectorization.@avx unroll=$unroll $exloop
                     $expost
@@ -907,8 +906,7 @@ function backward_definitions(store)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
                     tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...), $(axisunsafe...), ),
-                    tuple($(axisshared...),), tuple($(axisnonshared...), );
-                    block = $block)
+                    tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
                 return ($(returns...),)
             end
         end
