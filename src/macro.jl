@@ -20,11 +20,11 @@ while un-shifted indices demand agreement between them (e.g. `axes(A,2) == axes(
 
     @tullio (*) L[i] := A[J[k]+2, i] / B[k]^2
 
-This is a product instead of a sum, which can also enabled by writing `L[i] *= ...`.
-You can use any reduction function such as `@tullio (max) M[i] := ...`.
-When indexing by `J`, this demands `issubset(J, axes(A,1) .- 2)`.
+This is a product instead of a sum, which could also enabled by writing `L[i] *= ...` (in-place).
+You can use any reduction function such as `@tullio (max) M[i,j] := ...`.
+Indexing by `J[k]+2` here demands `issubset(J, axes(A,1) .- 2)`.
 
-See the readme for further further options.
+See the readme for further options.
 """
 macro tullio(exs...)
     _tullio(exs...; mod=__module__)
@@ -755,10 +755,12 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
+        info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
         try lex = macroexpand(store.mod, quote
 
                 local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
                     $expre
+                    $info1
                     LoopVectorization.@avx unroll=$unroll $exloop
                     $expost
                 end
