@@ -74,7 +74,12 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
         ) - max(0,spawns)
     # @info "threader" spawns blocks
 
-    _threader(fun!, T, Z, As, Is, Js, Val(spawns), Val(blocks), keep)
+    if blocks<1 && spawns<1 # then skip all the Val() stuff
+        fun!(T, Z, As..., Is..., Js..., keep)
+    else
+        _threader(fun!, T, Z, As, Is, Js, Val(spawns), Val(blocks), keep)
+    end
+    nothing
 end
 function _threader(fun!, T, Z, As, Is, Js, Val_spawns, Val_blocks, keep)
     if length(Is) >= 1
@@ -86,7 +91,7 @@ function _threader(fun!, T, Z, As, Is, Js, Val_spawns, Val_blocks, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
-    return nothing
+    nothing
 end
 
 """
