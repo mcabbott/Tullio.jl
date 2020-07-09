@@ -25,7 +25,13 @@ function insert_symbolic_gradient(axislist, store)
     inbody, prebody = [], []
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
-        deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        deltar = if store.finaliser == :identity
+            simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        else
+            rhs = :($ZED[$(store.leftraw...)])
+            dldr = leibfinal(store.finaliser, rhs)
+            simplitimes(drdt, dldr, :(conj($dZ[$(store.leftraw...)])))
+        end
         if store.redfun == :+
             push!(inbody, :($dt = $dt + conj($deltar)))
         # elseif store.redfun == :*
@@ -68,6 +74,18 @@ function insert_symbolic_gradient(axislist, store)
 
 end
 
+leibfinal(fun, res) = begin
+    out = :($fun($RHS))
+    @show out
+    grad1 = leibnitz(out, RHS)
+    grad2 = MacroTools_postwalk(grad1) do ex
+        @show ex ex == out
+        ex == out ? res : ex
+    end
+    MacroTools_postwalk(grad2) do ex
+        ex == RHS ? error("couldn't eliminate partial sum") : ex
+    end
+end
 
 # This works for simple cases, but the general case is more complicatd.
 #=
@@ -179,6 +197,7 @@ simplitimes(x::Number, y::Number) = x*y
 simplitimes(x::Number, y) = x==0 ? 0 : x==1 ? y : x==-1 ? :(-$y) : :($x * $y)
 simplitimes(x, y::Number) = y==0 ? 0 : y==1 ? x : y==-1 ? :(-$x) : :($y * $x)
 simplitimes(x, y) = :($y * $x)
+simplitimes(x, y, zs...) = simplitimes(simplitimes(x, y), zs...)
 
 simpliplus(x::Number, y::Number) = x + y
 simpliplus(x::Number, y) = x==0 ? y : :($x + $y)

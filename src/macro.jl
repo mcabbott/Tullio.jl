@@ -56,8 +56,9 @@ function _tullio(exs...; mod=Main)
         leftarray = nothing,
         leftscalar = nothing, # only defined for scalar reduction
         leftnames = Symbol[],  # for NamedDims
-    # Whole RHS, untouched, plus things extracted:
+    # Whole RHS, without finaliser, plus things extracted:
         right = nothing,
+        finaliser = :identity,
         rightind = Symbol[],
         sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
         unsafeind = Symbol[], # indices which must never be divided among threads
@@ -191,12 +192,12 @@ verboseprint(store) =
 
 # These only need not to clash with symbols in the input:
 RHS, AXIS = :𝓇𝒽𝓈, :𝒶𝓍
-ZED, TYP, ACC, KEEP = :ℛ, :𝒯, :𝒜𝒸𝒸, :♻
+ZED, TYP, ACC, KEEP, FINAL = :ℛ, :𝒯, :𝒜𝒸𝒸, :♻️, :💀
 EPS, DEL, EXPR = :𝜀, :𝛥, :ℰ𝓍
 MAKE, ACT! = :ℳ𝒶𝓀ℯ, :𝒜𝒸𝓉!
 
 # @gensym RHS MAKE ACT!
-# @gensym AXIS ZED TYP ACC KEEP
+# @gensym AXIS ZED TYP ACC KEEP FINAL
 # @gensym EPS DEL EXPR
 
 SYMBOLS = [
@@ -208,6 +209,7 @@ SYMBOLS = [
 
 function parse_input(expr, store)
 
+    # Equals sign & friends:
     if @capture_(expr, left_ := right_ )
         push!(store.flags, :newarray)
     elseif @capture_(expr, left_ = right_ )
@@ -226,6 +228,7 @@ function parse_input(expr, store)
     else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $ex")
     end
 
+    # Left hand side:
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
     elseif left isa Symbol # complete reduction, by writing into a new 0-array
         push!(store.flags, :newarray, :scalar)
@@ -250,6 +253,18 @@ function parse_input(expr, store)
         detectunsafe(left, store)
     end
 
+    # Right hand side
+    if right isa Expr && right.head == :call
+        if right.args[1] == :(|>)
+            store.finaliser = right.args[3]
+            right = right.args[2]
+            store.threads=false # because FINAL doesn't work right yet
+        elseif right.args[1] == :(<|)
+            store.finaliser = right.args[2]
+            right = right.args[3]
+            store.threads=false
+        end
+    end
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
 
@@ -539,7 +554,7 @@ end
 function output_array(store)
     if :newarray in store.flags
 
-        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.right) ))
+        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
@@ -625,13 +640,12 @@ function action_functions(store)
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    ex_write = :( $ZED[$(store.leftraw...)] = $ACC )
+    ex_write = :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
 
-    ex_nored = :(
-        $ZED[$(store.leftraw...)] = $KEEP === nothing ?
-        $(store.right) :
-        $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-        )
+    ex_nored = quote
+        $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
+        $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $RHS : ($(store.finaliser))($RHS)
+    end
 
     if isempty(store.redind)
         make_many_actors(ACT!,
@@ -729,19 +743,19 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if store.fastmath && isempty(store.notfree)
         push!(store.outpre, quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
             end
         end)
     elseif isempty(store.notfree)
         push!(store.outpre, quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 @inbounds ($ex1; $ex2)
             end
         end)
     else
         push!(store.outpre, quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing) where {$TYP}
+            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 ($ex1; $ex2)
             end
         end)
@@ -758,7 +772,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
         try lex = macroexpand(store.mod, quote
 
-                local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing) where {$TYP}
+                local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                     $expre
                     $info1
                     LoopVectorization.@avx unroll=$unroll $exloop
@@ -796,7 +810,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CuArrays actor $($note)") : nothing
                 kex2 = quote
 
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
                         cu_kern! = $kernel(CUDA(), $(store.cuda))
                         $(asserts...)
@@ -811,7 +825,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 info2bis = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
                 kex2bis = quote
 
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing) where {$TYP}
+                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2bis
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
@@ -825,7 +839,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
             kex3 = quote
 
-                local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
+                local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                     $info3
                     cpu_kern! = $kernel(CPU(), 4)
                     $(asserts...)
