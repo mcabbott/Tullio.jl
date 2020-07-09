@@ -314,7 +314,6 @@ end
 @btime Tullio.cleave((1:13,))
 =#
 
-#=
 """
     quarter((1:10, 1:20, 3:4)) -> Q11, Q12, Q21, Q22
 Picks the longest two ranges, divides each in half, and returns the four quadrants.
@@ -359,7 +358,6 @@ function quarter(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
     end
     return Q11, Q12, Q21, Q22
 end
-=#
 
 #========== the end ==========#
 
