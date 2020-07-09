@@ -20,6 +20,12 @@ function insert_forward_gradient(axislist, store)
         push!(readepsilons, :($Aex = $Aex + ForwardDiff.partials($ZED, $d) * $dZ[$(store.leftraw...)]))
     end
 
+    if isempty(defineepsilons) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
+        return nothing
+    end
+
     ex_iter = :($ZED = $(epsilonright); $(readepsilons...))
 
     make_many_actors(∇act!,
