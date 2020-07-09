@@ -79,12 +79,15 @@ function insert_symbolic_gradient(axislist, store)
 
 end
 
-leibfinal(fun, res) = begin
-    out = :($fun($RHS))
-    @show out
+leibfinal(fun::Symbol, res) = begin
+    # if :fun ==
+    _leibfinal(:($fun($RHS)), res)
+end
+
+_leibfinal(out, res) = begin
     grad1 = leibnitz(out, RHS)
     grad2 = MacroTools_postwalk(grad1) do ex
-        @show ex ex == out
+        # @show ex ex == out
         ex == out ? res : ex
     end
     MacroTools_postwalk(grad2) do ex
