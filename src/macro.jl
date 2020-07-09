@@ -799,7 +799,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
             kex1 = macroexpand(store.mod, quote
 
-                KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
+                KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
                 end
@@ -814,7 +814,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDA(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
                         KernelAbstractions.wait($ACC)
                     end
 
@@ -829,7 +829,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2bis
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
                         KernelAbstractions.wait($ACC)
                     end
 
