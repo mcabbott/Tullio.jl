@@ -10,7 +10,7 @@ function insert_forward_gradient(axislist, store)
 
     epsilondict = Dict{Symbol,Expr}()
 
-    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict), store.right)
+    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store), store.right)
     # epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store.scalars), store.right)
 
     defineepsilons, readepsilons = [], []
@@ -43,10 +43,11 @@ function insert_forward_gradient(axislist, store)
 
 end
 
-epsilonwalk(dict) = ex -> begin
+epsilonwalk(dict, store) = ex -> begin
 # epsilonwalk(dict, scalars) = ex -> begin
 #         ex isa Symbol && ex in scalars && return scalarplusepsilon(ex, dict)
         @capture_(ex, A_[inds__]) || return ex
+        A in store.nograd && return ex
         return arrayplusepsilon(A, inds, dict)
     end
 

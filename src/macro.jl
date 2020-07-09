@@ -123,12 +123,23 @@ function parse_options(exs...)
         :tensor => _TENSOR[],
         )
     expr = nothing
+    nograd = Symbol[]
     ranges = Tuple[]
     for ex in exs
         # Actual options:
         if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
+
+        # Nograd keyword
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
+            if ex.args[2] isa Symbol
+                push!(nograd, ex.args[2])
+            elseif ex.args[2] isa Expr && ex.args[2].head == :tuple
+                append!(nograd, ex.args[2].args)
+            else
+                error("this accepts nograd=A or nograd=(A,B,C)")
+            end
 
         # Ranges specified outside:
         elseif ex isa Expr && ex.head == :call && ex.args[1] in [:in, :∈]
@@ -145,7 +156,7 @@ function parse_options(exs...)
 
         # The main course!
         elseif ex isa Expr
-            isnothing(expr) || error("too many expressions! recognised keywords are $(keys(opts))")
+            isnothing(expr) || error("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)))")
             expr = ex
         else
             error("not sure what to do with input $ex")
@@ -167,7 +178,8 @@ function parse_options(exs...)
         grad=opts[:grad],
         avx=opts[:avx],
         cuda=opts[:cuda],
-        tensor=opts[:tensor]
+        tensor=opts[:tensor],
+        nograd=nograd,
     ), ranges, expr
 end
 
@@ -338,7 +350,8 @@ saveconstraints(A, inds, store, right=true) = begin
     end
     if right
         append!(store.rightind, is)
-        if isassigned(store.sharedind)
+        if A1 in store.nograd # then don't care whether it sharesindices
+        elseif isassigned(store.sharedind)
             shared = intersect(is, store.sharedind) # ?? is this right for multiple indices?
             empty!(store.sharedind)
             append!(store.sharedind, shared)
@@ -911,7 +924,11 @@ function backward_definitions(store)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
     defineempties = map(store.arrays, gradarrays) do A, dA
-        :( local $dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0) )
+        if A in store.nograd
+            :(local $dA = nothing)
+        else
+            :( local $dA = fill!(similar($A, Base.promote_type(eltype($A), $TYP)), 0) )
+        end
     end
     # append!(defineempties, map((x,dx) -> :($dx = zero(Base.promote_type(typeof($x), $TYP))), store.scalars, gradscalars))
     returns = vcat(gradarrays, map(_->:nothing, store.scalars)) # ?? needs a test!
