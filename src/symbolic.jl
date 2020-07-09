@@ -22,6 +22,11 @@ function insert_symbolic_gradient(axislist, store)
     MacroTools_postwalk(symbwalk(targets, store), store.right)
     # append!(targets, scalars)
 
+    if isempty(targets) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        return nothing
+    end
+
     inbody, prebody = [], []
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
