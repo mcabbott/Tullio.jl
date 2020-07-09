@@ -256,7 +256,7 @@ if Tullio._GRAD[] != :Dual
     end
 end
 
-if GRAD == :Zygote && Tullio._GRAD[] == :Base
+if GRAD == :Zygote
     @testset "nograd keyword" begin
 
         f2(x,y) = @tullio out[i,j] := x[i] + y[j]  nograd=y threads=false
