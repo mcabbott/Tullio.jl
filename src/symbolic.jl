@@ -189,6 +189,12 @@ leibnitz(ex::Expr, target) = begin
         fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target)
         dxs = [leibnitz(x, target) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
+    elseif length(ex.args) == 4  # three-arg function such as ifelse
+        fx, fy, fz = mydiffrule(fun, ex.args[2:end]...)
+        dx = leibnitz(ex.args[2], target)
+        dy = leibnitz(ex.args[3], target)
+        dz = leibnitz(ex.args[4], target)
+        return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy), simplitimes(fz, dz))
     end
     error("don't know how to handle $ex.")
 end
@@ -214,6 +220,7 @@ mydiffrule(f, xs...) = begin
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
     f == :sqrt && return mysqrtrule(xs...)
+    f == :relu && return myrelurule(xs...)
     f in BASE_NOGRAD && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
         return DiffRules.diffrule(:Base, f, xs...)
@@ -259,6 +266,9 @@ end
 simplipow(x::Number, p::Number) = x^p
 simplipow(x, p::Number) = p==1 ? x : p==2 ? :($x*$x) : :($x^$p)
 simplipow(x, p) = :($x^$p)
+
+myrelurule(x::Number) = x>0 ? 1 : 0
+myrelurule(x) = :(ifelse($x>0, 1, 0))
 
 #========== CSE ==========#
 
