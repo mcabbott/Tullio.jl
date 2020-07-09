@@ -68,10 +68,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 end
 function _threader(fun!, T, Z, As, Is, Js, Val_spawns, Val_blocks, keep)
     if length(Is) >= 1
-        # tasks = [Task[] for _ in 1:Threads.nthreads()]
-        # thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_blocks, keep, tasks)
-        # foreach(ts -> foreach(wait, ts), tasks)
-        thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_blocks, keep) # |> maybewait
+        thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_blocks, keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
         thread_scalar(fun!, T, Z, As, Js, Val_spawns, keep)
     else
@@ -94,7 +91,6 @@ end
         floor(Int, log2(Ielements)) + floor(Int, log2(Jelements)),
         ) - spawns)
 
-    # @info "threader" Ielements Jelements spawns blocks
     spawns, blocks
 end
 
@@ -134,14 +130,8 @@ end
 
 
 @inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb::Val{blocks}, keep=nothing) where {spawns, blocks}
-    # @info "thread_halves" spawns, blocks
-    # @show keep
-    # tasks = ()
-    # if spawns >= 2 && productlength(Is,Js) > block && productlength(Is) > 2
     if spawns > 0
         I1s, I2s = cleave(Is, maybe32divsize(T))
-
-        # @btime mul($X, $Y); # times indicated at size 100x100
 
         # Base.@sync begin # 35.024 μs (52 allocations: 81.13 KiB) # maybe
         #     Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
@@ -161,57 +151,16 @@ end
         thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
         wait(task) # 28.371 μs (25 allocations: 79.53 KiB)
 
-        # task = Threads.@spawn begin
-        #     thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep) |> maybewait
-        # end
-        # thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep) |> maybewait
-        # return task
-
-        # tspawn = Threads.@spawn begin
-        #     tasks = thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
-        # end
-        # tnot = thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        # tasks = (tspawn, tasks..., tnot...) # 31.209 μs (28 allocations: 79.58 KiB)
-
-        # tspawn = Threads.@spawn begin
-        #     thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep, tasks)
-        # end
-        # thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep, tasks)
-        # push!(tasks[Threads.threadid()], tspawn) # 46.674 μs (31 allocations: 80.00 KiB)
-
-        # t1 = Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep, tasks)
-        # t2 = Threads.@spawn thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep, tasks)
-        # push!(tasks[Threads.threadid()], t1, t2) # 50.724 μs (41 allocations: 80.91 KiB)
-
-    # elseif length(Is) + length(Js) >= 2
-    else #if blocks > 0
+    else
         block_halves(fun!, T, As, Is, Js, valb, keep)
-    # else
-    #     fun!(T, As..., Is..., Js..., keep)
     end
-    # tasks::NTuple{blocks,Task}
-    # tasks
-    # nothing
     nothing
 end
-
-# maybewait(t::Task) = wait(t)
-# maybewait(::Nothing) = nothing
-
-#=
-donothing(xs...) = nothing
-Tullio.thread_halves(donothing, Int, (rand(3),), (1:100,), (), Val(5), Val(0), nothing) |> typeof
-
-@code_warntype Tullio.thread_halves(donothing, Int, (rand(3),), (1:100,), (), Val(0), Val(0), nothing)
-=#
 
 @inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep)
     fun!(T, As..., Is..., Js..., keep)
 end
 @inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{blocks}, keep) where {blocks}
-    # if blocks < 1
-    #     fun!(T, As..., Is..., Js..., keep)
-    # elseif
     if maximumlength(Is) > maximumlength(Js)
         I1s, I2s = cleave(Is)
         block_halves(fun!, T, As, I1s, Js, Val(blocks-1), keep)
@@ -296,6 +245,7 @@ colour!(zeros(Int, 11,9), 2)
     nothing
 end
 
+#=
 function thread_quarters(fun!::Function, T::Type, As::Tuple, Js::Tuple, block::Int, spawns::Int)
     if productlength(Js) <= block || count(r -> length(r)>=2, Js) < 2 || spawns < 4
         return fun!(T, As..., Js...)
@@ -312,6 +262,7 @@ function thread_quarters(fun!::Function, T::Type, As::Tuple, Js::Tuple, block::I
     end
     nothing
 end
+=#
 
 @inline productlength(Is::Tuple) = prod(length.(Is))
 @inline productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
@@ -363,7 +314,7 @@ end
 @btime Tullio.cleave((1:13,))
 =#
 
-
+#=
 """
     quarter((1:10, 1:20, 3:4)) -> Q11, Q12, Q21, Q22
 Picks the longest two ranges, divides each in half, and returns the four quadrants.
@@ -408,6 +359,7 @@ function quarter(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
     end
     return Q11, Q12, Q21, Q22
 end
+=#
 
 #========== the end ==========#
 
