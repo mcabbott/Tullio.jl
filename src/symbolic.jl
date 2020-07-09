@@ -95,6 +95,19 @@ _leibfinal(out, res) = begin
     end
 end
 
+leibfinal(ex::Expr, res) = begin
+    if ex.head == :call && ex.args[1] isa Expr &&
+        ex.args[1].head == :(->) && ex.args[1].args[1] == RHS # then it came from underscores
+        inner = ex.args[1].args[2]
+        if inner isa Expr && inner.head == :block
+            lines = filter(a -> !(a isa LineNumberNode), inner.args)
+            length(lines) == 1 && return _leinfinal(first(lines), res)
+        end
+    end
+    error("couldn't understand finaliser")
+end
+
+
 # This works for simple cases, but the general case is more complicatd.
 #=
 product_grad(prebody, store) = begin

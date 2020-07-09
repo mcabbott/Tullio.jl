@@ -58,7 +58,7 @@ function _tullio(exs...; mod=Main)
         leftnames = Symbol[],  # for NamedDims
     # Whole RHS, without finaliser, plus things extracted:
         right = nothing,
-        finaliser = :identity,
+        finaliser = nothing,
         rightind = Symbol[],
         sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
         unsafeind = Symbol[], # indices which must never be divided among threads
@@ -268,14 +268,17 @@ function parse_input(expr, store)
     # Right hand side
     if right isa Expr && right.head == :call
         if right.args[1] == :(|>)
-            store.finaliser = right.args[3]
+            store.finaliser = makefinaliser(right.args[3])
             right = right.args[2]
-            store.threads=false # because FINAL doesn't work right yet
         elseif right.args[1] == :(<|)
-            store.finaliser = right.args[2]
+            store.finaliser = makefinaliser(right.args[2])
             right = right.args[3]
-            store.threads=false
         end
+    end
+    if isnothing(store.finaliser)
+        store.finaliser = :identity
+    else
+        store.threads = false # because FINAL doesn't work right yet
     end
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
@@ -453,6 +456,24 @@ detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
         end
         ex
     end
+
+makefinaliser(s::Symbol) = s
+makefinaliser(expr::Expr) = begin
+    underscore = false
+    out = MacroTools_postwalk(expr) do ex
+        if ex == :_
+            underscore = true
+            RHS
+        else
+            ex
+        end
+    end
+    if underscore
+        return :($RHS -> $out)
+    else
+        return ex
+    end
+end
 
 function parse_ranges(ranges, store) # now runs after parse_input
     for (i,r) in ranges
