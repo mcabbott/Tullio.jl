@@ -19,7 +19,7 @@ function insert_symbolic_gradient(axislist, store)
     end
 
     targets = []
-    MacroTools_postwalk(symbwalk(targets), store.right)
+    MacroTools_postwalk(symbwalk(targets, store), store.right)
     # append!(targets, scalars)
 
     inbody, prebody = [], []
@@ -130,8 +130,9 @@ end
 # but seemed simple enough to just write out, using rules from:
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
-symbwalk(targets) = ex -> begin
+symbwalk(targets, store) = ex -> begin
         @capture_(ex, A_[inds__]) && A isa Symbol || return ex
+        A in store.nograd && return ex
         deltaex = :($(Symbol(DEL, A))[$(inds...)])
         push!(targets, (deltaex, ex))
         return ex
