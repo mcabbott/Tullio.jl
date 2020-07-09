@@ -780,7 +780,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         kernel = gensym(:🇨🇺)
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
-        try kex1 = macroexpand(store.mod, quote
+        try
+            act! != ACT! && isempty(store.sharedind) && error("KernelAbstractions can't parallelise this gradient")
+
+            kex1 = macroexpand(store.mod, quote
 
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
@@ -824,7 +827,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
                 local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing) where {$TYP}
                     $info3
-                    cpu_kern! = $kernel(CPU(), Threads.nthreads())
+                    cpu_kern! = $kernel(CPU(), 4)
                     $(asserts...)
                     $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
                     KernelAbstractions.wait($ACC)
@@ -840,6 +843,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         catch err
             store.verbose > 0 && @warn "KernelAbstractions failed $note" err
         end
+    end
+
+    if act! != ACT! && isempty(store.sharedind) && Threads.nthreads()>1
+        store.verbose > 0 && @warn "can't parallelise this gradient, no shared indices $note"
     end
 end
 
