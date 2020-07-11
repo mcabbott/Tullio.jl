@@ -938,9 +938,13 @@ function backward_definitions(store)
 
     ok = false
     if store.grad == :Dual && store.redfun == :+
-        insert_forward_gradient(axislist, store)
-        ok = true
-        store.verbose == 2 && @info "using ForwardDiff gradient"
+        try
+            insert_forward_gradient(axislist, store)
+            ok = true
+            store.verbose == 2 && @info "using ForwardDiff gradient"
+        catch err
+            store.verbose > 0 && @warn "ForwardDiff gradient failed" err
+        end
     elseif store.grad == :Base
         try
             insert_symbolic_gradient(axislist, store)
