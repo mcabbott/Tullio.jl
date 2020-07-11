@@ -887,7 +887,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     $info3
                     cpu_kern! = $kernel(CPU(), 4)
                     $(asserts...)
-                    $ACC = cpu_kern!($(args...), $KEEP; ndrange=tuple($(sizes...)))
+                    $ACC = cpu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
                     KernelAbstractions.wait($ACC)
                 end
 
