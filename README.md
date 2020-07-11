@@ -47,6 +47,12 @@ Here the macro cannot infer the range of the output's indices `x,y`, so they mus
 It knows that it should not sum over indices `i,j`, but since it can't be sure  of their ranges, it will not add `@inbounds` in such cases.
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
 
+Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
+
+```julia
+@tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1))) 
+```
+
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
 and notices when it is unable to use the packages mentioned above.
 
@@ -72,7 +78,11 @@ K = OffsetArray([1,-1,2,-1,1], -2:2)
 
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
-fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
+fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
+
+# Finalisers <| or |> are applied after sum:
+@tullio N2[j] := sqrt <| M[i,j]^2   # N2 ≈ map(norm, eachcol(M)) 
+@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product

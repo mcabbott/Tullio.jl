@@ -368,6 +368,44 @@ end
 
 end
 
+@testset "finalisers" begin
+
+    A = [i^2 for i in 1:10]
+    @tullio n2 = A[i]^2 |> sqrt
+    @test n2 ≈ norm(A,2)
+    @tullio n3 := cbrt <| A[i]^3
+    @test n3 ≈ norm(A,3)
+
+    @tullio B[i,j] := A[i] + A[k] // A[j]
+
+    @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
+    @test B2 ≈ mapslices(norm, B + B', dims=1)
+
+    # larger size, to trigger threads & blocks
+    C = randn(10^6) # > Tullio.BLOCK[]
+    @tullio n2 = C[i]^2 |> sqrt
+    @test n2 ≈ norm(C,2)
+
+    D = rand(1000, 1000) # > Tullio.MINIBLOCK[]
+    @tullio D2[_,j] := D[i,j]^2 |> sqrt
+    @test D2 ≈ mapslices(norm, D, dims=1)
+
+    # functions with underscores
+    @tullio n2′ = A[i]^2 |> (_)^0.5
+    @test n2′ ≈ norm(A,2)
+
+    @tullio (max) E[i] := float(B[i,j]) |> atan(_, A[i]) # i is not reduced over
+    @test E ≈ vec(atan.(maximum(B, dims=2), A))
+
+    j = 2
+    @tullio G[i'] := float(B[i',j]) |> atan(_, B[i',$j])
+    @test G ≈ vec(atan.(sum(B, dims=2), B[:,j]))
+
+    @test_throws Exception @eval @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
+    @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
+
+end
+
 @testset "named dimensions" begin
 
     using NamedDims

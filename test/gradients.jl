@@ -254,6 +254,30 @@ if Tullio._GRAD[] != :Dual
         @test dv ≈ _gradient(sum∘f9, m4, v2)[2]
 
     end
+
+    @testset "finalisers" begin
+
+        norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
+
+        gradtest(norm2, (3,4))
+        mat = rand(3,3)
+        @test _gradient(sum∘norm2, mat)[1] ≈ ForwardDiff.gradient(sum∘norm2, mat)
+        @test gradtest(norm2, (3,4))
+
+        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
+        @test gradtest(layer, (3,4))
+
+        lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
+        @test gradtest(lse1, (3,4))
+
+        # relu(x) = max(x, zero(x))
+        # lay2(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> relu
+
+        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt
+        mx3(mat) # hmmm what is this?
+        _gradient(sum∘mx3, mat)[1] # zero
+
+    end
 end
 
 if GRAD == :Zygote

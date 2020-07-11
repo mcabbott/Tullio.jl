@@ -97,17 +97,19 @@ end
 
 const MINIBLOCK = Ref(64^3) # 2x quicker matmul at size 1000
 
-function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, keep=nothing)
+function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, keep=nothing, final=true)
+    keep == nothing || keep == true || error("illegal value for keep")
+    final == nothing || final == true || error("illegal value for final")
     if productlength(Is,Js) <= MINIBLOCK[]
-        return fun!(T, As..., Is..., Js..., keep)
+        return fun!(T, As..., Is..., Js..., keep, final)
     elseif maximumlength(Is) > maximumlength(Js)
         I1s, I2s = cleave(Is)
-        block_halves(fun!, T, As, I1s, Js, keep)
-        block_halves(fun!, T, As, I2s, Js, keep)
+        block_halves(fun!, T, As, I1s, Js, keep, final)
+        block_halves(fun!, T, As, I2s, Js, keep, final)
     else
         J1s, J2s = cleave(Js)
-        block_halves(fun!, T, As, Is, J1s, keep)
-        block_halves(fun!, T, As, Is, J2s, true)
+        block_halves(fun!, T, As, Is, J1s, keep, nothing)
+        block_halves(fun!, T, As, Is, J2s, true, final)
     end
     nothing
 end
