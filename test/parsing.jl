@@ -401,7 +401,7 @@ end
     @tullio G[i'] := float(B[i',j]) |> atan(_, B[i',$j])
     @test G ≈ vec(atan.(sum(B, dims=2), B[:,j]))
 
-    @test_throws Exception @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
+    @test_throws Exception @eval @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
     @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
 
 end

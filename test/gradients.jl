@@ -267,6 +267,9 @@ if Tullio._GRAD[] != :Dual
         layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
         @test gradtest(layer, (3,4))
 
+        lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
+        @test gradtest(lse1, (3,4))
+
         # relu(x) = max(x, zero(x))
         # lay2(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> relu
 
