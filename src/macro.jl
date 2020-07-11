@@ -281,7 +281,7 @@ function parse_input(expr, store)
             store.threads = false
         end
     else
-        store.right = MacroTools_postwalk(dollarwalk(store), right1)
+        store.right = MacroTools_postwalk(dollarwalk(store), right2)
         store.finaliser = :identity
     end
 
