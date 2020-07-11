@@ -674,13 +674,13 @@ function action_functions(store)
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    ex_write = :( isnothing($FINAL) ? ($ZED[$(store.leftraw...)] = $ACC) : ($ZED[$(store.leftraw...)] = $(store.finaliser)($ACC)) )
+    # ex_write = :( isnothing($FINAL) ? ($ZED[$(store.leftraw...)] = $ACC) : ($ZED[$(store.leftraw...)] = $(store.finaliser)($ACC)) )
+    # ex_write = :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
+    ex_write = :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
 
-    RHSprime = Symbol(RHS, "′")
     ex_nored = quote
         $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-        $RHSprime = isnothing($FINAL) ? $RHS : $(store.finaliser)($RHS)
-        $ZED[$(store.leftraw...)] = $RHSprime
+        $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
     end
 
     if isempty(store.redind)
