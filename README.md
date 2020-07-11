@@ -81,8 +81,8 @@ S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 
 # Finalisers <| or |> are applied after sum:
-@tullio N2[j] := sqrt <| M[i,j]^2   # N2 == vec(mapslices(norm, M, dims=1))
-@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 == norm(A,3), with _ anon. func.
+@tullio N2[j] := sqrt <| M[i,j]^2   # N2 ≈ map(norm, eachcol(M)) 
+@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product

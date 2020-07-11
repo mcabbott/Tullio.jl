@@ -24,6 +24,11 @@ This is a product instead of a sum, which could also enabled by writing `L[i] *=
 You can use any reduction function such as `@tullio (max) M[i,j] := ...`.
 Indexing by `J[k]+2` here demands `issubset(J, axes(A,1) .- 2)`.
 
+    @tullio N[j] := sqrt <| M[i,j]^2
+
+Pipe operators `|>` and `<|` apply a function after the sum, here `N ≈ map(norm, eachcol(M))`.
+Underscores create functions, e.g. `|> sqrt(_ / V[i])` where clearly `i` must not have been summed.
+
 See the readme for further options.
 """
 macro tullio(exs...)
