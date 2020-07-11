@@ -397,9 +397,12 @@ end
     @tullio (max) E[i] := float(B[i,j]) |> atan(_, A[i]) # i is not reduced over
     @test E ≈ vec(atan.(maximum(B, dims=2), A))
 
-    # neither of these is caught by my code, but both should be:
+    j = 2
+    @tullio G[i'] := float(B[i',j]) |> atan(_, B[i',$j])
+    @test G ≈ vec(atan.(sum(B, dims=2), B[:,j]))
+
     @test_throws Exception @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
-    @test_skip @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
+    @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
 
 end
 

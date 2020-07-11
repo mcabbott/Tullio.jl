@@ -237,7 +237,7 @@ function parse_input(expr, store)
         else
             error("can't use *= with reduction $(store.redfun)")
         end
-    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $ex")
+    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $expr")
     end
 
     # Left hand side:
@@ -266,23 +266,24 @@ function parse_input(expr, store)
     end
 
     # Right hand side
-    if right isa Expr && right.head == :call
-        if right.args[1] == :(|>)
-            store.finaliser = makefinaliser(right.args[3])
-            right = right.args[2]
-        elseif right.args[1] == :(<|)
-            store.finaliser = makefinaliser(right.args[2])
-            right = right.args[3]
+    right2 = MacroTools_postwalk(rightwalk(store), right)
+
+    if right2 isa Expr && right2.head == :call && right2.args[1] in (:|>, :<|)
+        if right2.args[1] == :|>
+            store.finaliser = makefinaliser(right2.args[3], store)
+            store.right = MacroTools_postwalk(dollarwalk(store), right2.args[2])
+        elseif right.args[1] == :<|
+            store.finaliser = makefinaliser(right2.args[2], store)
+            store.right = MacroTools_postwalk(dollarwalk(store), right2.args[3])
         end
-    end
-    if isnothing(store.finaliser)
+        if :scalar in store.flags
+            # scalar threaded reduction won't work with nontrivial finalisers
+            store.threads = false
+        end
+    else
+        store.right = MacroTools_postwalk(dollarwalk(store), right1)
         store.finaliser = :identity
-    elseif :scalar in store.flags
-        # scalar threaded reduction won't work with nontrivial finalisers
-        store.threads = false
     end
-    right1 = MacroTools_postwalk(rightwalk(store), right)
-    store.right = MacroTools_postwalk(dollarwalk(store), right1)
 
     unique!(store.scalars)
     unique!(store.arrays)
@@ -406,7 +407,6 @@ dollarwalk(store) = ex -> begin
         @nospecialize ex
         ex isa Expr || return ex
         if ex.head == :call
-            # ex.args[1] == :* && ex.args[2] === Int(0) && return false # tidy up dummy arrays!
             callcost(ex.args[1], store) # cost model for threading
         elseif ex.head == :$ # interpolation of $c things:
             ex.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
@@ -458,21 +458,25 @@ detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
         ex
     end
 
-makefinaliser(s::Symbol) = s
-makefinaliser(expr::Expr) = begin
+makefinaliser(s::Symbol, store) = s
+makefinaliser(expr::Expr, store) = begin
     underscore = false
     out = MacroTools_postwalk(expr) do ex
         if ex == :_
             underscore = true
-            RHS
-        else
-            ex
+            return RHS
+        elseif @capture_(ex, A_[inds__])
+            for i in inds
+                i isa Symbol || continue
+                i in store.leftind || error("index $i can't be used in finaliser")
+            end
         end
+        ex
     end
     if underscore
-        return :($RHS -> $out)
+        return dollarstrip(:($RHS -> $out))
     else
-        return ex
+        return dollarstrip(ex)
     end
 end
 
