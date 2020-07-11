@@ -2,6 +2,8 @@
 #========== backward gradient using ForwardDiff ==========#
 
 function insert_forward_gradient(axislist, store)
+    store.finaliser == :identity || error("can't use grad=Dual with |> finaliser")
+
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
