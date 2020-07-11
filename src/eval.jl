@@ -53,11 +53,11 @@ using Requires
     using .CuArrays
 
     Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, redfun, block=0, keep=nothing) =
         fun!(T, Z, As..., Is..., Js..., keep)
 
     Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
+        As::Tuple, Is::Tuple, Js::Tuple, block=0) =
         fun!(T, As..., Is..., Js...,)
 
 end
@@ -67,11 +67,11 @@ end
     using .CUDA
 
     Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, redfun, block=0, keep=nothing) =
         fun!(T, Z, As..., Is..., Js..., keep)
 
     Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
+        As::Tuple, Is::Tuple, Js::Tuple, block=0) =
         fun!(T, As..., Is..., Js...,)
 
 end
