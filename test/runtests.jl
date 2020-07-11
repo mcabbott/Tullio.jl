@@ -1,13 +1,14 @@
 
 using Test, Printf
 
-@info "Testing with $(Threads.nthreads()) threads"
-
 t1 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t1)
 
-Tullio.BLOCK[] = 32 # use threading even on small arrays
-Tullio.MINIBLOCK[] = 32
+@info "Testing with $(Threads.nthreads()) threads"
+if Threads.nthreads() > 1 # use threading even on small arrays
+    Tullio.BLOCK[] = 32
+    Tullio.MINIBLOCK[] = 32
+end
 
 #===== stuff =====#
 
