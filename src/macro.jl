@@ -675,13 +675,20 @@ function action_functions(store)
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    # ex_write = :( isnothing($FINAL) ? ($ZED[$(store.leftraw...)] = $ACC) : ($ZED[$(store.leftraw...)] = $(store.finaliser)($ACC)) )
-    # ex_write = :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
-    ex_write = :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
+    ex_write = if store.finaliser == :identity
+        :( $ZED[$(store.leftraw...)] = $ACC )
+    else
+        # :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
+        :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
+    end
 
-    ex_nored = quote
-        $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-        $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
+    ex_nored = if store.finaliser == :identity
+        :( $ZED[$(store.leftraw...)] = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right)) )
+    else
+        quote
+            $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
+            $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
+        end
     end
 
     if isempty(store.redind)
