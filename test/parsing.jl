@@ -385,7 +385,9 @@ end
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 
-    # functions with _
+    # functions with underscores
+    @tullio n2′ = A[i]^2 |> (_)^0.5
+    @test n2′ ≈ norm(A,2)
 
 end
 
