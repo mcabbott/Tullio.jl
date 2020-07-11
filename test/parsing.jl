@@ -382,11 +382,11 @@ end
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
     # larger size, to trigger threads & blocks
-    C = randn(10 * Tullio.BLOCK[])
+    C = randn(10^6) # > Tullio.BLOCK[]
     @tullio n2 = C[i]^2 |> sqrt
     @test n2 ≈ norm(C,2)
 
-    D = rand(2 * Tullio.MINIBLOCK[], 2 * Tullio.MINIBLOCK[])
+    D = rand(1000, 1000) # > Tullio.MINIBLOCK[]
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 
