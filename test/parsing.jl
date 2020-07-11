@@ -382,17 +382,24 @@ end
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
     # larger size, to trigger threads & blocks
-    C = randn(500)
+    C = randn(10 * Tullio.BLOCK[])
     @tullio n2 = C[i]^2 |> sqrt
     @test n2 ≈ norm(C,2)
 
-    D = randn(100,100)
+    D = rand(2 * Tullio.MINIBLOCK[], 2 * Tullio.MINIBLOCK[])
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 
     # functions with underscores
     @tullio n2′ = A[i]^2 |> (_)^0.5
     @test n2′ ≈ norm(A,2)
+
+    @tullio (max) E[i] := float(B[i,j]) |> atan(_, A[i]) # i is not reduced over
+    @test E ≈ vec(atan.(maximum(B, dims=2), A))
+
+    # neither of these is caught by my code, but both should be:
+    @test_throws Exception @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
+    @test_skip @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
 
 end
 

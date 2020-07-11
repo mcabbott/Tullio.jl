@@ -277,8 +277,9 @@ function parse_input(expr, store)
     end
     if isnothing(store.finaliser)
         store.finaliser = :identity
-    else
-        store.threads = false # because FINAL doesn't work right yet
+    elseif :scalar in store.flags
+        # scalar threaded reduction won't work with nontrivial finalisers
+        store.threads = false
     end
     right1 = MacroTools_postwalk(rightwalk(store), right)
     store.right = MacroTools_postwalk(dollarwalk(store), right1)
