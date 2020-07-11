@@ -673,7 +673,7 @@ function action_functions(store)
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
             tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
-            tuple($(axisleft...),), tuple($(axisred...),), $block, $keep)
+            tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
     end)
 
