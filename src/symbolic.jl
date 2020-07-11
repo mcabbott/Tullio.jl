@@ -79,10 +79,13 @@ function insert_symbolic_gradient(axislist, store)
 
 end
 
-leibfinal(fun::Symbol, res) = begin
-    # if :fun ==
-    _leibfinal(:($fun($RHS)), res)
-end
+leibfinal(fun::Symbol, res) =
+    if fun == :log
+        :(exp(-$res)) # this exp gets done at every element :(
+        # :(inv(exp($res)))
+    else
+        _leibfinal(:($fun($RHS)), res)
+    end
 
 _leibfinal(out, res) = begin
     grad1 = leibnitz(out, RHS)
@@ -107,6 +110,12 @@ leibfinal(ex::Expr, res) = begin
     error("couldn't understand finaliser")
 end
 
+#=
+Tullio.leibfinal(:exp, :res)   # :res
+Tullio.leibfinal(:sqrt, :res)  # :(inv(res) / 2)
+Tullio.leibfinal(:tanh, :res)  # :(1 - res ^ 2)
+Tullio.leibfinal(:log, :res)   # :(exp(-res))
+=#
 
 # This works for simple cases, but the general case is more complicatd.
 #=
