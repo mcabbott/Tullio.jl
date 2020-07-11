@@ -361,6 +361,11 @@ end
     @test_throws Exception @eval @tullio s += (*) A[i]
     @test_throws Exception @eval @tullio s *= (max) A[i]
 
+    # scalar + threading
+    L = randn(10 * Tullio.MINIBLOCK[]);
+    @tullio (max) m := L[i]
+    @test_broken m == maximum(L)
+
 end
 
 @testset "finalisers" begin
