@@ -20,7 +20,7 @@ callcost(sy, store) =
 #========== runtime functions ==========#
 
 """
-    threader(f!,T, Z, (A,B), (1:5,1:6), (1:7); block=100, keep=nothing)
+    threader(f!,T, Z, (A,B), (1:5,1:6), (1:7), +, block=100, keep=nothing)
 
 Calling `f!(T, Z,A,B, 1:5,1:6, 1:7, nothing)` should do the work.
 But if there are enough elements (meaning `5*6*7 > 100`)
@@ -37,7 +37,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, block, keep=nothing)
+@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, redfun, block, keep=nothing)
     if !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
         fun!(T, Z, As..., I0s..., J0s..., keep) # don't thread ranges like 10:-1:1
         return nothing
@@ -49,7 +49,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
     elseif length(Is) >= 1
         thread_halves(fun!, T, (Z, As...), Is, Js, block, Threads.nthreads(), keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
-        thread_scalar(fun!, T, Z, As, Js, block, Threads.nthreads(), keep)
+        thread_scalar(fun!, T, Z, As, Js, redfun, block, Threads.nthreads(), keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
@@ -57,7 +57,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 end
 
 """
-    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7); block=100)
+    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7), block=100)
 
 Again, calling `f!(T, dA,dB,dZ,A,B, 1:5,1:6, 1:7)` should do the work.
 
@@ -163,7 +163,7 @@ colour!(zeros(Int, 11,9), 2)
 
 =#
 
-function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, block::Int, spawns::Int, keep=nothing)
+function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, block::Int, spawns::Int, keep=nothing)
     if productlength(Js) <= block || spawns < 2
         # @info "thread_scalar on $(Threads.threadid())" Js
         return fun!(T, Z, As..., Js..., keep)
@@ -171,13 +171,13 @@ function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js:
         Z1, Z2 = similar(Z), similar(Z)
         J1s, J2s = cleave(Js)
         Base.@sync begin
-            Threads.@spawn thread_scalar(fun!, T, Z1, As, J1s, block, div(spawns,2))
-            Threads.@spawn thread_scalar(fun!, T, Z2, As, J2s, block, div(spawns,2))
+            Threads.@spawn thread_scalar(fun!, T, Z1, As, J1s, redfun, block, div(spawns,2))
+            Threads.@spawn thread_scalar(fun!, T, Z2, As, J2s, redfun, block, div(spawns,2))
         end
         if keep === nothing
-            Z .= Z1 .+ Z2
+            Z .= redfun.(Z1, Z2)
         else
-            Z .+= Z1 .+ Z2
+            Z .= redfun.(Z, redfun.(Z1, Z2))
         end
     end
     nothing
