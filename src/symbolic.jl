@@ -24,6 +24,7 @@ function insert_symbolic_gradient(axislist, store)
 
     if isempty(targets) # short-circuit
         push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
         return nothing
     end
 

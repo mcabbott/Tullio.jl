@@ -286,5 +286,8 @@ if GRAD == :Zygote
         f3(x,y,z) = @tullio out[i,j] := x[i] + y[j] * z[k]  nograd=(x,z) threads=false
         @test _gradient(sum∘f3, rand(2), rand(2), ones(2)) == (nothing, [4,4], nothing)
 
+        f0(x,y) = @tullio out[i,j] := x[i]/y[j]  nograd=(y,x) threads=false
+        @test _gradient(sum∘f0, rand(2), rand(2)) == (nothing, nothing)
+
     end
 end
