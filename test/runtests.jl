@@ -85,6 +85,8 @@ if CUDA.has_cuda_gpu()
 end
 =#
 
+@tullio cuda=false
+
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 
 #===== Zygote =====#
