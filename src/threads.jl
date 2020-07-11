@@ -19,6 +19,8 @@ callcost(sy, store) =
 
 #========== runtime functions ==========#
 
+using TiledIteration
+
 """
     threader(f!,T, Z, (A,B), (1:5,1:6), (1:7); block=100, keep=nothing)
 
@@ -37,23 +39,75 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, block, keep=nothing)
-    if !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
-        fun!(T, Z, As..., I0s..., J0s..., keep) # don't thread ranges like 10:-1:1
+@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, block, keep=nothing)
+    if isnothing(block) ||
+        # then this is turned off!
+        !all(r -> r isa AbstractUnitRange, Is) || !all(r -> r isa AbstractUnitRange, Js)
+        # don't thread ranges like 10:-1:1. Not done with dispatch, due to CuArray etc methods
+        fun!(T, Z, As..., Is..., Js..., keep)
         return nothing
     end
-    Is = map(UnitRange, I0s)
-    Js = map(UnitRange, J0s)
-    if isnothing(block)
-        fun!(T, Z, As..., Is..., Js..., keep)
-    elseif length(Is) >= 1
-        thread_halves(fun!, T, (Z, As...), Is, Js, block, Threads.nthreads(), keep)
-    elseif length(Z) == 1 && eltype(Z) <: Number
-        thread_scalar(fun!, T, Z, As, Js, block, Threads.nthreads(), keep)
+
+    steps = productlength(Is,Js)
+
+    if length(Is) >= 1
+
+        tiles = TileIterator(Is, map(_->64, Is))
+        ng = min(Threads.nthreads(), cld(steps, block))
+        if ng > 1
+            groups = Iterators.partition(tiles, cld(length(tiles), ng))
+            Base.@sync for Igroup in groups
+                Threads.@spawn loopy(fun!, T, Z, As, Igroup, Js, 64, keep)
+            end
+        else
+            loopy(fun!, T, Z, As, tiles, Js, 64, keep)
+        end
+
+
+    # elseif length(Z) == 1 && eltype(Z) <: Number
+    #     tiles = TileIterator(64, map(_->tsz, Js))
+    #     groups = collect(Iterators.partition(tiles, cld(length(tiles), Threads.nthreads())))
+    #     zeds = vcat(Z, [similar(Z) for _ in 2:length(groups)])
+
+    #     Base.@sync begin
+    #         for gid in 2:length(groups)
+    #             Threads.@spawn begin
+    #                 zed = zeds[gid]
+    #                 for js in groups[gid]
+    #                     fun!(T, zed, As..., Is..., js..., false)
+    #                 end
+    #             end
+
+    #         fun!(T, zed, As..., Is..., js..., keep)
+
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
+
+    # if isnothing(block)
+    #     fun!(T, Z, As..., Is..., Js..., keep)
+    # elseif length(Is) >= 1
+    #     thread_halves(fun!, T, (Z, As...), Is, Js, block, Threads.nthreads(), keep)
+    # elseif length(Z) == 1 && eltype(Z) <: Number
+    #     thread_scalar(fun!, T, Z, As, Js, block, Threads.nthreads(), keep)
+    # else
+    #     fun!(T, Z, As..., Is..., Js..., keep)
+    # end
     return nothing
+end
+
+@inline function loopy(fun!, T, Z, As, Itiles, Js, tsz, keep)
+    for js in TileIterator(Js, map(_->tsz, Js))
+        if map(first, js) == map(first, Js)
+            for is in Itiles
+                fun!(T, Z, As..., is..., js..., keep)
+            end
+        else
+            for is in Itiles
+                fun!(T, Z, As..., is..., js..., true)
+            end
+        end
+    end
 end
 
 """
