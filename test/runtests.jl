@@ -37,6 +37,12 @@ t2 = time()
             @test X * Y * Z ≈ @tullio C[a,d] := X[a,b] * Y[b,c] * Z[c,d]
         end
     end
+    @testset "@allocated" begin
+        m!(C,A,B) = @tullio C[i,k] = A[i,j] * B[j,k] threads=false
+        C1, A1, B1 = rand(4,4), rand(4,4), rand(4,4)
+        @allocated m!(C1, A1, B1)
+        @test 0 == @allocated m!(C1, A1, B1)
+    end
 end
 
 #===== Tracker =====#
