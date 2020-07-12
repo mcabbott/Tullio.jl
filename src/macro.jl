@@ -271,6 +271,7 @@ function parse_input(expr, store)
     end
 
     # Right hand side
+    detectunsafe(right, store)
     right2 = MacroTools_postwalk(rightwalk(store), right)
 
     if right2 isa Expr && right2.head == :call && right2.args[1] in (:|>, :<|)
@@ -362,7 +363,7 @@ saveconstraints(A, inds, store, right=true) = begin
         append!(store.rightind, is)
         if A1 in store.nograd # then don't care whether it sharesindices
         elseif isassigned(store.sharedind)
-            shared = intersect(is, store.sharedind) # ?? is this right for multiple indices?
+            shared = intersect(is, store.sharedind)
             empty!(store.sharedind)
             append!(store.sharedind, shared)
         else
@@ -457,6 +458,8 @@ detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
                 # Now we have found an array which indexes another one, mark its indices unsafe
                 append!(store.unsafeind, filter(j -> j isa Symbol, inner))
                 unique!(store.unsafeind)
+                # and don't compute a gradient for the inner array
+                B isa Symbol && push!(store.nograd, B)
                 x
             end
         end
@@ -938,7 +941,6 @@ recurseloops(ex, list::Vector) =
 function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
-    detectunsafe(store.right, store)
     axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
     axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsafeind))
     loopind = vcat(store.leftind, store.redind)
