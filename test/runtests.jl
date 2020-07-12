@@ -127,6 +127,12 @@ _gradient(x...) = Zygote.gradient(x...)
         @test g3i ≈ _gradient(x -> imag(@tullio y := 1/(x[i] + im)^2), x0)[1]
         @test g3i ≈ _gradient(x -> imag(@tullio y := inv(x[i] + im)^2), x0)[1]
 
+        # with finaliser
+        g7 = _gradient(x -> real(sum(sqrt.(sum(exp.(x), dims=2)))), x0 .+ x0')[1]
+        g7i = _gradient(x -> imag(sum(sqrt.(sum(exp.(x), dims=2)))), x0 .+ x0')[1]
+        @test g7 ≈ _gradient(x -> real(sum(@tullio y[i] := sqrt <| exp(x[i,j]) )), x0 .+ x0')[1]
+        @test g7i ≈ _gradient(x -> imag(sum(@tullio y[i] := sqrt <| exp(x[i,j]) )), x0 .+ x0')[1]
+
     end
     @testset "non-analytic" begin
 
