@@ -54,7 +54,6 @@ function _tullio(exs...; mod=Main)
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
-        # redfun = opts.redfun,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -161,7 +160,7 @@ function parse_options(exs...)
 
         # The main course!
         elseif ex isa Expr
-            isnothing(expr) || error("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)))")
+            isnothing(expr) || error("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)...))")
             expr = ex
         else
             error("not sure what to do with input $ex")
