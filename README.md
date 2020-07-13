@@ -239,3 +239,9 @@ Things you can't run:
 * [ArrayMeta.jl](https://github.com/shashi/ArrayMeta.jl) was a Julia 0.5 take on some of this.
 
 * [Tokamak.jl](https://github.com/MikeInnes/Tokamak) was another, see [readme here](https://github.com/tkelman/Tokamak.jl).
+
+CI:
+
+* Travis: [![Travis](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
+
+* JuliaGPU: [![Gitlab GPU](https://gitlab.com/JuliaGPU/Tullio.jl/badges/master/pipeline.svg)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
