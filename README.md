@@ -1,6 +1,9 @@
 # Tullio.jl
 
-[![Build Status](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Travis CI](https://img.shields.io/travis/mcabbott/Tullio.jl/master?logo=travis)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Gitlab GPU](https://img.shields.io/gitlab/pipeline/JuliaGPU/Tullio.jl/master?logo=gitlab&color=ddd)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
+![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=github)
+<!-- https://img.shields.io/badge/md-docs-red -->
 
 This is a package is for writing array operations in index notation, such as:
 
@@ -239,9 +242,3 @@ Things you can't run:
 * [ArrayMeta.jl](https://github.com/shashi/ArrayMeta.jl) was a Julia 0.5 take on some of this.
 
 * [Tokamak.jl](https://github.com/MikeInnes/Tokamak) was another, see [readme here](https://github.com/tkelman/Tokamak.jl).
-
-CI:
-
-* Travis: [![Travis](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
-
-* JuliaGPU: [![Gitlab GPU](https://gitlab.com/JuliaGPU/Tullio.jl/badges/master/pipeline.svg)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
