@@ -12,6 +12,11 @@ mat = [1 1 3; 1 1 5; 7 7 7]
 g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
 @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
 
+# larger array, no shared indices -- https://github.com/mcabbott/Tullio.jl/issues/14
+r100 = randn(100)
+g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
+@test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
+
 # two arrays, and a sum
 h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]
 @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
