@@ -75,19 +75,18 @@ using KernelAbstractions
     end
 end
 
-#=
 using CUDA
 
 if CUDA.has_cuda_gpu()
+    @info "===== found a GPU, starting CUDA tests ====="
     @testset "===== CUDA tests on GPU =====" begin
         include("cuda.jl")
     end
 end
-=#
-
-@tullio cuda=false
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
+
+@tullio cuda=false
 
 #===== Zygote =====#
 
