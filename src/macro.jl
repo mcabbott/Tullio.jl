@@ -850,17 +850,16 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         try
-            ex0 = if isempty(outer)
+            if isempty(outer)
                 store.verbose > 0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
-                :( _ = @index(Global, NTuple) )
-            else
-                :( ($(outer...),) = @index(Global, NTuple) )
+                outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
+                sizes = [:(one(Int))]    # iterate over 1:1
             end
 
             kex1 = macroexpand(store.mod, quote
 
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
-                    $ex0
+                    ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
                 end
 
