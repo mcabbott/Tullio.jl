@@ -2,7 +2,7 @@
 
 [![Travis CI](https://img.shields.io/travis/mcabbott/Tullio.jl/master?logo=travis)](https://travis-ci.org/mcabbott/Tullio.jl)
 [![Gitlab GPU](https://img.shields.io/gitlab/pipeline/JuliaGPU/Tullio.jl/master?logo=gitlab&color=ddd)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
-![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=github)
+[![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=github)](https://github.com/mcabbott/Tullio.jl/releases)
 <!-- https://img.shields.io/badge/md-docs-red -->
 
 This is a package is for writing array operations in index notation, such as:
