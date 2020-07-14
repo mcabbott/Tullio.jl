@@ -201,7 +201,7 @@ verboseprint(store) =
         r = getproperty(store, k) # startswith(string(k), "out") fails?
         k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
         printstyled("    $k =\n", color=:blue)
-        foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), r)
+        foreach(ex -> printstyled(verbosetidy(ex) , "\n", color=:green), r)
     end
 
 #========== symbols ==========#
@@ -246,7 +246,7 @@ function parse_input(expr, store)
 
     # Left hand side:
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
-    elseif left isa Symbol # complete reduction, by writing into a new 0-array
+    elseif left isa Symbol # complete reduction, by writing into a new 1-el array
         push!(store.flags, :newarray, :scalar)
         store.leftscalar = left # because store.leftarray will be the array
         leftraw = [1,] # make a 1D array, not zero
@@ -321,6 +321,7 @@ rightwalk(store) = ex -> begin
             push!(store.outpre, :(local $Anew = $A))
             A = Anew
         end
+
         # Third, save letter A, and what axes(A) says about indices:
         push!(store.arrays, arrayonly(A))
         inds = primeindices(inds)
