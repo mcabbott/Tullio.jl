@@ -19,13 +19,25 @@ function insert_symbolic_gradient(axislist, store)
     end
 
     targets = []
-    MacroTools_postwalk(symbwalk(targets), store.right)
+    MacroTools_postwalk(symbwalk(targets, store), store.right)
     # append!(targets, scalars)
+
+    if isempty(targets) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
+        return nothing
+    end
 
     inbody, prebody = [], []
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
-        deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        deltar = if store.finaliser == :identity
+            simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        else
+            rhs = :($ZED[$(store.leftraw...)])
+            dldr = leibfinal(store.finaliser, rhs)
+            simplitimes(drdt, dldr, :(conj($dZ[$(store.leftraw...)])))
+        end
         if store.redfun == :+
             push!(inbody, :($dt = $dt + conj($deltar)))
         # elseif store.redfun == :*
@@ -68,6 +80,43 @@ function insert_symbolic_gradient(axislist, store)
 
 end
 
+leibfinal(fun::Symbol, res) =
+    if fun == :log
+        :(exp(-$res)) # this exp gets done at every element :(
+        # :(inv(exp($res)))
+    else
+        _leibfinal(:($fun($RHS)), res)
+    end
+
+_leibfinal(out, res) = begin
+    grad1 = leibnitz(out, RHS)
+    grad2 = MacroTools_postwalk(grad1) do ex
+        # @show ex ex == out
+        ex == out ? res : ex
+    end
+    MacroTools_postwalk(grad2) do ex
+        ex == RHS ? error("couldn't eliminate partial sum") : ex
+    end
+end
+
+leibfinal(ex::Expr, res) = begin
+    if ex.head == :call && ex.args[1] isa Expr &&
+        ex.args[1].head == :(->) && ex.args[1].args[1] == RHS # then it came from underscores
+        inner = ex.args[1].args[2]
+        if inner isa Expr && inner.head == :block
+            lines = filter(a -> !(a isa LineNumberNode), inner.args)
+            length(lines) == 1 && return _leinfinal(first(lines), res)
+        end
+    end
+    error("couldn't understand finaliser")
+end
+
+#=
+Tullio.leibfinal(:exp, :res)   # :res
+Tullio.leibfinal(:sqrt, :res)  # :(inv(res) / 2)
+Tullio.leibfinal(:tanh, :res)  # :(1 - res ^ 2)
+Tullio.leibfinal(:log, :res)   # :(exp(-res))
+=#
 
 # This works for simple cases, but the general case is more complicatd.
 #=
@@ -130,8 +179,9 @@ end
 # but seemed simple enough to just write out, using rules from:
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
-symbwalk(targets) = ex -> begin
+symbwalk(targets, store) = ex -> begin
         @capture_(ex, A_[inds__]) && A isa Symbol || return ex
+        A in store.nograd && return ex
         deltaex = :($(Symbol(DEL, A))[$(inds...)])
         push!(targets, (deltaex, ex))
         return ex
@@ -171,6 +221,12 @@ leibnitz(ex::Expr, target) = begin
         fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target)
         dxs = [leibnitz(x, target) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
+    elseif length(ex.args) == 4  # three-arg function such as ifelse
+        fx, fy, fz = mydiffrule(fun, ex.args[2:end]...)
+        dx = leibnitz(ex.args[2], target)
+        dy = leibnitz(ex.args[3], target)
+        dz = leibnitz(ex.args[4], target)
+        return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy), simplitimes(fz, dz))
     end
     error("don't know how to handle $ex.")
 end
@@ -179,6 +235,7 @@ simplitimes(x::Number, y::Number) = x*y
 simplitimes(x::Number, y) = x==0 ? 0 : x==1 ? y : x==-1 ? :(-$y) : :($x * $y)
 simplitimes(x, y::Number) = y==0 ? 0 : y==1 ? x : y==-1 ? :(-$x) : :($y * $x)
 simplitimes(x, y) = :($y * $x)
+simplitimes(x, y, zs...) = simplitimes(simplitimes(x, y), zs...)
 
 simpliplus(x::Number, y::Number) = x + y
 simpliplus(x::Number, y) = x==0 ? y : :($x + $y)
@@ -195,6 +252,7 @@ mydiffrule(f, xs...) = begin
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
     f == :sqrt && return mysqrtrule(xs...)
+    f == :relu && return myrelurule(xs...)
     f in BASE_NOGRAD && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
         return DiffRules.diffrule(:Base, f, xs...)
@@ -240,6 +298,9 @@ end
 simplipow(x::Number, p::Number) = x^p
 simplipow(x, p::Number) = p==1 ? x : p==2 ? :($x*$x) : :($x^$p)
 simplipow(x, p) = :($x^$p)
+
+myrelurule(x::Number) = x>0 ? 1 : 0
+myrelurule(x) = :(ifelse($x>0, 1, 0))
 
 #========== CSE ==========#
 

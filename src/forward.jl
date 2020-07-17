@@ -2,6 +2,8 @@
 #========== backward gradient using ForwardDiff ==========#
 
 function insert_forward_gradient(axislist, store)
+    store.finaliser == :identity || error("can't use grad=Dual with |> finaliser")
+
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
@@ -10,7 +12,7 @@ function insert_forward_gradient(axislist, store)
 
     epsilondict = Dict{Symbol,Expr}()
 
-    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict), store.right)
+    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store), store.right)
     # epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store.scalars), store.right)
 
     defineepsilons, readepsilons = [], []
@@ -18,6 +20,12 @@ function insert_forward_gradient(axislist, store)
         basis = [i==d ? :(one($TYP)) : :(zero($TYP)) for i in 1:length(epsilondict)]
         push!(defineepsilons, :($Aepsilon = ForwardDiff.Dual(zero($TYP), ($(basis...),))))
         push!(readepsilons, :($Aex = $Aex + ForwardDiff.partials($ZED, $d) * $dZ[$(store.leftraw...)]))
+    end
+
+    if isempty(defineepsilons) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
+        return nothing
     end
 
     ex_iter = :($ZED = $(epsilonright); $(readepsilons...))
@@ -43,10 +51,11 @@ function insert_forward_gradient(axislist, store)
 
 end
 
-epsilonwalk(dict) = ex -> begin
+epsilonwalk(dict, store) = ex -> begin
 # epsilonwalk(dict, scalars) = ex -> begin
 #         ex isa Symbol && ex in scalars && return scalarplusepsilon(ex, dict)
         @capture_(ex, A_[inds__]) || return ex
+        A in store.nograd && return ex
         return arrayplusepsilon(A, inds, dict)
     end
 

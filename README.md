@@ -1,6 +1,9 @@
 # Tullio.jl
 
-[![Build Status](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Travis CI](https://img.shields.io/travis/mcabbott/Tullio.jl/master?logo=travis)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Gitlab GPU](https://img.shields.io/gitlab/pipeline/JuliaGPU/Tullio.jl/master?logo=gitlab&color=ddd)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
+[![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=github)](https://github.com/mcabbott/Tullio.jl/releases)
+<!-- https://img.shields.io/badge/md-docs-red -->
 
 This is a package is for writing array operations in index notation, such as:
 
@@ -25,7 +28,8 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
-The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). --> (Disable with `grad=false`.) This is done in one of two ways:
+The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
+(Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
 
 * By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
 
@@ -45,6 +49,12 @@ Here the macro cannot infer the range of the output's indices `x,y`, so they mus
 (If writing into an existing array, with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.)
 It knows that it should not sum over indices `i,j`, but since it can't be sure  of their ranges, it will not add `@inbounds` in such cases.
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
+
+Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
+
+```julia
+@tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1))) 
+```
 
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
 and notices when it is unable to use the packages mentioned above.
@@ -71,7 +81,11 @@ K = OffsetArray([1,-1,2,-1,1], -2:2)
 
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
-fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
+fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
+
+# Finalisers <| or |> are applied after sum:
+@tullio N2[j] := sqrt <| M[i,j]^2   # N2 ≈ map(norm, eachcol(M)) 
+@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product
@@ -176,6 +190,7 @@ The default setting is:
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
+* `nograd=A` turns of the gradient calculation just for `A`, and `nograd=(A,B,C)` does this for several arrays. 
 * `tensor=false` turns off the use of `TensorOperations`.
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.

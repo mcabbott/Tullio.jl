@@ -28,7 +28,7 @@ const MINIBLOCK = Ref(64^3) # 2x quicker matmul at size 1000
 #========== runtime functions ==========#
 
 """
-    threader(f!,T, Z, (A,B), (1:5,1:6), (1:7); block=100, keep=nothing)
+    threader(f!,T, Z, (A,B), (1:5,1:6), (1:7), +, block=100, keep=nothing)
 
 Calling `f!(T, Z,A,B, 1:5,1:6, 1:7, nothing)` should do the work.
 But if there are enough elements (meaning `5*6*7 > 100`)
@@ -45,7 +45,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, block, keep=nothing)
+@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, redfun, block, keep=nothing)
 
     if isnothing(block) ||
         # then threading is disabled
@@ -62,15 +62,15 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
     if spawns<1 && blocks<1 # then skip all the Val() stuff
         fun!(T, Z, As..., Is..., Js..., keep)
     else
-        _threader(fun!, T, Z, As, Is, Js, Val(spawns), Val(blocks), keep)
+        _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(blocks), keep)
     end
     nothing
 end
-function _threader(fun!, T, Z, As, Is, Js, Val_spawns, Val_blocks, keep)
+function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_blocks, keep)
     if length(Is) >= 1
         thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_blocks, keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
-        thread_scalar(fun!, T, Z, As, Js, Val_spawns, keep)
+        thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
@@ -96,7 +96,7 @@ end
 
 
 """
-    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7); block=100)
+    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7), block=100)
 
 Again, calling `f!(T, dA,dB,dZ,A,B, 1:5,1:6, 1:7)` should do the work.
 
@@ -157,18 +157,20 @@ end
     nothing
 end
 
-@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep)
-    fun!(T, As..., Is..., Js..., keep)
+@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
+    fun!(T, As..., Is..., Js..., keep, final)
 end
-@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{blocks}, keep) where {blocks}
+@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{blocks}, keep=nothing, final=true) where {blocks}
+    keep == nothing || keep == true || error("illegal value for keep")
+    final == nothing || final == true || error("illegal value for final")
     if maximumlength(Is) > maximumlength(Js)
         I1s, I2s = cleave(Is)
-        block_halves(fun!, T, As, I1s, Js, Val(blocks-1), keep)
-        block_halves(fun!, T, As, I2s, Js, Val(blocks-1), keep)
+        block_halves(fun!, T, As, I1s, Js, Val(blocks-1), keep, final)
+        block_halves(fun!, T, As, I2s, Js, Val(blocks-1), keep, final)
     else
         J1s, J2s = cleave(Js)
-        block_halves(fun!, T, As, Is, J1s, Val(blocks-1), keep)
-        block_halves(fun!, T, As, Is, J2s, Val(blocks-1), true)
+        block_halves(fun!, T, As, Is, J1s, Val(blocks-1), keep, nothing)
+        block_halves(fun!, T, As, Is, J2s, Val(blocks-1), true, final)
     end
     nothing
 end
@@ -220,13 +222,14 @@ colour!(zeros(Int, 11,9), 2)
 
 =#
 
-@inline function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, ::Val{spawns}, keep=nothing) where {spawns}
+@inline function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, ::Val{spawns}, keep=nothing) where {spawns}
     # if productlength(Js) <= block || spawns < 2
     if spawns < 1
         fun!(T, Z, As..., Js..., keep)
     else
         # Z1, Z2 = similar(Z), similar(Z)
         J1s, J2s = cleave(Js)
+
         Znew = similar(Z)
         # Base.@sync begin
         #     Threads.@spawn thread_scalar(fun!, T, Z1, As, J1s, block, Val(spawns-1), nothing)
@@ -240,7 +243,8 @@ colour!(zeros(Int, 11,9), 2)
         # else
         #     Z[1] += Z1[1] + Z2[1]
         # end
-        Z[1] = Z[1] + Znew[1]
+        Z[1] = redfun(Z[1], Znew[1])
+
     end
     nothing
 end

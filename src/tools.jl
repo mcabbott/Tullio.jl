@@ -154,4 +154,23 @@ replace(ex, s, s′) = prewalk(x -> x == s ? s′ : x, ex)
 const MacroTools_prewalk = prewalk
 const MacroTools_postwalk = postwalk
 
+#========== prettify ==========#
+
+verbosetidy(expr) = MacroTools_postwalk(expr) do ex
+        if ex isa Expr && ex.head == :block
+            args = filter(x -> !(x isa LineNumberNode || x == nothing), ex.args)
+            if length(args) == 1 && args[1] isa Expr && args[1].head == :block
+                # disallow block(block(stuff))
+                args[1]
+            else
+                Expr(ex.head, args...)
+            end
+        elseif ex isa Expr && ex.head == :macrocall && length(ex.args) >= 2
+            # line number after macro name can't be dropped, but can be nothing:
+            Expr(ex.head, ex.args[1], nothing, filter(x -> !(x isa LineNumberNode), ex.args[3:end])...)
+        else
+            ex
+        end
+    end
+
 #========== the end ==========#
