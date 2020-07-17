@@ -57,18 +57,18 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    spawns, blocks = threadlog2s(Is, Js, block)
+    spawns, breaks = threadlog2s(Is, Js, block)
 
-    if spawns<1 && blocks<1 # then skip all the Val() stuff
+    if spawns<1 && breaks<1 # then skip all the Val() stuff
         fun!(T, Z, As..., Is..., Js..., keep)
     else
-        _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(blocks), keep)
+        _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(breaks), keep)
     end
     nothing
 end
-function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_blocks, keep)
+function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_breaks, keep)
     if length(Is) >= 1
-        thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_blocks, keep)
+        thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_breaks, keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
         thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
     else
@@ -86,12 +86,12 @@ end
         floor(Int, log2(Ielements)),
         ))
 
-    blocks = max(0,min(
+    breaks = max(0,min(
         round(Int, log2(Ielements * Jelements / MINIBLOCK[])),
         floor(Int, log2(Ielements)) + floor(Int, log2(Jelements)),
         ) - spawns)
 
-    spawns, blocks
+    spawns, breaks
 end
 
 
@@ -104,7 +104,7 @@ The first tuple of ranges should be safe to thread over, e.g. those in common
 to all output arrays.
 
 If there are none, then it should to take a second strategy
-of dividing up the other ranges into blocks disjoint in every index,
+of dividing up the other ranges into tiles disjoint in every index,
 and giving those to different threads. But this was only right for 2 indices,
 and is now disabled.
 """
@@ -120,12 +120,12 @@ function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple,
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    spawns, blocks = threadlog2s(Is, Js, block)
+    spawns, breaks = threadlog2s(Is, Js, block)
 
-    if (spawns<1 && blocks<1)
+    if (spawns<1 && breaks<1)
         fun!(T, As..., Is..., Js...)
     else
-        thread_halves(fun!, T, As, Is, Js, Val(spawns), Val(blocks))
+        thread_halves(fun!, T, As, Is, Js, Val(spawns), Val(breaks))
     end
 
     # elseif length(Is) >= 1
@@ -137,7 +137,7 @@ function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple,
 end
 
 
-@inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb::Val{blocks}, keep=nothing) where {spawns, blocks}
+@inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb::Val{breaks}, keep=nothing) where {spawns, breaks}
     if spawns > 0
         I1s, I2s = cleave(Is, maybe32divsize(T))
 
@@ -168,17 +168,17 @@ end
 @inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
     fun!(T, As..., Is..., Js..., keep, final)
 end
-@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{blocks}, keep=nothing, final=true) where {blocks}
-    keep == nothing || keep == true || error("illegal value for keep")
-    final == nothing || final == true || error("illegal value for final")
+@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{breaks}, keep=nothing, final=true) where {breaks}
+    # keep == nothing || keep == true || error("illegal value for keep")
+    # final == nothing || final == true || error("illegal value for final")
     if maximumlength(Is) > maximumlength(Js)
         I1s, I2s = cleave(Is)
-        block_halves(fun!, T, As, I1s, Js, Val(blocks-1), keep, final)
-        block_halves(fun!, T, As, I2s, Js, Val(blocks-1), keep, final)
+        block_halves(fun!, T, As, I1s, Js, Val(breaks-1), keep, final)
+        block_halves(fun!, T, As, I2s, Js, Val(breaks-1), keep, final)
     else
         J1s, J2s = cleave(Js)
-        block_halves(fun!, T, As, Is, J1s, Val(blocks-1), keep, nothing)
-        block_halves(fun!, T, As, Is, J2s, Val(blocks-1), true, final)
+        block_halves(fun!, T, As, Is, J1s, Val(breaks-1), keep, nothing)
+        block_halves(fun!, T, As, Is, J2s, Val(breaks-1), true, final)
     end
     nothing
 end
