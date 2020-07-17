@@ -109,14 +109,14 @@ and giving those to different threads. But this was only right for 2 indices,
 and is now disabled.
 """
 function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple, block)
+
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-
-    spawns, blocks = threadlog2s(Is, Js, block)
 
     if isnothing(block) || (spawns<1 && blocks<1)
         fun!(T, As..., Is..., Js...)
     else
+        spawns, blocks = threadlog2s(Is, Js, block)
         thread_halves(fun!, T, As, Is, Js, Val(spawns), Val(blocks))
     end
 
