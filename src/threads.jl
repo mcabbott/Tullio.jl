@@ -54,9 +54,9 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
         fun!(T, Z, As..., I0s..., J0s..., keep)
         return nothing
     end
+
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-
     spawns, blocks = threadlog2s(Is, Js, block)
 
     if spawns<1 && blocks<1 # then skip all the Val() stuff
@@ -110,13 +110,21 @@ and is now disabled.
 """
 function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple, block)
 
+    if isnothing(block) ||
+        # then threading is disabled
+        !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
+        # don't thread ranges like 10:-1:1
+        fun!(T, As..., I0s..., J0s...)
+        return nothing
+    end
+
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
+    spawns, blocks = threadlog2s(Is, Js, block)
 
-    if isnothing(block) || (spawns<1 && blocks<1)
+    if (spawns<1 && blocks<1)
         fun!(T, As..., Is..., Js...)
     else
-        spawns, blocks = threadlog2s(Is, Js, block)
         thread_halves(fun!, T, As, Is, Js, Val(spawns), Val(blocks))
     end
 
