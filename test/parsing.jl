@@ -381,6 +381,10 @@ end
     @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
+    # trivial use, no reduction
+    @test A ≈ @tullio A2[i] := A[i]^2 |> sqrt
+    @test A ≈ @tullio (*) A2[i] := A[i]^2 |> sqrt
+
     # larger size, to trigger threads & blocks
     C = randn(10^6) # > Tullio.BLOCK[]
     @tullio n2 = C[i]^2 |> sqrt
