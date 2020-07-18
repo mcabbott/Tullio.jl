@@ -1,7 +1,7 @@
 
 #========== cost "model" ==========#
 
-const BLOCK = Ref(2^19)
+const BLOCK = Ref(2^18)
 # matmul: crossover about 70x70 on my laptop, 70^3 = 343_000, log2(70^3) = 18.3, but only 30% effect at 100^3=10^6
 # batchmul: crossover between 20 & 30, log2(20^4) == 17.3, log2(30^4) == 19.6
 # contract01: 1500 * 100, length 15_000, doesn't want threading
