@@ -362,7 +362,7 @@ end
     @test_throws Exception @eval @tullio s *= (max) A[i]
 
     # scalar + threading
-    L = randn(100 * Tullio.MINIBLOCK[]);
+    L = randn(100 * Tullio.TILE[]);
     @tullio (max) m := L[i]
     @test m == maximum(L)
 
@@ -385,12 +385,12 @@ end
     @test A ≈ @tullio A2[i] := A[i]^2 |> sqrt
     @test A ≈ @tullio (*) A2[i] := A[i]^2 |> sqrt
 
-    # larger size, to trigger threads & blocks
+    # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
     @tullio n2 = C[i]^2 |> sqrt
     @test n2 ≈ norm(C,2)
 
-    D = rand(1000, 1000) # > Tullio.MINIBLOCK[]
+    D = rand(1000, 1000) # > Tullio.TILE[]
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 

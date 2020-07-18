@@ -23,7 +23,7 @@ const COSTS = Dict(:+ => 0, :- => 0, :* => 0,
 
 callcost(sy, store) = store.cost += get(COSTS, sy, 10)
 
-const MINIBLOCK = Ref(64^3) # 2x quicker matmul at size 1000
+const TILE = Ref(64^3) # 2x quicker matmul at size 1000
 
 #========== runtime functions ==========#
 
@@ -92,7 +92,7 @@ end
         ))
 
     breaks = max(0,min(
-        round(Int, log2(Ielements * Jelements / MINIBLOCK[])),
+        round(Int, log2(Ielements * Jelements / TILE[])),
         floor(Int, log2(Ielements)) + floor(Int, log2(Jelements)),
         ) - spawns)
 
@@ -165,25 +165,25 @@ end
         wait(task) # 28.371 μs (25 allocations: 79.53 KiB)
 
     else
-        block_halves(fun!, T, As, Is, Js, valb, keep)
+        tile_halves(fun!, T, As, Is, Js, valb, keep)
     end
     nothing
 end
 
-@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
+@inline function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
     fun!(T, As..., Is..., Js..., keep, final)
 end
-@inline function block_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{breaks}, keep=nothing, final=true) where {breaks}
+@inline function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{breaks}, keep=nothing, final=true) where {breaks}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
     if maximumlength(Is) > maximumlength(Js)
         I1s, I2s = cleave(Is)
-        block_halves(fun!, T, As, I1s, Js, Val(breaks-1), keep, final)
-        block_halves(fun!, T, As, I2s, Js, Val(breaks-1), keep, final)
+        tile_halves(fun!, T, As, I1s, Js, Val(breaks-1), keep, final)
+        tile_halves(fun!, T, As, I2s, Js, Val(breaks-1), keep, final)
     else
         J1s, J2s = cleave(Js)
-        block_halves(fun!, T, As, Is, J1s, Val(breaks-1), keep, nothing)
-        block_halves(fun!, T, As, Is, J2s, Val(breaks-1), true, final)
+        tile_halves(fun!, T, As, Is, J1s, Val(breaks-1), keep, nothing)
+        tile_halves(fun!, T, As, Is, J2s, Val(breaks-1), true, final)
     end
     nothing
 end
@@ -197,7 +197,7 @@ f!(::Type, Z, i, j, keep) = begin
     global cnt
     Z[i,j] .= (global cnt+=1)
 end
-Tullio.block_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), Val(4), nothing)
+Tullio.tile_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), Val(4), nothing)
 Z
 
   1   1   3   3   5   5   7   7   7
