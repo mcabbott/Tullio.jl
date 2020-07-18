@@ -46,12 +46,12 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
 @inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, redfun, block, keep=nothing)
-
-    if isnothing(block) ||
-        # then threading is disabled
-        !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
-        # don't thread ranges like 10:-1:1
+    if isnothing(block) # then threading is disabled
         fun!(T, Z, As..., I0s..., J0s..., keep)
+        return nothing
+    elseif !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
+        # don't thread ranges like 10:-1:1, and disable @avx too
+        fun!(Array, Z, As..., I0s..., J0s..., keep)
         return nothing
     end
 
@@ -114,12 +114,12 @@ and giving those to different threads. But this was only right for 2 indices,
 and is now disabled.
 """
 function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple, block)
-
-    if isnothing(block) ||
-        # then threading is disabled
-        !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
-        # don't thread ranges like 10:-1:1
+    if isnothing(block) # then threading is disabled
         fun!(T, As..., I0s..., J0s...)
+        return nothing
+    elseif !all(r -> r isa AbstractUnitRange, I0s) || !all(r -> r isa AbstractUnitRange, J0s)
+        # don't thread ranges like 10:-1:1, and disable @avx too
+        fun!(Array, As..., I0s..., J0s...)
         return nothing
     end
 
