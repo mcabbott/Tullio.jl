@@ -61,15 +61,20 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
     if spawns<1 && breaks<1 # then skip all the Val() stuff
         fun!(T, Z, As..., Is..., Js..., keep)
-    else
-        _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(breaks), keep)
-    end
-    nothing
-end
-function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_breaks, keep)
-    if length(Is) >= 1
+#     else
+#         _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(breaks), keep)
+#     end
+#     nothing
+# end
+# function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_breaks, keep)
+#     if length(Is) >= 1
+    elseif length(Is) >= 1
+        Val_spawns = Val(spawns)
+        Val_breaks = Val(breaks)
         thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_breaks, keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
+        scalar_spawns, _ = threadlog2s(Js, (), block)
+        Val_spawns = Val(scalar_spawns)
         thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
@@ -231,28 +236,17 @@ colour!(zeros(Int, 11,9), 2)
 =#
 
 @inline function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, ::Val{spawns}, keep=nothing) where {spawns}
-    # if productlength(Js) <= block || spawns < 2
     if spawns < 1
         fun!(T, Z, As..., Js..., keep)
     else
-        # Z1, Z2 = similar(Z), similar(Z)
         J1s, J2s = cleave(Js)
-
         Znew = similar(Z)
-        # Base.@sync begin
-        #     Threads.@spawn thread_scalar(fun!, T, Z1, As, J1s, block, Val(spawns-1), nothing)
-        #     thread_scalar(fun!, T, Z2, As, J2s, block, Val(spawns-1), nothing)
-        # end
-        task = Threads.@spawn thread_scalar(fun!, T, Znew, As, J1s, block, Val(spawns-1), nothing)
-        thread_scalar(fun!, T, Z, As, J2s, block, Val(spawns-1), keep)
+        task = Threads.@spawn begin
+            thread_scalar(fun!, T, Znew, As, J1s, redfun, Val(spawns-1), nothing)
+        end
+        thread_scalar(fun!, T, Z, As, J2s, redfun, Val(spawns-1), keep)
         wait(task)
-        # if keep === nothing
-        #     Z[1] = Z1[1] + Z2[1]
-        # else
-        #     Z[1] += Z1[1] + Z2[1]
-        # end
         Z[1] = redfun(Z[1], Znew[1])
-
     end
     nothing
 end
