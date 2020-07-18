@@ -332,27 +332,39 @@ end
     cleave((1:10, 1:20, 5:15)) -> lo, hi
 Picks the longest of a tuple of ranges, and divides that one in half.
 """
+@inline cleave(::Tuple{}, n::Int=4) = (), ()
 @inline function cleave(ranges::Tuple{UnitRange}, step::Int=4)
     r1 = first(ranges)
     cleft = findcleft(r1, step)
-    return tuple(minimum(r1):cleft), tuple(cleft+1:maximum(r1))
+    tuple(first(r1):cleft), tuple(cleft+1:last(r1))
 end
-@inline function cleave(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
-    longest = foldl((l,r) -> length(l) >= length(r) ? l : r, ranges; init=1:0)
-    c = foldl((l,i) -> ranges[i]==longest ? i : l, ntuple(identity, N); init=0)
-
-    cleft = findcleft(longest, step)
-    alpha = ntuple(Val(N)) do i
-        ri = ranges[i]
-        i == c ? (minimum(ri):cleft) : (minimum(ri):maximum(ri))
+@inline function cleave(ranges::Tuple{UnitRange,UnitRange}, step::Int=4)
+    r1, r2 = ranges
+    if length(r1) > length(r2)
+        cleft = findcleft(r1, step)
+        return tuple(first(r1):cleft, r2), tuple(cleft+1:last(r1), r2)
+    else
+        cleft = findcleft(r2, step)
+        return tuple(r1, first(r2):cleft), tuple(r1, cleft+1:last(r2))
     end
-    beta = ntuple(Val(N)) do i
-        ri = ranges[i]
-        i == c ? (cleft+1:maximum(ri)) : (minimum(ri):maximum(ri))
-    end
-    return alpha, beta
 end
-@inline cleave(::Tuple{}, n::Int=4) = (), ()
+@inline @generated function cleave(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
+    ex_finds = [quote
+        li = length(ranges[$i])
+        if li>l
+            c = $i
+            l = li
+        end
+    end for i in 1:N]
+    ex_alpas = [:($i==c ? (first(ranges[$i]):cleft) : (ranges[$i])) for i in 1:N]
+    ex_betas = [:($i==c ? (cleft+1:last(ranges[$i])) : (ranges[$i])) for i in 1:N]
+    quote
+        c, l = 0, 0
+        $(ex_finds...)
+        cleft = findcleft(ranges[c], step)
+        tuple($(ex_alpas...)), tuple($(ex_betas...))
+    end
+end
 
 @inline function findcleft(r::UnitRange, step::Int)
     if length(r) >= 2*step
