@@ -51,13 +51,23 @@ end
 # which is what's now used for this:
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
-# indexing
+# gather/scatter
 inds = vcat(1:3, 1:2)
 @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 
-ind2 = rand(1:10, 1024)
+_gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5))[1] == [1,1,1,1,1]
+ForwardDiff.gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5)) == [0,0,1,1,1]
+# hmm, is that OK?
+
+ind2 = rand(1:10, 1024) # many repeats
 dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
 @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+
+ind3 = unique(rand(1:1024, 10)) # many missing
+g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), zero(ind3))
+# _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), zero(ind3))[1] # hmm, wtf?
+# testing: BoundsError: attempt to access 891-element Array{Float64,1} at index [1003]
+
 
 #=
 # shifts, etc

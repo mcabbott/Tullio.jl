@@ -54,6 +54,8 @@ using Tullio, Test, LinearAlgebra
     @tullio G[i] := D[i,$j]
     @test G[6] == 6
 
+    @test_throws LoadError @macroexpand @tullio D[i,$j] := A[i]
+
     @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
     @test H[5] == F
 
@@ -93,7 +95,7 @@ using Tullio, Test, LinearAlgebra
     @tullio M[i,j] := (r=i, c=j)  (i in tri, j in tri)
     @test M[3,3] == (r=3, c=3)
 
-    # indexing by an array
+    # indexing by an array, "gather"...
     J = repeat(1:3, 4);
     @tullio G[i,k] := M[i,J[k]]
     @test G[3,1] == G[3,4] == G[3,7]
@@ -107,6 +109,22 @@ using Tullio, Test, LinearAlgebra
     knds = 1:3.0
     @test_throws Exception @tullio AK[j] := A[knds[j]]
     @test_throws ArgumentError A[knds]
+
+    # ... and "scatter"
+    M = rand(1:99, 4,5)
+    J = [3,1,2,3]
+    @tullio H[J[i],k] := M[i,k] # i is not marked unsafe, may be threaded
+    @test size(H) == (3,5)
+    @test H[1,:] == M[2,:] # but H[3,:] gets written into twice.
+
+    J′ = [1,2,10]
+    @tullio H′[J′[i'],k] := A[k]
+    @test size(H′) == (10, length(A))
+    @test H′[2,:] == A
+    @test H′[3,4] == 0 # zeroed before being written into
+
+    inds = vcat(1:3, 1:3)
+    @test_throws Exception @tullio H[inds[i],k] := M[i,k] # range of index i
 
     # masking
     @tullio M[i,j] := A[i] * A[j] * (i<=j)
@@ -184,6 +202,16 @@ end
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
 
+    # scatter operation
+    D = similar(A, 10, 10) .= 999
+    inds = [2,3,5,2]
+    @tullio D[inds[i],j] = A[j]
+    @test D[2,:] == A
+    @test D[4,4] == 0
+
+    @tullio D[inds[i],j] += A[j]
+    @test D[2,:] == 3 .* A # was not re-zeroed for +=
+
     # assignment: no loop over j
     B = zero(A);
     @tullio B[i] = begin
@@ -207,6 +235,9 @@ if !@isdefined OffsetArray
         # without OffsetArrays
         @test axes(@tullio B[i] := A[2i+1] + A[i]) === (Base.OneTo(4),)
         @test_throws Exception @tullio C[i] := A[2i+5]
+
+        J = [3,5,7] # doesn't start at 1
+        @test_throws Exception @tullio G[J[i],k] := A[k]
 
         # without NamedDims
         @test_throws Exception @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
@@ -314,6 +345,10 @@ using OffsetArrays
     j = 7
     @test_skip @tullio K3[i,j] := A[j+2inds[i]+$j]
     @test_broken vec(K2) == vec(K3)
+
+    # scatter with shift not allowed
+    @test_throws LoadError @eval @tullio G[inds[i]+1, j] := A[j]
+    @test_throws LoadError @eval @tullio G[2inds[i], j] := A[j]
 
     # multiplication not implemented
     @test_throws LoadError @eval @tullio C[i] = A[i*j] + A[i]
