@@ -18,12 +18,12 @@ worthwhile to turn on threading; you can override this with keyword `threads=n`.
 const COSTS = Dict(:+ => 0, :- => 0, :* => 0,
     :conj => 0, :adjoint => 0, :abs =>0, abs2 => 0,
     :getindex => 0, :getproperty => 0, :getfield => 0,
-    :/ => 2, :div =>2, :rem =>2, :mod =>2,
-    :log => 10, :exp => 10) # plus 1 initially
+    :^ => 2, :/ => 2, :div =>2, :rem =>2, :mod =>2,
+    :log => 10, :exp => 10) # and all others 10, plus 1 initially
 
 callcost(sy, store) = store.cost += get(COSTS, sy, 10)
 
-const TILE = Ref(128^3)
+const TILE = Ref(128^3) # 2^21
 
 #========== runtime functions ==========#
 
@@ -99,7 +99,7 @@ end
 
 
 """
-    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7), block=100)
+    ∇threader(f!,T, (dA,dB,dZ,A,B), (1:5), (1:6,1:7), block)
 
 Again, calling `f!(T, dA,dB,dZ,A,B, 1:5,1:6, 1:7)` should do the work.
 
@@ -144,23 +144,23 @@ end
     if spawns > 0
         I1s, I2s = cleave(Is, maybe32divsize(T))
 
-        # Base.@sync begin # 35.024 μs (52 allocations: 81.13 KiB) # maybe
+        # Base.@sync begin
         #     Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
         #     Threads.@spawn thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
         # end
 
-        # Base.@sync begin #
+        # Base.@sync begin
         #     Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
         #     thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
         # end
 
         # t1 = Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
         # t2 = Threads.@spawn thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        # wait(t1); wait(t2) # 51.024 μs (35 allocations: 80.44 KiB)
+        # wait(t1); wait(t2)
 
         task = Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
         thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        wait(task) # 28.371 μs (25 allocations: 79.53 KiB)
+        wait(task)
 
     else
         tile_halves(fun!, T, As, Is, Js, valb, keep)
@@ -203,7 +203,7 @@ end
 end
 
 # Version with breaks::Int
-function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true)
+function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) # where {F <: Function}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
     if breaks < 1
@@ -376,11 +376,12 @@ end
 end
 
 #=
-@btime Tullio.cleave((1:100, 1:50, 50:90)) # 15.378 ns (0 allocations: 0 bytes)
-@code_warntype Tullio.cleave((1:100, 1:50, 50:90), 4)
-@btime Tullio.cleave((1:13,))
+@btime Tullio.cleave(z[],4)  setup=(z=Ref((1:200, 1:500, 1:300)))
+@btime Tullio.cleave(z[],4)  setup=(z=Ref((1:200, 1:50)))
+@btime Tullio.cleave(z[],4)  setup=(z=Ref((5:55,)))
 =#
 
+#=
 """
     quarter((1:10, 1:20, 3:4)) -> Q11, Q12, Q21, Q22
 Picks the longest two ranges, divides each in half, and returns the four quadrants.
@@ -425,6 +426,7 @@ function quarter(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
     end
     return Q11, Q12, Q21, Q22
 end
+=#
 
 #========== the end ==========#
 
