@@ -59,23 +59,21 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
     Js = map(UnitRange, J0s)
     spawns, breaks = threadlog2s(Is, Js, block)
 
-    if spawns<1 && breaks<1 # then skip all the Val() stuff
-        fun!(T, Z, As..., Is..., Js..., keep)
-#     else
-#         _threader(fun!, T, Z, As, Is, Js, redfun, Val(spawns), Val(breaks), keep)
-#     end
-#     nothing
-# end
-# function _threader(fun!, T, Z, As, Is, Js, redfun, Val_spawns, Val_breaks, keep)
-#     if length(Is) >= 1
-    elseif length(Is) >= 1
-        Val_spawns = Val(spawns)
-        Val_breaks = Val(breaks)
-        thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_breaks, keep)
+    if length(Is) >= 1 && spawns>1
+        # Val_spawns = Val(spawns)
+        # Val_breaks = Val(breaks)
+        # thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_breaks, keep)
+        # thread_halves(fun!, T, (Z, As...), Is, Js, spawns, Val_breaks, keep)
+        thread_halves(fun!, T, (Z, As...), Is, Js, spawns, breaks, keep)
     elseif length(Z) == 1 && eltype(Z) <: Number
         scalar_spawns, _ = threadlog2s(Js, (), block)
-        Val_spawns = Val(scalar_spawns)
-        thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
+        # Val_spawns = Val(scalar_spawns)
+        # thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
+        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_spawns, keep)
+    elseif breaks>1
+        # Val_breaks = Val(breaks)
+        # tile_halves(fun!, T, As, Is, Js, Val_breaks, keep)
+        tile_halves(fun!, T, As, Is, Js, breaks, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
@@ -142,7 +140,7 @@ function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple,
 end
 
 
-@inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb::Val{breaks}, keep=nothing) where {spawns, breaks}
+@inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb, keep=nothing) where {spawns}
     if spawns > 0
         I1s, I2s = cleave(Is, maybe32divsize(T))
 
@@ -170,6 +168,22 @@ end
     nothing
 end
 
+# Version with spawns::Int
+function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, spawns::Int, breaks, keep=nothing)
+    if spawns > 0
+        I1s, I2s = cleave(Is, maybe32divsize(T))
+        task = Threads.@spawn begin
+            thread_halves(fun!, T, As, I1s, Js, spawns-1, breaks, keep)
+        end
+        thread_halves(fun!, T, As, I2s, Js, spawns-1, breaks, keep)
+        wait(task)
+    else
+        tile_halves(fun!, T, As, Is, Js, breaks, keep)
+    end
+    nothing
+end
+
+
 @inline function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
     fun!(T, As..., Is..., Js..., keep, final)
 end
@@ -184,6 +198,24 @@ end
         J1s, J2s = cleave(Js)
         tile_halves(fun!, T, As, Is, J1s, Val(breaks-1), keep, nothing)
         tile_halves(fun!, T, As, Is, J2s, Val(breaks-1), true, final)
+    end
+    nothing
+end
+
+# Version with breaks::Int
+function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true)
+    # keep == nothing || keep == true || error("illegal value for keep")
+    # final == nothing || final == true || error("illegal value for final")
+    if breaks < 1
+        fun!(T, As..., Is..., Js..., keep, final)
+    elseif maximumlength(Is) > maximumlength(Js)
+        I1s, I2s = cleave(Is)
+        tile_halves(fun!, T, As, I1s, Js, breaks-1, keep, final)
+        tile_halves(fun!, T, As, I2s, Js, breaks-1, keep, final)
+    else
+        J1s, J2s = cleave(Js)
+        tile_halves(fun!, T, As, Is, J1s, breaks-1, keep, nothing)
+        tile_halves(fun!, T, As, Is, J2s, breaks-1, true, final)
     end
     nothing
 end
@@ -245,6 +277,23 @@ colour!(zeros(Int, 11,9), 2)
             thread_scalar(fun!, T, Znew, As, J1s, redfun, Val(spawns-1), nothing)
         end
         thread_scalar(fun!, T, Z, As, J2s, redfun, Val(spawns-1), keep)
+        wait(task)
+        Z[1] = redfun(Z[1], Znew[1])
+    end
+    nothing
+end
+
+# version with spawns::Int
+function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, spawns::Int, keep=nothing)
+    if spawns < 1
+        fun!(T, Z, As..., Js..., keep)
+    else
+        J1s, J2s = cleave(Js)
+        Znew = similar(Z)
+        task = Threads.@spawn begin
+            thread_scalar(fun!, T, Znew, As, J1s, redfun, (spawns-1), nothing)
+        end
+        thread_scalar(fun!, T, Z, As, J2s, redfun, (spawns-1), keep)
         wait(task)
         Z[1] = redfun(Z[1], Znew[1])
     end
