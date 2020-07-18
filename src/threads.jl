@@ -72,8 +72,8 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
         thread_scalar(fun!, T, Z, As, Js, redfun, scalar_spawns, keep)
     elseif breaks>1
         # Val_breaks = Val(breaks)
-        # tile_halves(fun!, T, As, Is, Js, Val_breaks, keep)
-        tile_halves(fun!, T, As, Is, Js, breaks, keep)
+        # tile_halves(fun!, T, (Z, As...), Is, Js, Val_breaks, keep)
+        tile_halves(fun!, T, (Z, As...), Is, Js, breaks, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
     end
