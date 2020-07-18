@@ -23,7 +23,7 @@ const COSTS = Dict(:+ => 0, :- => 0, :* => 0,
 
 callcost(sy, store) = store.cost += get(COSTS, sy, 10)
 
-const TILE = Ref(64^3) # 2x quicker matmul at size 1000
+const TILE = Ref(128^3)
 
 #========== runtime functions ==========#
 
