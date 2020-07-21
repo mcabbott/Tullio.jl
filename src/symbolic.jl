@@ -7,6 +7,7 @@ function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
+    maxflag = Symbol(RHS, :👍)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
@@ -44,7 +45,7 @@ function insert_symbolic_gradient(axislist, store)
         #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
         #     push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
-            push!(inbody, :($dt += $deltar)) # only when max attained, i.e. rhs == lhs!
+            push!(inbody, :($dt += ifelse($maxflag, $deltar, zero($TYP))))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
@@ -57,10 +58,9 @@ function insert_symbolic_gradient(axislist, store)
     end
     if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
         ex_body = :(
-            if $ZED[$(store.leftraw...)] == $(store.right)
-                $ex_body
-            end
-        )
+            $maxflag = $ZED[$(store.leftraw...)] == $(store.right);
+            $ex_body
+            )
     end
 
     make_many_actors(∇act!,
