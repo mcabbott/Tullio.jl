@@ -202,6 +202,9 @@ end
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
 
+    # zero off-diagonal?
+    @tullio D[i,i] = A[i]
+
     # scatter operation
     D = similar(A, 10, 10) .= 999
     inds = [2,3,5,2]
