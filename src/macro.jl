@@ -800,13 +800,19 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if store.fastmath && isempty(store.notfree)
         push!(store.outpre, quote
             local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                @inbounds @fastmath ($ex1; $ex2)
+                # @inbounds @fastmath ($ex1; $ex2)
+                $(Expr(:inbounds, true)) # allows for @label inside
+                @fastmath ($ex1; $ex2)
+                $(Expr(:inbounds, false))
             end
         end)
     elseif isempty(store.notfree)
         push!(store.outpre, quote
             local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                @inbounds ($ex1; $ex2)
+                # @inbounds ($ex1; $ex2)
+                $(Expr(:inbounds, true))
+                ($ex1; $ex2)
+                $(Expr(:inbounds, false))
             end
         end)
     else

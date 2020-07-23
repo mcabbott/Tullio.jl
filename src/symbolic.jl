@@ -7,9 +7,12 @@ function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
-    maxflag = Symbol(RHS, :👍)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
+
+    # atmaxflag = Symbol(RHS, :👍)
+    # donemaxflag = Symbol(DEL, :👍)
+    donelabel = Symbol(RHS, :done)
 
     out_ind, in_ind = if store.redfun == :+
         store.sharedind, setdiff(vcat(store.leftind, store.redind), store.sharedind)
@@ -45,21 +48,32 @@ function insert_symbolic_gradient(axislist, store)
         #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
         #     push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
-            push!(inbody, :($dt += ifelse($maxflag, $deltar, zero($TYP))))
+            # push!(inbody, :($dt += ifelse($atmaxflag, $deltar, zero($TYP)))) # vectorises
+            # push!(inbody, :($dt += ifelse($atmaxflag & !$donemaxflag, $deltar, zero($TYP))))
+            push!(inbody, :($dt += $deltar))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
-    ex_body = commonsubex(quote $(inbody...) end)
+    ex_body = :($(inbody...);) # commonsubex(quote $(inbody...) end) # ???
 
     ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
         product_grad(prebody, store)
+    elseif store.redfun in [:min, :max]
+        # :($donemaxflag = false), nothing
+        nothing, :(@label $donelabel)
     else
         nothing, nothing
     end
     if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
         ex_body = :(
-            $maxflag = $ZED[$(store.leftraw...)] == $(store.right);
-            $ex_body
+            # $atmaxflag = $ZED[$(store.leftraw...)] == $(store.right);
+            # $ex_body;
+            # $donemaxflag = $donemaxflag | $atmaxflag;
+            # $atmaxflag && @goto maxdone
+            if $ZED[$(store.leftraw...)] == $(store.right)
+                $ex_body;
+                @goto $donelabel;
+            end
             )
     end
 
@@ -79,6 +93,51 @@ function insert_symbolic_gradient(axislist, store)
     end
 
 end
+
+#=
+
+A = rand(-5:5, 3,4); B = rand(-5:5, 4,5);
+
+@tullio (max) C[i,j] := A[i,k] + B[k,j] avx=false verbose=2
+@tullio (max) C[i,j] := A[i,k] + B[k,j] verbose=true
+
+mm0(A,B) = @tullio (max) C[i,j] := A[i,k] + B[k,j] avx=false threads=false
+mm(A,B) = @tullio (max) C[i,j] := A[i,k] + B[k,j] threads=false
+
+Tracker.gradient(sum∘mm, A, B)[1]
+Tracker.gradient(sum∘mm0, A, B)[1]
+
+@btime mm0(A,B) setup=(A = rand(-5:5, 30,40); B = rand(-5:5, 40,50);) # 37 μs
+@btime mm(A,B) setup=(A = rand(-5:5, 30,40); B = rand(-5:5, 40,50);)  # 8 μs
+
+@btime Tracker.gradient(sum∘mm0, A, B) setup=(A = rand(-5:5, 30,40); B = rand(-5:5, 40,50);); #  168 μs
+@btime Tracker.gradient(sum∘mm, A, B) setup=(A = rand(-5:5, 30,40); B = rand(-5:5, 40,50);); # 38 μs
+
+
+
+Algorithms to consider:
+
+1. On backward pass, update a flag to say if you've seen the maximum.
+Asymmetric convention. Simple, but 38 μs -> 125 μs as you kill vectorisation.
+
+1bis. On backward pass, exit the loop. Since you can't vectorise, you may as well break.
+38 μs -> 53 μs, that's better.
+
+2. On the forward pass, save the one index at which you attain the maximum.
+(first/last, breaking/overwriting). Asymmetric convention.
+This is an array the same shape as ZED containing tuples.
+The backward pass then need not loop over reduction indices at all, that's nice.
+But this requires writing a different forward pass for the case in which you take a gradient.
+
+3. On the forward pass, accumulate the number of points at which max.
+Symmetric convention. Array the same shape as ZED containing integers.
+The backward pass then divides by this.
+Still a big re-write!
+
+4. On the backward pass, count how many points attain the maximum,
+and if >1, run a second pass. Perhaps both can vectorise.
+
+=#
 
 leibfinal(fun::Symbol, res) =
     if fun == :log
