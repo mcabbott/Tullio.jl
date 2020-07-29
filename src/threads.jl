@@ -57,22 +57,14 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    spawns, breaks = threadlog2s(Is, Js, block)
+    threads, breaks = threadlog2s(Is, Js, block)
 
-    if length(Is) >= 1 && spawns>1
-        # Val_spawns = Val(spawns)
-        # Val_breaks = Val(breaks)
-        # thread_halves(fun!, T, (Z, As...), Is, Js, Val_spawns, Val_breaks, keep)
-        # thread_halves(fun!, T, (Z, As...), Is, Js, spawns, Val_breaks, keep)
-        thread_halves(fun!, T, (Z, As...), Is, Js, spawns, breaks, keep)
-    elseif length(Z) == 1 && eltype(Z) <: Number
-        scalar_spawns, _ = threadlog2s(Js, (), block)
-        # Val_spawns = Val(scalar_spawns)
-        # thread_scalar(fun!, T, Z, As, Js, redfun, Val_spawns, keep)
-        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_spawns, keep)
+    if length(Is) >= 1 && threads>1
+        thread_halves(fun!, T, (Z, As...), Is, Js, threads, breaks, keep)
+    elseif length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number
+        scalar_threads, _ = threadlog2s(Js, (), block)
+        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_threads, keep)
     elseif breaks>1
-        # Val_breaks = Val(breaks)
-        # tile_halves(fun!, T, (Z, As...), Is, Js, Val_breaks, keep)
         tile_halves(fun!, T, (Z, As...), Is, Js, breaks, keep)
     else
         fun!(T, Z, As..., Is..., Js..., keep)
@@ -84,17 +76,14 @@ end
     Ielements = productlength(Is)
     Jelements = productlength(Js)
 
-    spawns = max(0,min(
-        ceil(Int, log2(min(Threads.nthreads(), Ielements * Jelements / block))),
-        floor(Int, log2(Ielements)),
-        ))
+    threads = min(Threads.nthreads(), cld(Ielements * Jelements, block), Ielements)
 
     breaks = max(0,min(
-        round(Int, log2(Ielements * Jelements / TILE[])),
-        floor(Int, log2(Ielements)) + floor(Int, log2(Jelements)),
-        ) - spawns)
+        round(Int, log2(Ielements * Jelements / TILE[] / threads)),
+        floor(Int, log2(Ielements / threads)) + floor(Int, log2(Jelements)),
+        ))
 
-    spawns, breaks
+    threads, breaks
 end
 
 
@@ -123,59 +112,36 @@ function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple,
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    spawns, breaks = threadlog2s(Is, Js, block)
+    threads, breaks = threadlog2s(Is, Js, block)
 
-    if (spawns<1 && breaks<1)
+    if threads > 1
+        thread_halves(fun!, T, As, Is, Js, threads, breaks)
+    elseif breaks>1
+        tile_halves(fun!, T, As, Is, Js, breaks)
+    else
         fun!(T, As..., Is..., Js...)
-    else
-        thread_halves(fun!, T, As, Is, Js, Val(spawns), Val(breaks))
-    end
-
-    # elseif length(Is) >= 1
-    #     thread_halves(fun!, T, As, Is, Js, block, Threads.nthreads())
-    # else
-    #     thread_quarters(fun!, T, As, Js, block, Threads.nthreads())
-    # end
-    nothing
-end
-
-
-@inline function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{spawns}, valb, keep=nothing) where {spawns}
-    if spawns > 0
-        I1s, I2s = cleave(Is, maybe32divsize(T))
-
-        # Base.@sync begin
-        #     Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
-        #     Threads.@spawn thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        # end
-
-        # Base.@sync begin
-        #     Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
-        #     thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        # end
-
-        # t1 = Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
-        # t2 = Threads.@spawn thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        # wait(t1); wait(t2)
-
-        task = Threads.@spawn thread_halves(fun!, T, As, I1s, Js, Val(spawns-1), valb, keep)
-        thread_halves(fun!, T, As, I2s, Js, Val(spawns-1), valb, keep)
-        wait(task)
-
-    else
-        tile_halves(fun!, T, As, Is, Js, valb, keep)
     end
     nothing
 end
 
-# Version with spawns::Int
-function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, spawns::Int, breaks, keep=nothing)
-    if spawns > 0
+function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, threads::Int, breaks, keep=nothing)
+    if threads > 2 && rem(threads,3) == 0 # not always halves!
+        I1s, I2s, I3s = trisect(Is)
+        task1 = Threads.@spawn begin
+            thread_halves(fun!, T, As, I1s, Js, threads÷3, breaks, keep)
+        end
+        task2 = Threads.@spawn begin
+            thread_halves(fun!, T, As, I2s, Js, threads÷3, breaks, keep)
+        end
+        thread_halves(fun!, T, As, I3s, Js, threads÷3, breaks, keep)
+        wait(task1)
+        wait(task2)
+    elseif threads > 1
         I1s, I2s = cleave(Is, maybe32divsize(T))
         task = Threads.@spawn begin
-            thread_halves(fun!, T, As, I1s, Js, spawns-1, breaks, keep)
+            thread_halves(fun!, T, As, I1s, Js, threads÷2, breaks, keep)
         end
-        thread_halves(fun!, T, As, I2s, Js, spawns-1, breaks, keep)
+        thread_halves(fun!, T, As, I2s, Js, threads÷2, breaks, keep)
         wait(task)
     else
         tile_halves(fun!, T, As, Is, Js, breaks, keep)
@@ -183,26 +149,6 @@ function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple,
     nothing
 end
 
-
-@inline function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{0}, keep=nothing, final=true)
-    fun!(T, As..., Is..., Js..., keep, final)
-end
-@inline function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, ::Val{breaks}, keep=nothing, final=true) where {breaks}
-    # keep == nothing || keep == true || error("illegal value for keep")
-    # final == nothing || final == true || error("illegal value for final")
-    if maximumlength(Is) > maximumlength(Js)
-        I1s, I2s = cleave(Is)
-        tile_halves(fun!, T, As, I1s, Js, Val(breaks-1), keep, final)
-        tile_halves(fun!, T, As, I2s, Js, Val(breaks-1), keep, final)
-    else
-        J1s, J2s = cleave(Js)
-        tile_halves(fun!, T, As, Is, J1s, Val(breaks-1), keep, nothing)
-        tile_halves(fun!, T, As, Is, J2s, Val(breaks-1), true, final)
-    end
-    nothing
-end
-
-# Version with breaks::Int
 function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) # where {F <: Function}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
@@ -267,57 +213,22 @@ colour!(zeros(Int, 11,9), 2)
 
 =#
 
-@inline function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, ::Val{spawns}, keep=nothing) where {spawns}
-    if spawns < 1
+
+function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads::Int, keep=nothing)
+    if threads < 1
         fun!(T, Z, As..., Js..., keep)
     else
         J1s, J2s = cleave(Js)
         Znew = similar(Z)
         task = Threads.@spawn begin
-            thread_scalar(fun!, T, Znew, As, J1s, redfun, Val(spawns-1), nothing)
+            thread_scalar(fun!, T, Znew, As, J1s, redfun, threads÷2, nothing)
         end
-        thread_scalar(fun!, T, Z, As, J2s, redfun, Val(spawns-1), keep)
+        thread_scalar(fun!, T, Z, As, J2s, redfun, threads÷2, keep)
         wait(task)
         Z[1] = redfun(Z[1], Znew[1])
     end
     nothing
 end
-
-# version with spawns::Int
-function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, spawns::Int, keep=nothing)
-    if spawns < 1
-        fun!(T, Z, As..., Js..., keep)
-    else
-        J1s, J2s = cleave(Js)
-        Znew = similar(Z)
-        task = Threads.@spawn begin
-            thread_scalar(fun!, T, Znew, As, J1s, redfun, (spawns-1), nothing)
-        end
-        thread_scalar(fun!, T, Z, As, J2s, redfun, (spawns-1), keep)
-        wait(task)
-        Z[1] = redfun(Z[1], Znew[1])
-    end
-    nothing
-end
-
-#=
-function thread_quarters(fun!::Function, T::Type, As::Tuple, Js::Tuple, block::Int, spawns::Int)
-    if productlength(Js) <= block || count(r -> length(r)>=2, Js) < 2 || spawns < 4
-        return fun!(T, As..., Js...)
-    else
-        Q11, Q12, Q21, Q22 = quarter(Js, maybe32divsize(T))
-        Base.@sync begin
-            Threads.@spawn thread_quarters(fun!, T, As, Q11, block, div(spawns,4))
-            thread_quarters(fun!, T, As, Q22, block, div(spawns,4))
-        end
-        Base.@sync begin
-            Threads.@spawn thread_quarters(fun!, T, As, Q12, block, div(spawns,4))
-            thread_quarters(fun!, T, As, Q21, block, div(spawns,4))
-        end
-    end
-    nothing
-end
-=#
 
 @inline productlength(Is::Tuple) = prod(length.(Is))
 @inline productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
@@ -381,52 +292,47 @@ end
 @btime Tullio.cleave(z[],4)  setup=(z=Ref((5:55,)))
 =#
 
-#=
 """
-    quarter((1:10, 1:20, 3:4)) -> Q11, Q12, Q21, Q22
-Picks the longest two ranges, divides each in half, and returns the four quadrants.
+    trisect((1:10, 1:20, 5:15)) -> lo, mid, hi
+
+Just like `cleave`, but makes 3 pieces, for 6-core machines.
 """
-function quarter(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
-    c::Int, long::Int = 0, 0
-    ntuple(Val(N)) do i
-        li = length(ranges[i])
-        if li > long
-            c = i
-            long = li
-        end
+@inline trisect(::Tuple{}) = (), (), ()
+@inline trisect(ranges::Tuple{UnitRange}) = map(tuple, findthree(first(ranges)))
+@inline function trisect(ranges::Tuple{UnitRange,UnitRange})
+    r1, r2 = ranges
+    if length(r1) > length(r2)
+        a,b,c = findthree(r1)
+        return (a,r2), (b,r2), (c,r2)
+    else
+        a,b,c = findthree(r2)
+        return (r1,a), (r1,b), (r1,c)
     end
-    d::Int, second::Int = 0,0
-    ntuple(Val(N)) do j
-        j == c && return
-        lj = length(ranges[j])
-        if lj > second
-            d = j
-            second = lj
-        end
-    end
-
-    cleft = findcleft(ranges[c], step)
-    delta = findcleft(ranges[d], step)
-
-    Q11 = ntuple(Val(N)) do i
-        ri = ranges[i]
-        (i == c) ? (minimum(ri):cleft) : (i==d) ? (minimum(ri):delta) : (minimum(ri):maximum(ri))
-    end
-    Q12 = ntuple(Val(N)) do i
-        ri = ranges[i]
-        (i == c) ? (minimum(ri):cleft) : (i==d) ? (delta+1:maximum(ri)) : (minimum(ri):maximum(ri))
-    end
-    Q21 = ntuple(Val(N)) do i
-        ri = ranges[i]
-        (i == c) ? (cleft+1:maximum(ri)) : (i==d) ? (minimum(ri):delta) : (minimum(ri):maximum(ri))
-    end
-    Q22 = ntuple(Val(N)) do i
-        ri = ranges[i]
-        (i == c) ? (cleft+1:maximum(ri)) : (i==d) ? (delta+1:maximum(ri)) : (minimum(ri):maximum(ri))
-    end
-    return Q11, Q12, Q21, Q22
 end
-=#
+@inline @generated function trisect(ranges::Tuple{Vararg{<:UnitRange,N}}) where {N}
+    ex_finds = [quote
+        li = length(ranges[$i])
+        if li>l
+            c = $i
+            l = li
+        end
+    end for i in 1:N]
+    ex_alpas = [:($i==c ? (lo) : (ranges[$i])) for i in 1:N]
+    ex_betas = [:($i==c ? (mid) : (ranges[$i])) for i in 1:N]
+    ex_gammas = [:($i==c ? (hi) : (ranges[$i])) for i in 1:N]
+    quote
+        c, l = 0, 0
+        $(ex_finds...)
+        lo,mid,hi = findthree(ranges[c])
+        tuple($(ex_alpas...)), tuple($(ex_betas...)), tuple($(ex_gammas...))
+    end
+end
+
+@inline function findthree(r::UnitRange)
+    d = div(length(r), 3)
+    i0 = first(r)
+    (i0 : i0+d-1), (i0+d : i0+2d-1), (i0+2d : i0+length(r)-1)
+end
 
 #========== the end ==========#
 
