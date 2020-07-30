@@ -255,7 +255,7 @@ function parse_input(expr, store)
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw1 = tidyleftraw(primeindices(leftraw), store)
-    store.leftind = filter(i -> i isa Symbol, leftraw1) # this gives correct outer loop order
+    store.leftind = filter(i -> i isa Symbol && i != :(:), leftraw1) # this gives correct outer loop order
     store.leftraw = tidyleftraw2(leftraw1, store)
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
