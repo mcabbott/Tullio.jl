@@ -861,15 +861,16 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 startswith(string(x), string(DEL)) && x != Symbol(DEL, ZED) && return x
                 :(@Const($x))
             end
+            kex0 = quote
 
-            kex1 = macroexpand(store.mod, quote
-
-                KernelAbstractions.@kernel function $kernel($(ka_args...), $KEEP, $FINAL) where {$TYP}
+                KernelAbstractions.@kernel function $kernel($(ka_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     @views ($ex1; $ex3; $ex4; $ex6)
                 end
 
-            end)
+            end
+            store.verbose==2 && @show verbosetidy(kex0)
+            kex1 = macroexpand(store.mod, kex0)
             push!(store.outpre, kex1)
             if isdefined(store.mod, :CuArrays) && isdefined(store.mod, :CuArray) # old-style, CuArrays.jl
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CuArrays actor $($note)") : nothing
