@@ -51,13 +51,22 @@ end
 # which is what's now used for this:
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
-# indexing
+# gather/scatter
 inds = vcat(1:3, 1:2)
 @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 
-ind2 = rand(1:10, 1024)
+_gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5))[1] == [1,1,1,1,1]
+ForwardDiff.gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5)) == [0,0,1,1,1]
+# This difference may be another edge case like multiple maxima?
+
+ind2 = rand(1:10, 1024) # many repeats
 dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
 @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+
+ind3 = vcat(unique(rand(1:1024, 10)), 1) # many missing, but includes at 1
+g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))
+@test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
+# You get weird errors here if indices of y don't start at 1.
 
 #=
 # shifts, etc

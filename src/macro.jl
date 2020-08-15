@@ -70,7 +70,7 @@ function _tullio(exs...; mod=Main)
         scalars = Symbol[],
         cost = 1,
     # Index ranges: first save all known constraints
-        constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
+        constraints = Dict{Symbol,Vector}(), # :k => [:(axes(A,2)), :(axes(B,1))] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
@@ -254,13 +254,14 @@ function parse_input(expr, store)
     else
         error("can't understand LHS, expected A[i,j,k], got $left")
     end
-    leftraw1 = tidyleftraw(primeindices(leftraw), store)
-    store.leftind = filter(i -> i isa Symbol, leftraw1) # this gives correct outer loop order
-    store.leftraw = tidyleftraw2(leftraw1, store)
+    leftraw2 = tidyleftraw(leftraw, store)
+    store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
     isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
+
+    store.leftraw = finishleftraw(leftraw2, store)
     if :newarray in store.flags
         !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
         Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
@@ -427,25 +428,42 @@ dollarstrip(expr) = MacroTools_postwalk(expr) do @nospecialize ex
         ex
     end
 
-# there has got to be a tidier way!
-tidyleftraw(leftraw, store) = map(leftraw) do i
-    if i isa Expr && i.head == :kw
-        if :newarray in store.flags # then NamedDims wrapper is put on later
-            push!(store.leftnames, i.args[1])
-            return i.args[2]
-        else
-            # push!(store.flags, :noavx)
+tidyleftraw(leftraw, store) = begin
+    step1 = map(leftraw) do i
+        if i isa Expr && i.head == :kw && :newarray in store.flags # then NamedDims wrapper is put on later
+                push!(store.leftnames, i.args[1])
+                return i.args[2]
+        elseif i === :_ # underscores on left denote trivial dimensions
+            return 1
         end
-    elseif i === :_
-        return 1
+        i
     end
-    i
+    primeindices(step1) # normalise i' to i′
 end
-tidyleftraw2(leftraw, store) = map(leftraw) do i
+
+finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     if i isa Expr && i.head == :$
+        :newarray in store.flags && error("can't fix indices on LHS when making a new array")
         i.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
+
+    elseif @capture_(i, J_[inds__]) # scatter operation, A[i,J[j,k]] := ...
+        push!(store.nograd, J)
+        rightwalk(store)(i) # array J viewed as part of RHS, and provides a range for j,k
+        inds2 = filter(j->j isa Symbol, tidyleftraw(inds, store))
+        append!(store.leftind, inds2) # but j,k aren't to be summed
+
+        ex = :($J[$(tidyleftraw(inds, store)...)])
+        if :newarray in store.flags
+            ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
+            push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
+            push!(store.flags, :zero)
+        elseif !(:plusequals in store.flags) # A[i,J[j,k]] += ... doesn't zero
+            push!(store.flags, :zero)
+        end
+
+        return ex # has primes dealt with
     end
     i
 end
@@ -621,13 +639,14 @@ function output_array(store)
         outaxes = map(store.leftraw) do i
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
+            i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
             error("can't use index $i on LHS for a new array")
         end
 
         if !isdefined(store.mod, :OffsetArrays)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
-                i in store.shiftedind || return ax
+                i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
                 push!(store.outex, :( first($ax) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
                 return :(Base.OneTo($ax))
             end
@@ -654,7 +673,7 @@ function output_array(store)
     end
 
     if :zero in store.flags
-        push!(store.outex, :( $(store.leftarray) .= zero($TYP) ))
+        push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
     end
 
 end
