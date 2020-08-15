@@ -733,6 +733,7 @@ function action_functions(store)
             tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
     end)
+    store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
     if :newarray in store.flags
         # then slurp up outex to make a function:
