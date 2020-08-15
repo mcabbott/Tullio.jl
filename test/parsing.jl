@@ -202,7 +202,7 @@ end
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
 
-    # zero off-diagonal?
+    # zero off-diagonal? not now, but maybe it should?
     @tullio D[i,i] = A[i]
 
     # scatter operation
@@ -210,7 +210,7 @@ end
     inds = [2,3,5,2]
     @tullio D[inds[i],j] = A[j]
     @test D[2,:] == A
-    @test D[4,4] == 0
+    @test D[4,4] == 0 # zeroed before writing.
 
     @tullio D[inds[i],j] += A[j]
     @test D[2,:] == 3 .* A # was not re-zeroed for +=

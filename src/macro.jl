@@ -458,6 +458,7 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
         if :newarray in store.flags
             ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
             push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
+            push!(store.flags, :zero)
         # else
         #     Zed = store.leftarray
         #     str = "extrema of index $ex must fit within axes($Zed,$d) (twice?)"
