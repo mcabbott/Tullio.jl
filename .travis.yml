@@ -17,7 +17,6 @@ notifications:
 jobs:
   allow_failures:
     - julia: nightly
-    - julia: 1.5
 
 cache:
   directories:
