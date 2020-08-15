@@ -151,6 +151,9 @@ using Tullio, Test, LinearAlgebra
     end
     @test B == (4:13) .// (1:3)'
 
+    # wrong ndims
+    @test_throws Exception @tullio Z[i] := B[i]
+
     # internal name leaks
     for sy in Tullio.SYMBOLS
         @test !isdefined(@__MODULE__, sy)
@@ -225,6 +228,12 @@ end
         A[j]
     end
     @test B == A[[mod(i^4, 1:10) for i in 1:10]]
+
+    # wrong ndims
+    @test ndims(B)==1 && ndims(D)==2
+    @test_throws Exception @tullio B[i] = D[i]^2
+    @test_throws Exception @tullio D[i] = B[i]+2
+    @test_throws Exception @tullio B[i,j] = D[i,j]
 
     # internal name leaks
     for sy in Tullio.SYMBOLS
