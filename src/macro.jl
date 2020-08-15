@@ -459,11 +459,6 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
             ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
             push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
             push!(store.flags, :zero)
-        # else
-        #     Zed = store.leftarray
-        #     str = "extrema of index $ex must fit within axes($Zed,$d) (twice?)"
-        #     push!(store.outpre, :(issubset($extremerange($J), axes($Zed,$d)) || error($str)))
-        # end
         elseif !(:plusequals in store.flags) # A[i,J[j,k]] += ... doesn't zero
             push!(store.flags, :zero)
         end

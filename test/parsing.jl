@@ -215,6 +215,9 @@ end
     @tullio D[inds[i],j] += A[j]
     @test D[2,:] == 3 .* A # was not re-zeroed for +=
 
+    kinds = [1,2,13,4]
+    @test_throws Exception @tullio D[kinds[i],j] = A[j]
+
     # assignment: no loop over j
     B = zero(A);
     @tullio B[i] = begin
