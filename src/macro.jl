@@ -733,6 +733,7 @@ function action_functions(store)
             tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
     end)
+    store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
     if :newarray in store.flags
         # then slurp up outex to make a function:
@@ -856,7 +857,6 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
-
             kex1 = macroexpand(store.mod, quote
 
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}

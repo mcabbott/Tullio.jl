@@ -7,7 +7,7 @@ t1 = @elapsed using Tullio
 @info "Testing with $(Threads.nthreads()) threads"
 if Threads.nthreads() > 1 # use threading even on small arrays
     Tullio.BLOCK[] = 32
-    Tullio.MINIBLOCK[] = 32
+    Tullio.TILE[] = 32
 end
 
 #===== stuff =====#
