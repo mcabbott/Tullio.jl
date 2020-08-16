@@ -9,6 +9,6 @@ ReverseDiff.@grad function (ev::Eval)(args...)
     Z = ev.fwd(ReverseDiff.value.(args)...)
     Z, Δ -> begin
         isnothing(ev.rev) && error("no gradient definition here!")
-        ev.rev(Δ, ReverseDiff.value.(args)...)
+        ev.rev(ReverseDiff.value(Δ), Z, ReverseDiff.value.(args)...)
     end
 end
