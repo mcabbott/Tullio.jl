@@ -152,9 +152,10 @@ end
 function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) where {F <: Function, T}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
-    if breaks < 1
+    maxI, maxJ = maximumlength(Is), maximumlength(Js)
+    if maxI < 32 && maxJ < 32
         fun!(T, As..., Is..., Js..., keep, final)
-    elseif maximumlength(Is) > maximumlength(Js)
+    elseif maxI > maxJ
         I1s, I2s = cleave(Is)
         tile_halves(fun!, T, As, I1s, Js, breaks-1, keep, final)
         tile_halves(fun!, T, As, I2s, Js, breaks-1, keep, final)
