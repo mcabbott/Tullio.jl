@@ -45,7 +45,7 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
 `keep=nothing` means that it overwrites the array, anything else (`keep=true`) adds on.
 """
-@inline function threader(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, redfun, block, keep=nothing)
+@inline function threader(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, I0s::Tuple, J0s::Tuple, redfun, block, keep=nothing) where {F <: Function, T}
     if isnothing(block) # then threading is disabled
         fun!(T, Z, As..., I0s..., J0s..., keep)
         return nothing
@@ -100,7 +100,7 @@ of dividing up the other ranges into tiles disjoint in every index,
 and giving those to different threads. But this was only right for 2 indices,
 and is now disabled.
 """
-function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple, block)
+function ∇threader(fun!::F, ::Type{T}, As::Tuple, I0s::Tuple, J0s::Tuple, block) where {F <: Function, T}
     if isnothing(block) # then threading is disabled
         fun!(T, As..., I0s..., J0s...)
         return nothing
@@ -124,7 +124,7 @@ function ∇threader(fun!::Function, T::Type, As::Tuple, I0s::Tuple, J0s::Tuple,
     nothing
 end
 
-function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, threads::Int, breaks, keep=nothing)
+function thread_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, threads::Int, breaks, keep=nothing) where {F <: Function, T}
     if threads > 2 && rem(threads,3) == 0 # not always halves!
         I1s, I2s, I3s = trisect(Is)
         task1 = Threads.@spawn begin
@@ -149,7 +149,7 @@ function thread_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple,
     nothing
 end
 
-function tile_halves(fun!::Function, T::Type, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) # where {F <: Function}
+function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) where {F <: Function, T}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
     if breaks < 1
@@ -171,11 +171,11 @@ end
 using Tullio
 Z = zeros(Int, 11,9);
 cnt = 0
-f!(::Type, Z, i, j, keep) = begin
+f!(::Type, Z, i, j, ♻️, 💀) = begin
     global cnt
     Z[i,j] .= (global cnt+=1)
 end
-Tullio.tile_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), Val(4), nothing)
+Tullio.tile_halves(f!, Array, (Z,), UnitRange.(axes(Z)), (), 4, nothing, true)
 Z
 
   1   1   3   3   5   5   7   7   7
@@ -214,7 +214,7 @@ colour!(zeros(Int, 11,9), 2)
 =#
 
 
-function thread_scalar(fun!::Function, T::Type, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads::Int, keep=nothing)
+function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads::Int, keep=nothing) where {F <: Function, T}
     if threads < 1
         fun!(T, Z, As..., Js..., keep)
     else
