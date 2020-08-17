@@ -648,6 +648,10 @@ function output_array(store)
         end
     end
 
+    if isempty(store.redind) && store.redfun != :+ && !(:plusequals in store.flags)
+        store.verbose>0 && @warn "there is no reduction on which to apply ($(store.redfun))"
+    end
+
     if :newarray in store.flags
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
