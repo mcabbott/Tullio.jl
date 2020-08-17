@@ -402,6 +402,11 @@ end
     @test_throws Exception @eval @tullio A[i] != A[i]
     @test_throws Exception @eval @tullio (*) A[i] != A[i]
 
+    # initialisation
+    @test 200 == @tullio (max) m := A[i] init=200
+    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=50.0
+    @test C == max.(50, A)
+
     # more dimensions
     Q = rand(1:10^3, 4,5,6)
     @test vec(maximum(Q,dims=(2,3))) == @tullio (max) R[i] := Q[i,j,k]

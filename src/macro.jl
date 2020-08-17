@@ -119,6 +119,7 @@ _TENSOR = Ref(true)
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
+        :init => TYP, # this means "auto"
         :verbose => _VERBOSE[],
         :fastmath => _FASTMATH[],
         :threads => _THREADS[],
@@ -135,6 +136,10 @@ function parse_options(exs...)
         if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
+
+        # Init keyword
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
+            opts[:init] = ex.args[2]
 
         # Nograd keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
@@ -177,6 +182,7 @@ function parse_options(exs...)
         _TENSOR[] = opts[:tensor]
     end
     (redfun=opts[:redfun],
+        init=opts[:init], # surely there is a tidier way...
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -695,12 +701,16 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    init = store.redfun == :* ? :(one($TYP)) :
+    init = if store.init == TYP # then auto
+        store.redfun == :* ? :(one($TYP)) :
         store.redfun == :max ? :(typemin($TYP)) :
         store.redfun == :min ? :(typemax($TYP)) :
         store.redfun == :& ? :(true) :
         store.redfun == :| ? :(false) :
         :(zero($TYP))
+    else
+        store.init
+    end
 
     # Right now this would allow *= only with reduction * too. Could separate them:
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
