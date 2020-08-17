@@ -841,6 +841,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     else
         ex1, ex2, nothing
     end
+    exloop, exloopfinal = finalsplit(exloop)
 
     # Disable @avx for scatter, https://github.com/chriselrod/LoopVectorization.jl/issues/145
     safe = if act! == ACT!
@@ -852,16 +853,34 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
-        try lex = macroexpand(store.mod, quote
+        try
+            lex = if isnothing(exloopfinal)
+                macroexpand(store.mod, quote
 
-                local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                    $expre
-                    $info1
-                    LoopVectorization.@avx unroll=$unroll $exloop
-                    $expost
-                end
+                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $expre
+                        $info1
+                        LoopVectorization.@avx unroll=$unroll $exloop
+                        $expost
+                    end
 
-            end) # macroexpand quote
+                end)
+            else # "isnothing(final) ? exp(rhs) : rhs" does not prevent execution of finaliser within @avx
+                macroexpand(store.mod, quote
+
+                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $expre
+                        $info1
+                        if isnothing($FINAL)
+                            LoopVectorization.@avx unroll=$unroll $exloop
+                        else
+                            LoopVectorization.@avx unroll=$unroll $exloopfinal
+                        end
+                        $expost
+                    end
+
+                end)
+            end
             push!(store.outpre, lex)
             store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
@@ -959,6 +978,27 @@ recurseloops(ex, list::Vector) =
         ex = :(for $i in $r; $ex; end)
         return recurseloops(ex, list[2:end])
     end
+
+finalsplit(expr) = begin
+    yes = false
+    ex_1 = MacroTools_postwalk(expr) do ex
+        yes |= isifelsefinal(ex)
+        isifelsefinal(ex) ? ex.args[3] : ex
+    end
+    ex_2 = MacroTools_postwalk(expr) do ex
+        isifelsefinal(ex) ? ex.args[4] : ex
+    end
+    if yes
+        return ex_1, ex_2
+    else
+        return ex_1, nothing
+    end
+end
+
+isifelsefinal(ex) = ex isa Expr && ex.head == :call && ex.args[1] == :ifelse &&
+        ex.args[2].head == :call && ex.args[2].args[1] == :isnothing &&
+        ex.args[2].args[2] == FINAL
+
 
 #===== define gradient hooks =====#
 
