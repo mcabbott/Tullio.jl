@@ -23,8 +23,6 @@ const COSTS = Dict(:+ => 0, :- => 0, :* => 0,
 
 callcost(sy, store) = store.cost += get(COSTS, sy, 10)
 
-const TILE = Ref(128^3) # 2^21
-
 #========== runtime functions ==========#
 
 """
@@ -153,7 +151,8 @@ function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, breaks
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
     maxI, maxJ = maximumlength(Is), maximumlength(Js)
-    if maxI < 32 && maxJ < 32
+    maxL = tile_maxiter(T)
+    if maxI < maxL && maxJ < maxL
         fun!(T, As..., Is..., Js..., keep, final)
     elseif maxI > maxJ
         I1s, I2s = cleave(Is)
@@ -166,6 +165,22 @@ function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, breaks
     end
     nothing
 end
+
+"""
+    TILE[] = $(TILE[])
+    tile_maxiter(Array{Float64}) == $(tile_maxiter(Array{Float64}))
+
+This now sets the maximum length of iteration of any index,
+before it gets broken in half to make smaller tiles.
+`TILE[]` is in bytes.
+"""
+const TILE = Ref(512) # this is now a length, in bytes!
+
+function tile_maxiter(::Type{<:AbstractArray{T}}) where {T}
+    isbitstype(T) || return TILE[] ÷ 8
+    max(TILE[] ÷ sizeof(T), 4)
+end
+tile_maxiter(::Type{AT}) where {AT} = TILE[] ÷ 8 # treat anything unkown like Float64
 
 #=
 
@@ -230,6 +245,9 @@ function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tupl
     end
     nothing
 end
+
+
+#========== tuple functions ==========#
 
 @inline productlength(Is::Tuple) = prod(length.(Is))
 @inline productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
