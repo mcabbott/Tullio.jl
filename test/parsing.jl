@@ -395,6 +395,13 @@ end
     M = rand(1:9, 4,5)
     @test vec(prod(M,dims=2)) == @tullio (*) B[i] := M[i,j]
 
+    # != generalises +=, *=
+    C = copy(A)
+    @tullio (max) C[i] != 5i
+    @test C == max.(5:5:50, A)
+    @test_throws Exception @eval @tullio A[i] != A[i]
+    @test_throws Exception @eval @tullio (*) A[i] != A[i]
+
     # more dimensions
     Q = rand(1:10^3, 4,5,6)
     @test vec(maximum(Q,dims=(2,3))) == @tullio (max) R[i] := Q[i,j,k]

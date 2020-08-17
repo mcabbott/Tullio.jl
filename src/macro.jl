@@ -242,6 +242,9 @@ function parse_input(expr, store)
         else
             error("can't use *= with reduction $(store.redfun)")
         end
+    elseif @capture_(expr, left_ != right_ )
+        store.redfun in [:+, :*] && error("can't use != with reduction $(store.redfun), use += or *=")
+        push!(store.flags, :plusequals)
     else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $expr")
     end
 
