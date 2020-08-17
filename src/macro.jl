@@ -695,6 +695,8 @@ function action_functions(store)
     init = store.redfun == :* ? :(one($TYP)) :
         store.redfun == :max ? :(typemin($TYP)) :
         store.redfun == :min ? :(typemax($TYP)) :
+        store.redfun == :& ? :(true) :
+        store.redfun == :| ? :(false) :
         :(zero($TYP))
 
     # Right now this would allow *= only with reduction * too. Could separate them:
