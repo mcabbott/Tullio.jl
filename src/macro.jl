@@ -54,6 +54,7 @@ function _tullio(exs...; mod=Main)
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
+        init = nothing,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -182,7 +183,7 @@ function parse_options(exs...)
         _TENSOR[] = opts[:tensor]
     end
     (redfun=opts[:redfun],
-        init=opts[:init], # surely there is a tidier way...
+        initkeyword=opts[:init], # surely there is a tidier way...
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -627,23 +628,51 @@ end
 #========== output array + eltype ==========#
 
 function output_array(store)
+
+    # Initialisation needs to be worked out somewhere...
+    if store.initkeyword == TYP # then auto
+        store.init = store.redfun == :* ? :(one($TYP)) :
+                    store.redfun == :max ? :(typemin($TYP)) :
+                    store.redfun == :min ? :(typemax($TYP)) :
+                    store.redfun == :& ? :(true) :
+                    store.redfun == :| ? :(false) :
+                    :(zero($TYP))
+    else
+        if store.initkeyword isa Number
+            store.init = store.initkeyword
+        else
+            init_sy = Symbol(string("≪", store.initkeyword, "≫"))
+            push!(store.outpre, :(local $init_sy = $(store.initkeyword)))
+            push!(store.scalars, init_sy)
+            store.init = init_sy
+        end
+    end
+
     if :newarray in store.flags
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
-        T0 = Symbol(TYP,0)
+        T1 = Symbol(TYP,1)
+        T2 = Symbol(TYP,2)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
-            local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
-            local $TYP = if Base.isconcretetype($T0)
-                $T0
+            local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
+            local $T2 = if Base.isconcretetype($T1)
+                $T1
             else
                 $warn
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)
+
+        # Init. usually depends on type, but sometimes widens type
+        if store.initkeyword == TYP
+            push!(store.outex, :(local $TYP = $T2))
+        else
+            push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
+        end
 
         # This now checks for OffsetArrays, and allows A[i,1] := ...
         outaxes = map(store.leftraw) do i
@@ -701,23 +730,11 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    init = if store.init == TYP # then auto
-        store.redfun == :* ? :(one($TYP)) :
-        store.redfun == :max ? :(typemin($TYP)) :
-        store.redfun == :min ? :(typemax($TYP)) :
-        store.redfun == :& ? :(true) :
-        store.redfun == :| ? :(false) :
-        :(zero($TYP))
-    else
-        store.init
-    end
-
     # Right now this would allow *= only with reduction * too. Could separate them:
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
-    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
+    ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 

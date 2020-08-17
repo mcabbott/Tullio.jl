@@ -404,8 +404,10 @@ end
 
     # initialisation
     @test 200 == @tullio (max) m := A[i] init=200
-    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=50.0
-    @test C == max.(50, A)
+    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 # widens type
+    @test C == max.(33.3, A)
+    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() # runs once
+    @test C == fill(C[1], 10)
 
     # more dimensions
     Q = rand(1:10^3, 4,5,6)
