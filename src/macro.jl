@@ -478,6 +478,8 @@ detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
                 unique!(store.unsafeind)
                 # and don't compute a gradient for the inner array
                 B isa Symbol && push!(store.nograd, B)
+                # Any unsafe index turns off @avx, https://github.com/chriselrod/LoopVectorization.jl/issues/145
+                store.axv = false
                 x
             end
         end
@@ -689,6 +691,9 @@ function action_functions(store)
     # Order of these is convenient for threader(), which divides axisleft up freely,
     # divides axisred up with re-starts, and treads axisunsafe like scalar arguments.
     # This is independent of the grouping inner/outer for make_many_actors().
+
+    # (Not entirely sure that unsafe couldn't be lumped with axisred?)
+    # (Also not sure that unsafe-ness shouldn't be LHR/RHS for fwd/grad?)
 
     #===== constructing loops =====#
 
