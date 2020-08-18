@@ -479,7 +479,7 @@ detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
                 # and don't compute a gradient for the inner array
                 B isa Symbol && push!(store.nograd, B)
                 # Any unsafe index turns off @avx, https://github.com/chriselrod/LoopVectorization.jl/issues/145
-                store.axv = false
+                store.avx = false
                 x
             end
         end
