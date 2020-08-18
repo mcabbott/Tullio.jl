@@ -40,10 +40,10 @@ dx, dy = _gradient(sum∘mm, x1, y1)
 
 # abs, abs2
 va = [1,-2,3,-4,5]
-g1 = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
-@test g1 ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
-g2 = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
-@test g2 ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
+abs_grad = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
+@test abs_grad ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
+abs2_grad = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
+@test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
 
 # Using zero-dim arrays fails on ReverseDiff & Tracker
 # Tracker.gradient(x -> x[], fill(1.0))
