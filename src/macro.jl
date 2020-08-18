@@ -65,7 +65,8 @@ function _tullio(exs...; mod=Main)
         finaliser = nothing,
         rightind = Symbol[],
         sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
-        unsafeind = Symbol[], # indices which must never be divided among threads
+        unsafeleft = Symbol[], # k in A[J[k]] never written to by different threads
+        unsaferight = Symbol[], # same for gradient
         arrays = Symbol[],
         scalars = Symbol[],
         cost = 1,
@@ -267,11 +268,11 @@ function parse_input(expr, store)
         Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
     else
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-        detectunsafe(left, store)
+        detectunsafe(left, store.unsafeleft, store)
     end
 
     # Right hand side
-    detectunsafe(right, store)
+    detectunsafe(right, store.unsaferight, store)
     right2 = MacroTools_postwalk(rightwalk(store), right)
 
     if right2 isa Expr && right2.head == :call && right2.args[1] in (:|>, :<|)
@@ -468,18 +469,16 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     i
 end
 
-detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
+detectunsafe(expr, list, store) = MacroTools_postwalk(expr) do ex
         @capture_(ex, A_[inds__]) || return ex
         for i in inds
             MacroTools_postwalk(i) do x
                 @capture_(x, B_[inner__]) || return x
                 # Now we have found an array which indexes another one, mark its indices unsafe
-                append!(store.unsafeind, filter(j -> j isa Symbol, inner))
-                unique!(store.unsafeind)
+                append!(list, filter(j -> j isa Symbol, inner))
+                unique!(list)
                 # and don't compute a gradient for the inner array
                 B isa Symbol && push!(store.nograd, B)
-                # Any unsafe index turns off @avx, https://github.com/chriselrod/LoopVectorization.jl/issues/145
-                store.avx = false
                 x
             end
         end
@@ -684,16 +683,12 @@ end
 
 function action_functions(store)
 
-    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeind))
-    axisred = map(i -> Symbol(AXIS, i), setdiff(store.redind, store.unsafeind))
-    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
-    axislist = vcat(axisunsafe, axisleft, axisred)
+    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeleft))
+    axisred = map(i -> Symbol(AXIS, i), union(store.redind, store.unsafeleft))
+    axislist = vcat(axisleft, axisred)
     # Order of these is convenient for threader(), which divides axisleft up freely,
-    # divides axisred up with re-starts, and treads axisunsafe like scalar arguments.
+    # divides axisred up with re-starts.
     # This is independent of the grouping inner/outer for make_many_actors().
-
-    # (Not entirely sure that unsafe couldn't be lumped with axisred?)
-    # (Also not sure that unsafe-ness shouldn't be LHR/RHS for fwd/grad?)
 
     #===== constructing loops =====#
 
@@ -755,7 +750,7 @@ function action_functions(store)
         store.threads
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
+            tuple($(store.arrays...), $(store.scalars...),),
             tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
     end)
@@ -850,7 +845,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         ex1, ex2, nothing
     end
 
-    if store.avx != false && isdefined(store.mod, :LoopVectorization)
+    # Disable @avx for scatter, https://github.com/chriselrod/LoopVectorization.jl/issues/145
+    safe = if act! == ACT!
+        isempty(store.unsafeleft)
+    else # working on ∇act!
+        isempty(store.unsaferight)
+    end
+
+    if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
         try lex = macroexpand(store.mod, quote
@@ -966,11 +968,11 @@ recurseloops(ex, list::Vector) =
 function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
-    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
-    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsafeind))
+    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsaferight)) # safe to multi-thread
     loopind = vcat(store.leftind, store.redind)
-    axisnonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind, store.unsafeind))
-    axislist = vcat(axisunsafe, axisshared, axisnonshared) # order of arguments of ∇act!
+    axisnonshared = map(i -> Symbol(AXIS, i), union(setdiff(loopind, store.sharedind), store.unsaferight))
+
+    axislist = vcat(axisshared, axisnonshared) # this defines the order of arguments of ∇act!
 
     ok = false
     if store.grad == :Dual && store.redfun == :+
@@ -1021,7 +1023,7 @@ function backward_definitions(store)
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...), $(axisunsafe...), ),
+                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
                     tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
                 return ($(returns...),)
             end
