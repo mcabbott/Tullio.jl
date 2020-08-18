@@ -251,6 +251,7 @@ mydiffrule(f, xs...) = begin
     f == :// && return mydivrule(xs...)
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
+    f == :abs && return myabsrule(xs...)
     f == :sqrt && return mysqrtrule(xs...)
     f == :relu && return myrelurule(xs...)
     f in BASE_NOGRAD && return map(_->0, xs)
@@ -301,6 +302,9 @@ simplipow(x, p) = :($x^$p)
 
 myrelurule(x::Number) = x>0 ? 1 : 0
 myrelurule(x) = :(ifelse($x>0, 1, 0))
+
+myabsrule(x::Number) = x<0 ? -1 : 1
+myabsrule(x) = :(ifelse($x<0, -1, 1)) # matches DiffRules._abs_deriv, which uses signbit(x)
 
 #========== CSE ==========#
 

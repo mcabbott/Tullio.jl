@@ -38,6 +38,13 @@ dx, dy = _gradient(sum∘mm, x1, y1)
 @test dx ≈ 2 * ones(3,5) * y1'
 @test dy ≈ 2 * x1' * ones(3,5)
 
+# abs, abs2
+va = [1,-2,3,-4,5]
+g1 = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
+@test g1 ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
+g2 = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
+@test g2 ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
+
 # Using zero-dim arrays fails on ReverseDiff & Tracker
 # Tracker.gradient(x -> x[], fill(1.0))
 # ReverseDiff.gradient(x -> x[], fill(1.0)) # is ambiguous
