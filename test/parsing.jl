@@ -395,18 +395,18 @@ end
     M = rand(1:9, 4,5)
     @test vec(prod(M,dims=2)) == @tullio (*) B[i] := M[i,j]
 
-    # != generalises +=, *=
+    # ^= generalises +=, *=
     C = copy(A)
-    @tullio (max) C[i] != 5i
+    @tullio (max) C[i] ^= 5i
     @test C == max.(5:5:50, A)
-    @test_throws Exception @eval @tullio A[i] != A[i]
-    @test_throws Exception @eval @tullio (*) A[i] != A[i]
+    @test_throws Exception @eval @tullio A[i] ^= A[i]
+    @test_throws Exception @eval @tullio (*) A[i] ^= A[i]
 
     # initialisation
     @test 200 == @tullio (max) m := A[i] init=200
     @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 # widens type
     @test C == max.(33.3, A)
-    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() # runs once
+    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() tensor=false # runs once
     @test C == fill(C[1], 10)
 
     # more dimensions
