@@ -704,7 +704,7 @@ function action_functions(store)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
     ex_init = if :plusequals in store.flags && !all(isa.(store.leftraw,Int))
-        :( $ACC = $ZED[$(store.leftraw...)] ) # for += init is need only for scalar output. And at present only a,a[1],a[1,2,1] will seen scalar and enter thread_scalar()
+        :( $ACC = $ZED[$(store.leftraw...)] ) # for += init is needed only for scalar output. And at present only outputs like a,a[1],a[1,2,1] will seen scalar and enter thread_scalar()
     else
         :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
     end
@@ -720,18 +720,10 @@ function action_functions(store)
         :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
     end
 
-    ex_nored = if :plusequals in store.flags # meaning always keep = true
-        if store.finaliser == :identity
-            :( $ZED[$(store.leftraw...)] =  $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))  )
-        else
-            :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
-        end
+    ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
+        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
     else
-        if store.finaliser == :identity
-            :( $ZED[$(store.leftraw...)] =  $(store.right) )
-        else
-            :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
-        end
+        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
     end
 
     if isempty(store.redind)
