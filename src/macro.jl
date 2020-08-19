@@ -649,8 +649,11 @@ function output_array(store)
         end
     end
 
-    if isempty(store.redind) && store.redfun != :+ && !(:plusequals in store.flags)
-        store.verbose>0 && @warn "there is no reduction on which to apply ($(store.redfun))"
+    # And some not-compltely-unrelated errors:
+    if isempty(store.redind) && !(:plusequals in store.flags)
+        store.redfun == :+ || error("nothing to reduce over using $(store.redfun)")
+        store.initkeyword == TYP || error("nothing to reduce over using init = $(store.initkeyword)")
+        store.finaliser == :identity || error("can't apply finaliser without a reduction")
     end
 
     if :newarray in store.flags

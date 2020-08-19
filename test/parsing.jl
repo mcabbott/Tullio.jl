@@ -436,6 +436,10 @@ end
     @tullio (max) m := L[i]
     @test m == maximum(L)
 
+    # no reduction means no redfun, and no init:
+    @test_throws Exception @macroexpand @tullio (max) A2[i] := A[i]^2
+    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 init=0.0
+
 end
 
 @testset "finalisers" begin
@@ -451,9 +455,9 @@ end
     @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
-    # trivial use, no reduction
-    @test A ≈ @tullio A2[i] := A[i]^2 |> sqrt
-    @test A ≈ @tullio (*) A2[i] := A[i]^2 |> sqrt
+    # trivial use, no reduction -- now forbidden
+    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 |> sqrt
+    @test_throws Exception @macroexpand @tullio (*) A2[i] := A[i]^2 |> sqrt
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
