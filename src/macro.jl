@@ -715,13 +715,10 @@ function action_functions(store)
         :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
     end
 
-    ex_nored = if store.finaliser == :identity
-        :( $ZED[$(store.leftraw...)] = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right)) )
+    ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
+        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
     else
-        quote
-            $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-            $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
-        end
+        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
     end
 
     if isempty(store.redind)
@@ -778,8 +775,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = sum($ex)))
-             return :($(store.leftscalar) = sum($ex))
+             push!(store.outex, :($(store.leftscalar) = first($ex)))
+             return :($(store.leftscalar) = first($ex))
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex
