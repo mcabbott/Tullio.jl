@@ -711,8 +711,7 @@ function action_functions(store)
     ex_write = if store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
     else
-        # :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
-        :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
+        :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
     ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
@@ -983,10 +982,10 @@ finalsplit(expr) = begin
     yes = false
     ex_1 = MacroTools_postwalk(expr) do ex
         yes |= isifelsefinal(ex)
-        isifelsefinal(ex) ? ex.args[3] : ex
+        isifelsefinal(ex) ? ex.args[2] : ex
     end
     ex_2 = MacroTools_postwalk(expr) do ex
-        isifelsefinal(ex) ? ex.args[4] : ex
+        isifelsefinal(ex) ? ex.args[3] : ex
     end
     if yes
         return ex_1, ex_2
@@ -995,9 +994,10 @@ finalsplit(expr) = begin
     end
 end
 
-isifelsefinal(ex) = ex isa Expr && ex.head == :call && ex.args[1] == :ifelse &&
-        ex.args[2].head == :call && ex.args[2].args[1] == :isnothing &&
-        ex.args[2].args[2] == FINAL
+# This matches ex == :(isnothing(💀) ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
+isifelsefinal(ex) = ex isa Expr && ex.head == :if && length(ex.args) == 3 &&
+        ex.args[1] isa Expr && ex.args[1].head == :call &&
+        ex.args[1].args[1] == :isnothing && ex.args[1].args[2] == FINAL
 
 
 #===== define gradient hooks =====#
