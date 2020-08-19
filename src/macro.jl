@@ -703,7 +703,12 @@ function action_functions(store)
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
 
-    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
+    ex_init = if :plusequals in store.flags && !all(isa.(store.leftraw,Int))
+        :( $ACC = $ZED[$(store.leftraw...)] ) # for += init is need only for scalar output. And at present only a,a[1],a[1,2,1] will seen scalar and enter thread_scalar()
+    else
+        :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
+    end
+#     ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
     # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
@@ -715,12 +720,17 @@ function action_functions(store)
         :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
     end
 
-    ex_nored = if store.finaliser == :identity
-        :( $ZED[$(store.leftraw...)] = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right)) )
+    ex_nored = if :plusequals in store.flags # meaning always keep = true
+        if store.finaliser == :identity
+            :( $ZED[$(store.leftraw...)] =  $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))  )
+        else
+            :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
+        end
     else
-        quote
-            $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-            $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
+        if store.finaliser == :identity
+            :( $ZED[$(store.leftraw...)] =  $(store.right) )
+        else
+            :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
         end
     end
 
