@@ -775,8 +775,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = first($ex)))
-             return :($(store.leftscalar) = first($ex))
+             push!(store.outex, :($(store.leftscalar) = $getonly($ex)))
+             return :($(store.leftscalar) = $getonly($ex))
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex

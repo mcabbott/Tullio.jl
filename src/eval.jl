@@ -47,6 +47,8 @@ end
 
 #========== not gradients ==========#
 
+getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
+
 using Requires
 
 @init @require CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae" begin
@@ -77,6 +79,8 @@ end
     Tullio.∇threader(fun!::F, ::Type{T},
         As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
+
+    Tullio.getonly(a::CuArray) = sum(a)
 
 end
 
