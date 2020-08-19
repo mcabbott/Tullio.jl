@@ -56,4 +56,8 @@ h(A) = @tullio H[j] := exp(A[i,j]) / log(A[i,j])
 A1 = Tracker.gradient(sum∘h, A)[1]
 @test cu(A1) ≈ Tracker.gradient(sum∘h, cu(A))[1]
 
-
+# scalar
+@tullio s := cu(A)[i,j]^2
+@test s ≈ sum(abs2, A)
+@tullio s += cu(B)[i,j]^2
+@test s ≈ sum(abs2, A) + sum(abs2, B)
