@@ -780,8 +780,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = sum($ex)))
-             return :($(store.leftscalar) = sum($ex))
+             push!(store.outex, :($(store.leftscalar) = first($ex)))
+             return :($(store.leftscalar) = first($ex))
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex
