@@ -384,7 +384,7 @@ end
     @test minimum(A) == @tullio (min) m := float(A[i]) # fails with @avx
 
     @test true == @tullio (&) p := A[i] > 0
-    @test_broken true === @tullio (&) p := A[i] > 0 # sum([true]) isa Int
+    @test true === @tullio (&) p := A[i] > 0 # sum([true]) isa Int
     @test true == @tullio (|) q := A[i] > 50
 
     # in-place
