@@ -667,9 +667,9 @@ function output_array(store)
             push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
 
-        # Deal with scalar += now: write into array, later read it out. (Use .= for cuarray.)
+        # Deal with scalar += now: write into array, later read it out:
         if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($(store.leftarray)[$(store.leftraw...)] .= $(store.leftscalar)))
+            push!(store.outex, :($(store.leftarray)[$(store.leftraw...)] = $(store.leftscalar)))
         end
     end
 
