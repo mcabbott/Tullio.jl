@@ -95,6 +95,10 @@ function _tullio(exs...; mod=Main)
 
     output_array(store)
 
+    if opts.lowered === true
+        return store
+    end
+
     ex = action_functions(store)
 
     opts.verbose > 1 && verboseprint(store)
@@ -111,6 +115,7 @@ OPTS = Dict(
     :grad => [false, :Base, :Dual],
     :avx => Integer,
     :cuda => Integer,
+    :lowered => [true, false],
     :tensor => [true, false],
     )
 
@@ -133,6 +138,7 @@ function parse_options(exs...)
         :grad => _GRAD[],
         :avx => _AVX[],
         :cuda => _CUDA[],
+        :lowered => false,
         :tensor => _TENSOR[],
         )
     expr = nothing
@@ -196,6 +202,7 @@ function parse_options(exs...)
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
+        lowered=opts[:lowered],
         grad=opts[:grad],
         avx=opts[:avx],
         cuda=opts[:cuda],
