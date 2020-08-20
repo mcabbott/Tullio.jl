@@ -239,7 +239,7 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ = right_ )
     elseif @capture_(expr, left_ += right_ )
         push!(store.flags, :plusequals)
-        store.redfun == :+ || error("can't use += with reduction $(store.redfun)")
+        store.redfun == :+ || throw("can't use += with reduction $(store.redfun)")
     elseif @capture_(expr, left_ *= right_ )
         push!(store.flags, :plusequals) # slightly abusing the name of the flag!
         if store.redfun == :+ # default, then we change it?
@@ -247,13 +247,14 @@ function parse_input(expr, store)
             store.redfun = :*
         elseif store.redfun == :*
         else
-            error("can't use *= with reduction $(store.redfun)")
+            throw("can't use *= with reduction $(store.redfun)")
         end
     elseif @capture_(expr, left_ ^= right_ )
-        store.redfun == :+ && error("can't use ^= with reduction +, please use +=")
-        store.redfun == :* && error("can't use ^= with reduction *, please use *=")
+        store.redfun == :+ && throw("can't use ^= with reduction +, please use +=")
+        store.redfun == :* && throw("can't use ^= with reduction *, please use *=")
         push!(store.flags, :plusequals)
-    else error("can't understand input, expected A[] := B[] (or with =, or +=, *=, ^=) got $expr")
+    else
+        throw("can't understand input, expected A[] := B[] (or with =, or +=, *=, ^=) got $expr")
     end
 
     # Left hand side:
@@ -264,19 +265,18 @@ function parse_input(expr, store)
         leftraw = [1,] # make a 1D array, not zero
         expr.head == :(+=) && push!(store.scalars, left)
     else
-        error("can't understand LHS, expected A[i,j,k], got $left")
+        throw("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw2 = tidyleftraw(leftraw, store)
     store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
+    isnothing(Z) && !(:newarray in store.flags) && throw("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
 
     store.leftraw = finishleftraw(leftraw2, store)
     if :newarray in store.flags
         !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
-        Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
     else
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
         detectunsafe(left, store.unsafeleft, store)
@@ -310,6 +310,9 @@ function parse_input(expr, store)
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
+    if :newarray in store.flags && Zed in store.arrays
+        throw("can't create a new array $Zed when this also appears on the right")
+    end
 end
 
 rightwalk(store) = ex -> begin
@@ -742,9 +745,6 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    # Right now this would allow *= only with reduction * too. Could separate them:
-    # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
-    # But then keep=true can't be used for blocking, which wants to continue the same as acc.
     # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
     # But matrix op with += calls keep=true always, so need never call init at all,
     # and type-widening to match init doesn't get called for in-place op anyway.
@@ -767,7 +767,7 @@ function action_functions(store)
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
-    ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
+    ex_nored = if :plusequals in store.flags # implies keep=true directly, and final=true since no J indices in threader.
         :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
     else # using finaliser without reduction, and without +=, is now an error.
         :( $ZED[$(store.leftraw...)] = $(store.right) )
