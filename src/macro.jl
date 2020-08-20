@@ -741,8 +741,19 @@ function action_functions(store)
     # Right now this would allow *= only with reduction * too. Could separate them:
     # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
     # But then keep=true can't be used for blocking, which wants to continue the same as acc.
+    # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
+    # But matrix op with += calls keep=true always, so need never call init at all,
+    # and type-widening to match init doesn't get called for in-place op anyway.
 
-    ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
+    # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
+    # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
+
+    # ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
+    ex_init = if :plusequals in store.flags && !isempty(axisleft)
+        :( $ACC = $ZED[$(store.leftraw...)] )
+    else # for non-numbers, similar() avoid ifelse to avoid undef errors:
+        :( $ACC = isnothing($KEEP) ? $(store.init) : $ZED[$(store.leftraw...)] )
+    end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
