@@ -651,9 +651,13 @@ function output_array(store)
 
     # And some not-compltely-unrelated errors:
     if isempty(store.redind) && !(:plusequals in store.flags)
-        store.redfun == :+ || error("nothing to reduce over using $(store.redfun)")
-        store.initkeyword == TYP || error("nothing to reduce over using init = $(store.initkeyword)")
-        store.finaliser == :identity || error("can't apply finaliser without a reduction")
+        store.redfun == :+ || throw("nothing to reduce over using $(store.redfun)")
+        store.finaliser == :identity || throw("can't apply finaliser without a reduction")
+    end
+    if isempty(store.redind)
+        store.initkeyword == TYP || throw("nothing to reduce over, so won't use init = $(store.initkeyword)")
+    elseif :plusequals in store.flags && !(:scalar in store.flags)
+        store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
     end
 
     if :newarray in store.flags
@@ -759,14 +763,14 @@ function action_functions(store)
 
     ex_write = if store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
-    else
+    else # this branch is moved outside @avx by finalsplit(expr), below.
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
     ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
         :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
-    else
-        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
+    else # using finaliser without reduction, and without +=, is now an error.
+        :( $ZED[$(store.leftraw...)] = $(store.right) )
     end
 
     if isempty(store.redind)
