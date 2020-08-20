@@ -798,7 +798,7 @@ This makes several functions of this form,
 decorated as necessary with `@inbouds` or `@avx` etc,
 and with appropriate `storage_type` as the first argument.
 ```
-f!(::Type, args..., keep=nothing) where {T}
+f!(::Type, args..., keep=nothing, final=true) where {T}
     ex1
     ex2 = (for i in axis_i
         ex3
