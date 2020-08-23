@@ -54,7 +54,7 @@ using Tullio, Test, LinearAlgebra
     @tullio G[i] := D[i,$j]
     @test G[6] == 6
 
-    @test_throws LoadError @macroexpand @tullio D[i,$j] := A[i]
+    @test_throws LoadError @eval @tullio D[i,$j] := A[i]
 
     @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
     @test H[5] == F
@@ -104,10 +104,10 @@ using Tullio, Test, LinearAlgebra
     @tullio AI[i] := A[inds[i]]
     @test AI == A[inds]
     jnds = -5:5
-    @test_throws Exception @tullio AJ[j] := A[jnds[j]]
+    @test_throws String @tullio AJ[j] := A[jnds[j]]
     @test_throws BoundsError A[jnds]
     knds = 1:3.0
-    @test_throws Exception @tullio AK[j] := A[knds[j]]
+    @test_throws String @tullio AK[j] := A[knds[j]]
     @test_throws ArgumentError A[knds]
 
     # ... and "scatter"
@@ -124,7 +124,7 @@ using Tullio, Test, LinearAlgebra
     @test H′[3,4] == 0 # zeroed before being written into
 
     inds = vcat(1:3, 1:3)
-    @test_throws Exception @tullio H[inds[i],k] := M[i,k] # range of index i
+    @test_throws String @tullio H[inds[i],k] := M[i,k] # range of index i
 
     # masking
     @tullio M[i,j] := A[i] * A[j] * (i<=j)
@@ -152,7 +152,7 @@ using Tullio, Test, LinearAlgebra
     @test B == (4:13) .// (1:3)'
 
     # wrong ndims
-    @test_throws Exception @tullio Z[i] := B[i]
+    @test_throws String @tullio Z[i] := B[i]
 
     # internal name leaks
     for sy in Tullio.SYMBOLS
@@ -219,7 +219,7 @@ end
     @test D[2,:] == 3 .* A # was not re-zeroed for +=
 
     kinds = [1,2,13,4]
-    @test_throws Exception @tullio D[kinds[i],j] = A[j]
+    @test_throws String @tullio D[kinds[i],j] = A[j]
 
     # assignment: no loop over j
     B = zero(A);
@@ -233,9 +233,9 @@ end
 
     # wrong ndims
     @test ndims(B)==1 && ndims(D)==2
-    @test_throws Exception @tullio B[i] = D[i]^2
-    @test_throws Exception @tullio D[i] = B[i]+2
-    @test_throws Exception @tullio B[i,j] = D[i,j]
+    @test_throws String @tullio B[i] = D[i]^2
+    @test_throws String @tullio D[i] = B[i]+2
+    @test_throws String @tullio B[i,j] = D[i,j]
 
     # internal name leaks
     for sy in Tullio.SYMBOLS
@@ -251,13 +251,13 @@ if !@isdefined OffsetArray
 
         # without OffsetArrays
         @test axes(@tullio B[i] := A[2i+1] + A[i]) === (Base.OneTo(4),)
-        @test_throws Exception @tullio C[i] := A[2i+5]
+        @test_throws String @tullio C[i] := A[2i+5]
 
         J = [3,5,7] # doesn't start at 1
-        @test_throws Exception @tullio G[J[i],k] := A[k]
+        @test_throws String @tullio G[J[i],k] := A[k]
 
         # without NamedDims
-        @test_throws Exception @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
+        @test_throws UndefVarError @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
 
     end
 end
@@ -285,11 +285,11 @@ using OffsetArrays
     cee(A) = @tullio C[i] := A[2i+$j] # closure over j
     @test axes(cee(A),1) == -3:1
 
-    @test_throws Exception @tullio D[i] := A[i] + B[i]
+    @test_throws String @tullio D[i] := A[i] + B[i]
     @tullio D[i] := A[i] + B[i+0] # switches to intersection
     @test axes(D,1) == 1:4
 
-    @test_throws Exception @tullio M[i,j] := A[i+0]/A[j]  (i ∈ 2:5, j ∈ 2:5) # intersection for i but not j
+    @test_throws String @tullio M[i,j] := A[i+0]/A[j]  (i ∈ 2:5, j ∈ 2:5) # intersection for i but not j
 
     @tullio L[i] := A[i+j+1]  (j ∈ -1:1)
     @test axes(L,1) == 1:8
@@ -399,8 +399,8 @@ end
     C = copy(A)
     @tullio (max) C[i] ^= 5i
     @test C == max.(5:5:50, A)
-    @test_throws Exception @eval @tullio A[i] ^= A[i]
-    @test_throws Exception @eval @tullio (*) A[i] ^= A[i]
+    @test_throws LoadError @eval @tullio A[i] ^= A[i]
+    @test_throws LoadError @eval @tullio (*) A[i] ^= A[i]
 
     # initialisation
     @test 200 == @tullio (max) m := A[i] init=200
@@ -428,8 +428,8 @@ end
     @tullio s *= float(A[i]) # works without specifying (*), is this a good idea?
     @test s == float(prod(A))^2
 
-    @test_throws Exception @eval @tullio s += (*) A[i]
-    @test_throws Exception @eval @tullio s *= (max) A[i]
+    @test_throws LoadError @eval @tullio s += (*) A[i]
+    @test_throws LoadError @eval @tullio s *= (max) A[i]
 
     # scalar + threading
     L = randn(100 * Tullio.TILE[]);
@@ -437,8 +437,8 @@ end
     @test m == maximum(L)
 
     # no reduction means no redfun, and no init:
-    @test_throws Exception @macroexpand @tullio (max) A2[i] := A[i]^2
-    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 init=0.0
+    @test_throws LoadError @eval @tullio (max) A2[i] := A[i]^2
+    @test_throws LoadError @eval @tullio A2[i] := A[i]^2 init=0.0
 
 end
 
@@ -456,8 +456,8 @@ end
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
     # trivial use, no reduction -- now forbidden
-    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 |> sqrt
-    @test_throws Exception @macroexpand @tullio (*) A2[i] := A[i]^2 |> sqrt
+    @test_throws LoadError @eval @tullio A2[i] := A[i]^2 |> sqrt
+    @test_throws LoadError @eval @tullio (*) A2[i] := A[i]^2 |> sqrt
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
@@ -479,8 +479,8 @@ end
     @tullio G[i'] := float(B[i',j]) |> atan(_, B[i',$j])
     @test G ≈ vec(atan.(sum(B, dims=2), B[:,j]))
 
-    @test_throws Exception @eval @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
-    @test_throws Exception @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
+    @test_throws LoadError @eval @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
+    @test_throws String @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
 
 end
 

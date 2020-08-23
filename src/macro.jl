@@ -149,7 +149,7 @@ function parse_options(exs...)
             elseif ex.args[2] isa Expr && ex.args[2].head == :tuple
                 append!(nograd, ex.args[2].args)
             else
-                error("this accepts nograd=A or nograd=(A,B,C)")
+                throw("this accepts nograd=A or nograd=(A,B,C)")
             end
 
         # Ranges specified outside:
@@ -157,7 +157,7 @@ function parse_options(exs...)
             push!(ranges, (ex.args[2], ex.args[3]))
         elseif ex isa Expr && ex.head == :tuple && ex.args[1] isa Expr && ex.args[1].args[1] in [:in, :∈]
             for el in ex.args
-                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || error("expected (i ∈ 1:3) but got $el")
+                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || throw("expected (i ∈ 1:3) but got $el")
                 push!(ranges, (el.args[2], el.args[3]))
             end
 
@@ -167,10 +167,10 @@ function parse_options(exs...)
 
         # The main course!
         elseif ex isa Expr
-            isnothing(expr) || error("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)...))")
+            isnothing(expr) || throw("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)...))")
             expr = ex
         else
-            error("not sure what to do with input $ex")
+            throw("not sure what to do with input $ex")
         end
     end
     if isnothing(expr) # if run with no expression, it updates global options
@@ -197,11 +197,11 @@ end
 
 checklegal(opt, val) =
     if OPTS[opt] isa Vector
-        val in OPTS[opt] || error("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]")
+        val in OPTS[opt] || throw("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]")
     elseif val isa Expr || val isa Symbol
         # allows threads=64^3 to work
     elseif OPTS[opt] == Integer
-        val isa Integer && val >= 0 || error("keyword $opt accepts false or a positive integer")
+        val isa Integer && val >= 0 || throw("keyword $opt accepts false or a positive integer")
     end
 
 verboseprint(store) =
@@ -327,7 +327,7 @@ rightwalk(store) = ex -> begin
                 end
             end
         end
-        ex isa Expr && ex.head == :return && error("can't use return inside body")
+        ex isa Expr && ex.head == :return && throw("can't use return inside body")
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -372,7 +372,7 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
         elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
             str = "extrema of index $ex must fit within $A1"
-            push!(store.outpre, :(issubset($range_i, $axis_i) || error($str)))
+            push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
         end
     end
     if right
@@ -391,10 +391,10 @@ saveconstraints(A, inds, store, right=true) = begin
     n = length(inds)
     if n==1
         str = "expected a 1-array $A1, or a tuple"
-        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || error($str) ))
+        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || throw($str) ))
     else
         str = "expected a $n-array $A1" # already arrayfirst(A)
-        push!(store.outpre, :( ndims($A1) == $n || error($str) ))
+        push!(store.outpre, :( ndims($A1) == $n || throw($str) ))
     end
 end
 
@@ -431,7 +431,7 @@ dollarwalk(store) = ex -> begin
         if ex.head == :call
             callcost(ex.args[1], store) # cost model for threading
         elseif ex.head == :$ # interpolation of $c things:
-            ex.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
+            ex.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
             push!(store.scalars, ex.args[1])
             return ex.args[1]
         end
@@ -458,8 +458,8 @@ end
 
 finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     if i isa Expr && i.head == :$
-        :newarray in store.flags && error("can't fix indices on LHS when making a new array")
-        i.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
+        :newarray in store.flags && throw("can't fix indices on LHS when making a new array")
+        i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
 
@@ -509,7 +509,7 @@ makefinaliser(expr::Expr, store) = begin
         elseif @capture_(ex, A_[inds__])
             for i in inds
                 i isa Symbol || continue
-                i in store.leftind || error("index $i can't be used in finaliser")
+                i in store.leftind || throw("index $i can't be used in finaliser")
             end
         end
         ex
@@ -589,7 +589,7 @@ function index_ranges(store)
     end
 
     for i in todo
-        haskey(store.constraints, i) || error("unable to infer range of index $i")
+        haskey(store.constraints, i) || throw("unable to infer range of index $i")
         if i in store.shiftedind
             resolveintersect(i, store, done)
         else
@@ -616,7 +616,7 @@ resolvestrict(i, store, done) = begin
     done[i] = res
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
-        push!(store.axisdefs, :( $alt == $res || error($str) ))
+        push!(store.axisdefs, :( $alt == $res || throw($str) ))
     end
 end
 
@@ -635,7 +635,8 @@ function output_array(store)
 
     # Initialisation needs to be worked out somewhere...
     if store.initkeyword == TYP # then auto
-        store.init = store.redfun == :* ? :(one($TYP)) :
+        store.init = store.redfun == :+ ? :(zero($TYP)) :
+                    store.redfun == :* ? :(one($TYP)) :
                     store.redfun == :max ? :(typemin($TYP)) :
                     store.redfun == :min ? :(typemax($TYP)) :
                     store.redfun == :& ? :(true) :
@@ -697,14 +698,14 @@ function output_array(store)
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
             i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
-            error("can't use index $i on LHS for a new array")
+            throw("can't use index $i on LHS for a new array")
         end
 
         if !isdefined(store.mod, :OffsetArrays)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
                 i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
-                push!(store.outex, :( first($ax) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
+                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
                 return :(Base.OneTo($ax))
             end
         end
@@ -948,7 +949,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
 
         kernel = gensym(:🇨🇺)
-        asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
+        asserts = map(ax -> :( first($ax)==1 || throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         try
             if isempty(outer)
