@@ -152,7 +152,7 @@ using Tullio, Test, LinearAlgebra
     @test B == (4:13) .// (1:3)'
 
     # wrong ndims
-    @test_throws String @tullio Z[i] := B[i]
+    @test_throws Any @tullio Z[i] := B[i] # Any as TensorOperations throws ErrorException
 
     # internal name leaks
     for sy in Tullio.SYMBOLS
