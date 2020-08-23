@@ -264,7 +264,7 @@ _gradient(x...) = Zygote.gradient(x...)
     end
 end
 
-@testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
+# @testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
 
 @info @sprintf("TensorOperations tests took %.1f seconds", time()-t9)
 
