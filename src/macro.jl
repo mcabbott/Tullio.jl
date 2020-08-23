@@ -54,6 +54,7 @@ function _tullio(exs...; mod=Main)
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
+        init = nothing,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -119,6 +120,7 @@ _TENSOR = Ref(true)
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
+        :init => TYP, # this means "auto"
         :verbose => _VERBOSE[],
         :fastmath => _FASTMATH[],
         :threads => _THREADS[],
@@ -135,6 +137,10 @@ function parse_options(exs...)
         if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
+
+        # Init keyword
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
+            opts[:init] = ex.args[2]
 
         # Nograd keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
@@ -177,6 +183,7 @@ function parse_options(exs...)
         _TENSOR[] = opts[:tensor]
     end
     (redfun=opts[:redfun],
+        initkeyword=opts[:init], # surely there is a tidier way...
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -232,7 +239,7 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ = right_ )
     elseif @capture_(expr, left_ += right_ )
         push!(store.flags, :plusequals)
-        store.redfun == :+ || error("can't use += with reduction $(store.redfun)")
+        store.redfun == :+ || throw("can't use += with reduction $(store.redfun)")
     elseif @capture_(expr, left_ *= right_ )
         push!(store.flags, :plusequals) # slightly abusing the name of the flag!
         if store.redfun == :+ # default, then we change it?
@@ -240,9 +247,14 @@ function parse_input(expr, store)
             store.redfun = :*
         elseif store.redfun == :*
         else
-            error("can't use *= with reduction $(store.redfun)")
+            throw("can't use *= with reduction $(store.redfun)")
         end
-    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $expr")
+    elseif @capture_(expr, left_ ^= right_ )
+        store.redfun == :+ && throw("can't use ^= with reduction +, please use +=")
+        store.redfun == :* && throw("can't use ^= with reduction *, please use *=")
+        push!(store.flags, :plusequals)
+    else
+        throw("can't understand input, expected A[] := B[] (or with =, or +=, *=, ^=) got $expr")
     end
 
     # Left hand side:
@@ -253,19 +265,18 @@ function parse_input(expr, store)
         leftraw = [1,] # make a 1D array, not zero
         expr.head == :(+=) && push!(store.scalars, left)
     else
-        error("can't understand LHS, expected A[i,j,k], got $left")
+        throw("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw2 = tidyleftraw(leftraw, store)
     store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
+    isnothing(Z) && !(:newarray in store.flags) && throw("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
 
     store.leftraw = finishleftraw(leftraw2, store)
     if :newarray in store.flags
         !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
-        Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
     else
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
         detectunsafe(left, store.unsafeleft, store)
@@ -299,6 +310,9 @@ function parse_input(expr, store)
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
+    if :newarray in store.flags && Zed in store.arrays
+        throw("can't create a new array $Zed when this also appears on the right")
+    end
 end
 
 rightwalk(store) = ex -> begin
@@ -618,23 +632,65 @@ end
 #========== output array + eltype ==========#
 
 function output_array(store)
+
+    # Initialisation needs to be worked out somewhere...
+    if store.initkeyword == TYP # then auto
+        store.init = store.redfun == :* ? :(one($TYP)) :
+                    store.redfun == :max ? :(typemin($TYP)) :
+                    store.redfun == :min ? :(typemax($TYP)) :
+                    store.redfun == :& ? :(true) :
+                    store.redfun == :| ? :(false) :
+                    begin
+                        store.verbose>0 && @warn "guessing init=zero(T) for unknown reduction $(store.redfun)"
+                        :(zero($TYP))
+                    end
+    else
+        if store.initkeyword isa Number
+            store.init = store.initkeyword
+        else
+            init_sy = Symbol(string("≪", store.initkeyword, "≫"))
+            push!(store.outpre, :(local $init_sy = $(store.initkeyword)))
+            push!(store.scalars, init_sy)
+            store.init = init_sy
+        end
+    end
+
+    # And some not-compltely-unrelated errors:
+    if isempty(store.redind) && !(:plusequals in store.flags)
+        store.redfun == :+ || throw("nothing to reduce over using $(store.redfun)")
+        store.finaliser == :identity || throw("can't apply finaliser without a reduction")
+    end
+    if isempty(store.redind)
+        store.initkeyword == TYP || throw("nothing to reduce over, so won't use init = $(store.initkeyword)")
+    elseif :plusequals in store.flags && !(:scalar in store.flags)
+        store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
+    end
+
     if :newarray in store.flags
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
-        T0 = Symbol(TYP,0)
+        T1 = Symbol(TYP,1)
+        T2 = Symbol(TYP,2)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
-            local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
-            local $TYP = if Base.isconcretetype($T0)
-                $T0
+            local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
+            local $T2 = if Base.isconcretetype($T1)
+                $T1
             else
                 $warn
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)
+
+        # Init. usually depends on type, but sometimes widens type
+        if store.initkeyword == TYP
+            push!(store.outex, :(local $TYP = $T2))
+        else
+            push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
+        end
 
         # This now checks for OffsetArrays, and allows A[i,1] := ...
         outaxes = map(store.leftraw) do i
@@ -692,32 +748,32 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    init = store.redfun == :* ? :(one($TYP)) :
-        store.redfun == :max ? :(typemin($TYP)) :
-        store.redfun == :min ? :(typemax($TYP)) :
-        store.redfun == :& ? :(true) :
-        store.redfun == :| ? :(false) :
-        :(zero($TYP))
+    # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
+    # But matrix op with += calls keep=true always, so need never call init at all,
+    # and type-widening to match init doesn't get called for in-place op anyway.
 
-    # Right now this would allow *= only with reduction * too. Could separate them:
-    # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
-    # But then keep=true can't be used for blocking, which wants to continue the same as acc.
+    # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
+    # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
 
-    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
+    # ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
+    ex_init = if :plusequals in store.flags && !isempty(axisleft)
+        :( $ACC = $ZED[$(store.leftraw...)] )
+    else # for non-numbers, similar() avoid ifelse to avoid undef errors:
+        :( $ACC = isnothing($KEEP) ? $(store.init) : $ZED[$(store.leftraw...)] )
+    end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
     ex_write = if store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
-    else
+    else # this branch is moved outside @avx by finalsplit(expr), below.
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
-    ex_nored = if :plusequals in store.flags # meaning always keep = true and final = true, since there's no branch, no need to reduce :identity
+    ex_nored = if :plusequals in store.flags # implies keep=true directly, and final=true since no J indices in threader.
         :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
-    else
-        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.right)) )
+    else # using finaliser without reduction, and without +=, is now an error.
+        :( $ZED[$(store.leftraw...)] = $(store.right) )
     end
 
     if isempty(store.redind)

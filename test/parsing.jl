@@ -395,6 +395,20 @@ end
     M = rand(1:9, 4,5)
     @test vec(prod(M,dims=2)) == @tullio (*) B[i] := M[i,j]
 
+    # ^= generalises +=, *=
+    C = copy(A)
+    @tullio (max) C[i] ^= 5i
+    @test C == max.(5:5:50, A)
+    @test_throws Exception @eval @tullio A[i] ^= A[i]
+    @test_throws Exception @eval @tullio (*) A[i] ^= A[i]
+
+    # initialisation
+    @test 200 == @tullio (max) m := A[i] init=200
+    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 # widens type
+    @test C == max.(33.3, A)
+    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() tensor=false # runs once
+    @test C == fill(C[1], 10)
+
     # more dimensions
     Q = rand(1:10^3, 4,5,6)
     @test vec(maximum(Q,dims=(2,3))) == @tullio (max) R[i] := Q[i,j,k]
@@ -422,6 +436,10 @@ end
     @tullio (max) m := L[i]
     @test m == maximum(L)
 
+    # no reduction means no redfun, and no init:
+    @test_throws Exception @macroexpand @tullio (max) A2[i] := A[i]^2
+    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 init=0.0
+
 end
 
 @testset "finalisers" begin
@@ -437,9 +455,9 @@ end
     @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
     @test B2 ≈ mapslices(norm, B + B', dims=1)
 
-    # trivial use, no reduction
-    @test A ≈ @tullio A2[i] := A[i]^2 |> sqrt
-    @test A ≈ @tullio (*) A2[i] := A[i]^2 |> sqrt
+    # trivial use, no reduction -- now forbidden
+    @test_throws Exception @macroexpand @tullio A2[i] := A[i]^2 |> sqrt
+    @test_throws Exception @macroexpand @tullio (*) A2[i] := A[i]^2 |> sqrt
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
