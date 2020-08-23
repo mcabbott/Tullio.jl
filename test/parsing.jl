@@ -233,9 +233,9 @@ end
 
     # wrong ndims
     @test ndims(B)==1 && ndims(D)==2
-    @test_throws String @tullio B[i] = D[i]^2
-    @test_throws String @tullio D[i] = B[i]+2
-    @test_throws String @tullio B[i,j] = D[i,j]
+    @test_throws Any @tullio B[i] = D[i]^2
+    @test_throws Any @tullio D[i] = B[i]+2
+    @test_throws Any @tullio B[i,j] = D[i,j]
 
     # internal name leaks
     for sy in Tullio.SYMBOLS

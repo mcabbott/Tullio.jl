@@ -296,7 +296,7 @@ function parse_input(expr, store)
         end
         if :scalar in store.flags
             # scalar threaded reduction won't work with nontrivial finalisers
-            store.vebose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
+            store.verbose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
             store.threads = false
         end
     else
