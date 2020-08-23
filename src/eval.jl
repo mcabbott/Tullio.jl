@@ -47,7 +47,8 @@ end
 
 #========== not gradients ==========#
 
-getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
+@inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
+@inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
 
 using Requires
 
@@ -63,7 +64,8 @@ using Requires
         As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
 
-    Tullio.getonly(a::CuArray) = sum(a)
+    Tullio.getonly(a::CuArray) = CuArrays.@allowscalar first(a)
+    Tullio.setonly!(a::CuArray, val) = CuArrays.@allowscalar a[1] = val
 
 end
 
@@ -80,7 +82,8 @@ end
         As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
 
-    Tullio.getonly(a::CuArray) = sum(a)
+    Tullio.getonly(a::CuArray) = CUDA.@allowscalar first(a)
+    Tullio.setonly!(a::CuArray, val) = CUDA.@allowscalar a[1] = val
 
 end
 

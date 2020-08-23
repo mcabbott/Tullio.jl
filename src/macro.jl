@@ -296,6 +296,7 @@ function parse_input(expr, store)
         end
         if :scalar in store.flags
             # scalar threaded reduction won't work with nontrivial finalisers
+            store.vebose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
             store.threads = false
         end
     else
@@ -726,7 +727,7 @@ function output_array(store)
 
         # Deal with scalar += now: write into array, later read it out:
         if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($(store.leftarray)[$(store.leftraw...)] = $(store.leftscalar)))
+            push!(store.outex, :($setonly!($(store.leftarray), $(store.leftscalar))))
         end
     end
 
