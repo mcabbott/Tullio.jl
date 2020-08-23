@@ -967,27 +967,12 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
             end)
             push!(store.outpre, kex1)
-            if isdefined(store.mod, :CuArrays) && isdefined(store.mod, :CuArray) # old-style, CuArrays.jl
-                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CuArrays actor $($note)") : nothing
+            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
+                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
                 kex2 = quote
 
                     local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
-                        cu_kern! = $kernel(CUDA(), $(store.cuda))
-                        $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                        KernelAbstractions.wait($ACC)
-                    end
-
-                end
-                push!(store.outpre, kex2)
-            end
-            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
-                info2bis = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
-                kex2bis = quote
-
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                        $info2bis
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
                         $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
@@ -995,7 +980,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     end
 
                 end
-                push!(store.outpre, kex2bis)
+                push!(store.outpre, kex2)
             end
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
             kex3 = quote
