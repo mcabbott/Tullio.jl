@@ -640,7 +640,10 @@ function output_array(store)
                     store.redfun == :min ? :(typemax($TYP)) :
                     store.redfun == :& ? :(true) :
                     store.redfun == :| ? :(false) :
-                    :(zero($TYP))
+                    begin
+                        store.verbose>0 && @warn "guessing init=zero(T) for unknown reduction $(store.redfun)"
+                        :(zero($TYP))
+                    end
     else
         if store.initkeyword isa Number
             store.init = store.initkeyword
