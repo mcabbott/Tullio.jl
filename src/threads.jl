@@ -23,8 +23,6 @@ const COSTS = Dict(:+ => 0, :- => 0, :* => 0,
 
 callcost(sy, store) = store.cost += get(COSTS, sy, 10)
 
-const TILE = Ref(128^3) # 2^21
-
 #========== runtime functions ==========#
 
 """
@@ -57,33 +55,19 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    threads, breaks = threadlog2s(Is, Js, block)
-
-    if length(Is) >= 1 && threads>1
-        thread_halves(fun!, T, (Z, As...), Is, Js, threads, breaks, keep)
-    elseif length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number
-        scalar_threads, _ = threadlog2s(Js, (), block)
-        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_threads, keep)
-    elseif breaks>1
-        tile_halves(fun!, T, (Z, As...), Is, Js, breaks, keep)
-    else
-        fun!(T, Z, As..., Is..., Js..., keep)
-    end
-    nothing
-end
-
-@inline function threadlog2s(Is, Js, block)
     Ielements = productlength(Is)
     Jelements = productlength(Js)
-
     threads = min(Threads.nthreads(), cld(Ielements * Jelements, block), Ielements)
 
-    breaks = max(0,min(
-        round(Int, log2(Ielements * Jelements / TILE[] / threads)),
-        floor(Int, log2(Ielements / threads)) + floor(Int, log2(Jelements)),
-        ))
-
-    threads, breaks
+    if length(Is) >= 1 && threads>1
+        thread_halves(fun!, T, (Z, As...), Is, Js, threads, keep)
+    elseif length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number
+        scalar_threads = min(Threads.nthreads(), cld(Jelements, block), Jelements)
+        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_threads, keep)
+    else
+        tile_halves(fun!, T, (Z, As...), Is, Js, keep)
+    end
+    nothing
 end
 
 
@@ -112,59 +96,77 @@ function ∇threader(fun!::F, ::Type{T}, As::Tuple, I0s::Tuple, J0s::Tuple, bloc
 
     Is = map(UnitRange, I0s)
     Js = map(UnitRange, J0s)
-    threads, breaks = threadlog2s(Is, Js, block)
+    Ielements = productlength(Is)
+    Jelements = productlength(Js)
+    threads = min(Threads.nthreads(), cld(Ielements * Jelements, block), Ielements)
 
     if threads > 1
-        thread_halves(fun!, T, As, Is, Js, threads, breaks)
-    elseif breaks>1
-        tile_halves(fun!, T, As, Is, Js, breaks)
+        thread_halves(fun!, T, As, Is, Js, threads)
     else
-        fun!(T, As..., Is..., Js...)
+        tile_halves(fun!, T, As, Is, Js)
     end
     nothing
 end
 
-function thread_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, threads::Int, breaks, keep=nothing) where {F <: Function, T}
+function thread_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, threads::Int, keep=nothing) where {F <: Function, T}
     if threads > 2 && rem(threads,3) == 0 # not always halves!
         I1s, I2s, I3s = trisect(Is)
         task1 = Threads.@spawn begin
-            thread_halves(fun!, T, As, I1s, Js, threads÷3, breaks, keep)
+            thread_halves(fun!, T, As, I1s, Js, threads÷3, keep)
         end
         task2 = Threads.@spawn begin
-            thread_halves(fun!, T, As, I2s, Js, threads÷3, breaks, keep)
+            thread_halves(fun!, T, As, I2s, Js, threads÷3, keep)
         end
-        thread_halves(fun!, T, As, I3s, Js, threads÷3, breaks, keep)
+        thread_halves(fun!, T, As, I3s, Js, threads÷3, keep)
         wait(task1)
         wait(task2)
     elseif threads > 1
         I1s, I2s = cleave(Is, maybe32divsize(T))
         task = Threads.@spawn begin
-            thread_halves(fun!, T, As, I1s, Js, threads÷2, breaks, keep)
+            thread_halves(fun!, T, As, I1s, Js, threads÷2, keep)
         end
-        thread_halves(fun!, T, As, I2s, Js, threads÷2, breaks, keep)
+        thread_halves(fun!, T, As, I2s, Js, threads÷2, keep)
         wait(task)
     else
-        tile_halves(fun!, T, As, Is, Js, breaks, keep)
+        tile_halves(fun!, T, As, Is, Js, keep)
     end
     nothing
 end
 
-function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, breaks::Int, keep=nothing, final=true) where {F <: Function, T}
+function tile_halves(fun!::F, ::Type{T}, As::Tuple, Is::Tuple, Js::Tuple, keep=nothing, final=true) where {F <: Function, T}
     # keep == nothing || keep == true || error("illegal value for keep")
     # final == nothing || final == true || error("illegal value for final")
-    if breaks < 1
+    maxI, maxJ = maximumlength(Is), maximumlength(Js)
+    maxL = tile_maxiter(T)
+    if maxI < maxL && maxJ < maxL
         fun!(T, As..., Is..., Js..., keep, final)
-    elseif maximumlength(Is) > maximumlength(Js)
+    elseif maxI > maxJ
         I1s, I2s = cleave(Is)
-        tile_halves(fun!, T, As, I1s, Js, breaks-1, keep, final)
-        tile_halves(fun!, T, As, I2s, Js, breaks-1, keep, final)
+        tile_halves(fun!, T, As, I1s, Js, keep, final)
+        tile_halves(fun!, T, As, I2s, Js, keep, final)
     else
         J1s, J2s = cleave(Js)
-        tile_halves(fun!, T, As, Is, J1s, breaks-1, keep, nothing)
-        tile_halves(fun!, T, As, Is, J2s, breaks-1, true, final)
+        tile_halves(fun!, T, As, Is, J1s, keep, nothing)
+        tile_halves(fun!, T, As, Is, J2s, true, final)
     end
     nothing
 end
+
+"""
+    TILE[] = $(TILE[])
+    tile_maxiter(Array{Float64}) == 64?
+
+This now sets the maximum length of iteration of any index,
+before it gets broken in half to make smaller tiles.
+`TILE[]` is in bytes.
+"""
+const TILE = Ref(512) # this is now a length, in bytes!
+
+function tile_maxiter(::Type{<:AbstractArray{T}}) where {T}
+    isbitstype(T) || return TILE[] ÷ 8
+    max(TILE[] ÷ sizeof(T), 4)
+end
+tile_maxiter(::Type{AT}) where {AT} = TILE[] ÷ 8 # treat anything unkown like Float64
 
 #=
 
@@ -229,6 +231,9 @@ function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tupl
     end
     nothing
 end
+
+
+#========== tuple functions ==========#
 
 @inline productlength(Is::Tuple) = prod(length.(Is))
 @inline productlength(Is::Tuple, Js::Tuple) = productlength(Is) * productlength(Js)
