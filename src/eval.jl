@@ -47,32 +47,37 @@ end
 
 #========== not gradients ==========#
 
+@inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
+@inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
+
 using Requires
 
-@init @require CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae" begin
-    using .CuArrays
-
-    Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, redfun, block=0, keep=nothing) =
-        fun!(T, Z, As..., Is..., Js..., keep)
-
-    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple, block=0) =
-        fun!(T, As..., Is..., Js...,)
-
-end
-
-# CUDA replaces CuArrays, Julia >=1.4 only.
 @init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
-    using .CUDA
+    using .CUDA: CuArray, GPUArrays
 
-    Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple, redfun, block=0, keep=nothing) =
+    Tullio.threader(fun!::F, ::Type{T},
+        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple,
+        redfun, block=0, keep=nothing) where {F<:Function, T<:CuArray} =
         fun!(T, Z, As..., Is..., Js..., keep)
 
-    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple, block=0) =
+    Tullio.∇threader(fun!::F, ::Type{T},
+        As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
+
+    function Tullio.getonly(a::CuArray) # @allowscalar first(a)
+        prev = GPUArrays.scalar_allowed[]
+        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
+        res = first(a)
+        GPUArrays.scalar_allowed[] = prev
+        res
+    end
+    function Tullio.setonly!(a::CuArray, val) # @allowscalar a[1] = val
+        prev = GPUArrays.scalar_allowed[]
+        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
+        res = setindex!(a, val, 1)
+        GPUArrays.scalar_allowed[] = prev
+        res
+    end
 
 end
 

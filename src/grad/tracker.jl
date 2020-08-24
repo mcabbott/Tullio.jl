@@ -9,6 +9,6 @@ Tracker.@grad function (ev::Eval)(args...)
     Z = ev.fwd(Tracker.data.(args)...)
     Z, Δ -> begin
         isnothing(ev.rev) && error("no gradient definition here!")
-        tuple(ev.rev(Δ, Z, Tracker.data.(args)...)...)
+        tuple(ev.rev(Tracker.data(Δ), Z, Tracker.data.(args)...)...)
     end
 end

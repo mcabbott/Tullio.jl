@@ -54,6 +54,7 @@ function _tullio(exs...; mod=Main)
         flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
+        init = nothing,
     # Everything writes into leftarray[leftraw...], sometimes with a generated name
         leftraw = [],
         leftind = Symbol[],    # vcat(leftind, redind) is the complete list of loop indices
@@ -65,12 +66,13 @@ function _tullio(exs...; mod=Main)
         finaliser = nothing,
         rightind = Symbol[],
         sharedind = Symbol[], # indices appearing on every RHS array, safe for ∇thread
-        unsafeind = Symbol[], # indices which must never be divided among threads
+        unsafeleft = Symbol[], # k in A[J[k]] never written to by different threads
+        unsaferight = Symbol[], # same for gradient
         arrays = Symbol[],
         scalars = Symbol[],
         cost = 1,
     # Index ranges: first save all known constraints
-        constraints = Dict{Symbol,Vector}(), # :k => [:(axis(A,2)), :(axis(B,1))] etc.
+        constraints = Dict{Symbol,Vector}(), # :k => [:(axes(A,2)), :(axes(B,1))] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
@@ -118,6 +120,7 @@ _TENSOR = Ref(true)
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
+        :init => TYP, # this means "auto"
         :verbose => _VERBOSE[],
         :fastmath => _FASTMATH[],
         :threads => _THREADS[],
@@ -135,6 +138,10 @@ function parse_options(exs...)
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
 
+        # Init keyword
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
+            opts[:init] = ex.args[2]
+
         # Nograd keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
             if ex.args[2] isa Symbol
@@ -142,7 +149,7 @@ function parse_options(exs...)
             elseif ex.args[2] isa Expr && ex.args[2].head == :tuple
                 append!(nograd, ex.args[2].args)
             else
-                error("this accepts nograd=A or nograd=(A,B,C)")
+                throw("this accepts nograd=A or nograd=(A,B,C)")
             end
 
         # Ranges specified outside:
@@ -150,7 +157,7 @@ function parse_options(exs...)
             push!(ranges, (ex.args[2], ex.args[3]))
         elseif ex isa Expr && ex.head == :tuple && ex.args[1] isa Expr && ex.args[1].args[1] in [:in, :∈]
             for el in ex.args
-                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || error("expected (i ∈ 1:3) but got $el")
+                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || throw("expected (i ∈ 1:3) but got $el")
                 push!(ranges, (el.args[2], el.args[3]))
             end
 
@@ -160,10 +167,10 @@ function parse_options(exs...)
 
         # The main course!
         elseif ex isa Expr
-            isnothing(expr) || error("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)...))")
+            isnothing(expr) || throw("too many expressions! recognised keywords are $(vcat(:nograd, keys(opts)...))")
             expr = ex
         else
-            error("not sure what to do with input $ex")
+            throw("not sure what to do with input $ex")
         end
     end
     if isnothing(expr) # if run with no expression, it updates global options
@@ -176,6 +183,7 @@ function parse_options(exs...)
         _TENSOR[] = opts[:tensor]
     end
     (redfun=opts[:redfun],
+        initkeyword=opts[:init], # surely there is a tidier way...
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -189,11 +197,11 @@ end
 
 checklegal(opt, val) =
     if OPTS[opt] isa Vector
-        val in OPTS[opt] || error("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]")
+        val in OPTS[opt] || throw("keyword $opt accepts values [" * join(OPTS[opt], ", ") * "]")
     elseif val isa Expr || val isa Symbol
         # allows threads=64^3 to work
     elseif OPTS[opt] == Integer
-        val isa Integer && val >= 0 || error("keyword $opt accepts false or a positive integer")
+        val isa Integer && val >= 0 || throw("keyword $opt accepts false or a positive integer")
     end
 
 verboseprint(store) =
@@ -231,7 +239,7 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ = right_ )
     elseif @capture_(expr, left_ += right_ )
         push!(store.flags, :plusequals)
-        store.redfun == :+ || error("can't use += with reduction $(store.redfun)")
+        store.redfun == :+ || throw("can't use += with reduction $(store.redfun)")
     elseif @capture_(expr, left_ *= right_ )
         push!(store.flags, :plusequals) # slightly abusing the name of the flag!
         if store.redfun == :+ # default, then we change it?
@@ -239,9 +247,14 @@ function parse_input(expr, store)
             store.redfun = :*
         elseif store.redfun == :*
         else
-            error("can't use *= with reduction $(store.redfun)")
+            throw("can't use *= with reduction $(store.redfun)")
         end
-    else error("can't understand input, expected A[] := B[] (or with =, +=, or *=) got $expr")
+    elseif @capture_(expr, left_ ^= right_ )
+        store.redfun == :+ && throw("can't use ^= with reduction +, please use +=")
+        store.redfun == :* && throw("can't use ^= with reduction *, please use *=")
+        push!(store.flags, :plusequals)
+    else
+        throw("can't understand input, expected A[] := B[] (or with =, or +=, *=, ^=) got $expr")
     end
 
     # Left hand side:
@@ -252,25 +265,25 @@ function parse_input(expr, store)
         leftraw = [1,] # make a 1D array, not zero
         expr.head == :(+=) && push!(store.scalars, left)
     else
-        error("can't understand LHS, expected A[i,j,k], got $left")
+        throw("can't understand LHS, expected A[i,j,k], got $left")
     end
-    leftraw1 = tidyleftraw(primeindices(leftraw), store)
-    store.leftind = filter(i -> i isa Symbol && i != :(:), leftraw1) # this gives correct outer loop order
-    store.leftraw = tidyleftraw2(leftraw1, store)
+    leftraw2 = tidyleftraw(leftraw, store)
+    store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(:newarray in store.flags) && error("can't write into an array whose name isn't given!")
+    isnothing(Z) && !(:newarray in store.flags) && throw("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
+
+    store.leftraw = finishleftraw(leftraw2, store)
     if :newarray in store.flags
         !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
-        Zed in store.arrays && error("can't create a new array $Zed when this also appears on the right")
     else
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-        detectunsafe(left, store)
+        detectunsafe(left, store.unsafeleft, store)
     end
 
     # Right hand side
-    detectunsafe(right, store)
+    detectunsafe(right, store.unsaferight, store)
     right2 = MacroTools_postwalk(rightwalk(store), right)
 
     if right2 isa Expr && right2.head == :call && right2.args[1] in (:|>, :<|)
@@ -283,6 +296,7 @@ function parse_input(expr, store)
         end
         if :scalar in store.flags
             # scalar threaded reduction won't work with nontrivial finalisers
+            store.verbose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
             store.threads = false
         end
     else
@@ -297,6 +311,9 @@ function parse_input(expr, store)
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
+    if :newarray in store.flags && Zed in store.arrays
+        throw("can't create a new array $Zed when this also appears on the right")
+    end
 end
 
 rightwalk(store) = ex -> begin
@@ -311,7 +328,7 @@ rightwalk(store) = ex -> begin
                 end
             end
         end
-        ex isa Expr && ex.head == :return && error("can't use return inside body")
+        ex isa Expr && ex.head == :return && throw("can't use return inside body")
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -356,7 +373,7 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
         elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
             str = "extrema of index $ex must fit within $A1"
-            push!(store.outpre, :(issubset($range_i, $axis_i) || error($str)))
+            push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
         end
     end
     if right
@@ -375,10 +392,10 @@ saveconstraints(A, inds, store, right=true) = begin
     n = length(inds)
     if n==1
         str = "expected a 1-array $A1, or a tuple"
-        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || error($str) ))
+        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || throw($str) ))
     else
         str = "expected a $n-array $A1" # already arrayfirst(A)
-        push!(store.outpre, :( ndims($A1) == $n || error($str) ))
+        push!(store.outpre, :( ndims($A1) == $n || throw($str) ))
     end
 end
 
@@ -415,7 +432,7 @@ dollarwalk(store) = ex -> begin
         if ex.head == :call
             callcost(ex.args[1], store) # cost model for threading
         elseif ex.head == :$ # interpolation of $c things:
-            ex.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
+            ex.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
             push!(store.scalars, ex.args[1])
             return ex.args[1]
         end
@@ -427,37 +444,54 @@ dollarstrip(expr) = MacroTools_postwalk(expr) do @nospecialize ex
         ex
     end
 
-# there has got to be a tidier way!
-tidyleftraw(leftraw, store) = map(leftraw) do i
-    if i isa Expr && i.head == :kw
-        if :newarray in store.flags # then NamedDims wrapper is put on later
-            push!(store.leftnames, i.args[1])
-            return i.args[2]
-        else
-            # push!(store.flags, :noavx)
+tidyleftraw(leftraw, store) = begin
+    step1 = map(leftraw) do i
+        if i isa Expr && i.head == :kw && :newarray in store.flags # then NamedDims wrapper is put on later
+                push!(store.leftnames, i.args[1])
+                return i.args[2]
+        elseif i === :_ # underscores on left denote trivial dimensions
+            return 1
         end
-    elseif i === :_
-        return 1
+        i
     end
-    i
+    primeindices(step1) # normalise i' to i′
 end
-tidyleftraw2(leftraw, store) = map(leftraw) do i
+
+finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     if i isa Expr && i.head == :$
-        i.args[1] isa Symbol || error("you can only interpolate single symbols, not $ex")
+        :newarray in store.flags && throw("can't fix indices on LHS when making a new array")
+        i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
+
+    elseif @capture_(i, J_[inds__]) # scatter operation, A[i,J[j,k]] := ...
+        push!(store.nograd, J)
+        rightwalk(store)(i) # array J viewed as part of RHS, and provides a range for j,k
+        inds2 = filter(j->j isa Symbol, tidyleftraw(inds, store))
+        append!(store.leftind, inds2) # but j,k aren't to be summed
+
+        ex = :($J[$(tidyleftraw(inds, store)...)])
+        if :newarray in store.flags
+            ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
+            push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
+            push!(store.flags, :zero)
+        elseif !(:plusequals in store.flags) # A[i,J[j,k]] += ... doesn't zero
+            push!(store.flags, :zero)
+        end
+
+        return ex # has primes dealt with
     end
     i
 end
 
-detectunsafe(expr, store) = MacroTools_postwalk(expr) do ex
+detectunsafe(expr, list, store) = MacroTools_postwalk(expr) do ex
         @capture_(ex, A_[inds__]) || return ex
         for i in inds
             MacroTools_postwalk(i) do x
                 @capture_(x, B_[inner__]) || return x
                 # Now we have found an array which indexes another one, mark its indices unsafe
-                append!(store.unsafeind, filter(j -> j isa Symbol, inner))
-                unique!(store.unsafeind)
+                append!(list, filter(j -> j isa Symbol, inner))
+                unique!(list)
                 # and don't compute a gradient for the inner array
                 B isa Symbol && push!(store.nograd, B)
                 x
@@ -476,7 +510,7 @@ makefinaliser(expr::Expr, store) = begin
         elseif @capture_(ex, A_[inds__])
             for i in inds
                 i isa Symbol || continue
-                i in store.leftind || error("index $i can't be used in finaliser")
+                i in store.leftind || throw("index $i can't be used in finaliser")
             end
         end
         ex
@@ -556,7 +590,7 @@ function index_ranges(store)
     end
 
     for i in todo
-        haskey(store.constraints, i) || error("unable to infer range of index $i")
+        haskey(store.constraints, i) || throw("unable to infer range of index $i")
         if i in store.shiftedind
             resolveintersect(i, store, done)
         else
@@ -583,7 +617,7 @@ resolvestrict(i, store, done) = begin
     done[i] = res
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
-        push!(store.axisdefs, :( $alt == $res || error($str) ))
+        push!(store.axisdefs, :( $alt == $res || throw($str) ))
     end
 end
 
@@ -599,36 +633,80 @@ end
 #========== output array + eltype ==========#
 
 function output_array(store)
+
+    # Initialisation needs to be worked out somewhere...
+    if store.initkeyword == TYP # then auto
+        store.init = store.redfun == :+ ? :(zero($TYP)) :
+                    store.redfun == :* ? :(one($TYP)) :
+                    store.redfun == :max ? :(typemin($TYP)) :
+                    store.redfun == :min ? :(typemax($TYP)) :
+                    store.redfun == :& ? :(true) :
+                    store.redfun == :| ? :(false) :
+                    begin
+                        store.verbose>0 && @warn "guessing init=zero(T) for unknown reduction $(store.redfun)"
+                        :(zero($TYP))
+                    end
+    else
+        if store.initkeyword isa Number
+            store.init = store.initkeyword
+        else
+            init_sy = Symbol(string("≪", store.initkeyword, "≫"))
+            push!(store.outpre, :(local $init_sy = $(store.initkeyword)))
+            push!(store.scalars, init_sy)
+            store.init = init_sy
+        end
+    end
+
+    # And some not-compltely-unrelated errors:
+    if isempty(store.redind) && !(:plusequals in store.flags)
+        store.redfun == :+ || throw("nothing to reduce over using $(store.redfun)")
+        store.finaliser == :identity || throw("can't apply finaliser without a reduction")
+    end
+    if isempty(store.redind)
+        store.initkeyword == TYP || throw("nothing to reduce over, so won't use init = $(store.initkeyword)")
+    elseif :plusequals in store.flags && !(:scalar in store.flags)
+        store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
+    end
+
     if :newarray in store.flags
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
-        T0 = Symbol(TYP,0)
+        T1 = Symbol(TYP,1)
+        T2 = Symbol(TYP,2)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
-            local $T0 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
-            local $TYP = if Base.isconcretetype($T0)
-                $T0
+            local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
+            local $T2 = if Base.isconcretetype($T1)
+                $T1
             else
                 $warn
                 typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)
 
+        # Init. usually depends on type, but sometimes widens type
+        if store.initkeyword == TYP
+            push!(store.outex, :(local $TYP = $T2))
+        else
+            push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
+        end
+
         # This now checks for OffsetArrays, and allows A[i,1] := ...
         outaxes = map(store.leftraw) do i
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
-            error("can't use index $i on LHS for a new array")
+            i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
+            throw("can't use index $i on LHS for a new array")
         end
 
         if !isdefined(store.mod, :OffsetArrays)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
-                i in store.shiftedind || return ax
-                push!(store.outex, :( first($ax) == 1 || error("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
+                i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
+                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
                 return :(Base.OneTo($ax))
             end
         end
@@ -649,12 +727,12 @@ function output_array(store)
 
         # Deal with scalar += now: write into array, later read it out:
         if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($(store.leftarray)[$(store.leftraw...)] = $(store.leftscalar)))
+            push!(store.outex, :($setonly!($(store.leftarray), $(store.leftscalar))))
         end
     end
 
     if :zero in store.flags
-        push!(store.outex, :( $(store.leftarray) .= zero($TYP) ))
+        push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
     end
 
 end
@@ -663,44 +741,41 @@ end
 
 function action_functions(store)
 
-    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeind))
-    axisred = map(i -> Symbol(AXIS, i), setdiff(store.redind, store.unsafeind))
-    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
-    axislist = vcat(axisunsafe, axisleft, axisred)
+    axisleft = map(i -> Symbol(AXIS, i), setdiff(store.leftind, store.unsafeleft))
+    axisred = map(i -> Symbol(AXIS, i), union(store.redind, store.unsafeleft))
+    axislist = vcat(axisleft, axisred)
     # Order of these is convenient for threader(), which divides axisleft up freely,
-    # divides axisred up with re-starts, and treads axisunsafe like scalar arguments.
+    # divides axisred up with re-starts.
     # This is independent of the grouping inner/outer for make_many_actors().
 
     #===== constructing loops =====#
 
-    init = store.redfun == :* ? :(one($TYP)) :
-        store.redfun == :max ? :(typemin($TYP)) :
-        store.redfun == :min ? :(typemax($TYP)) :
-        :(zero($TYP))
+    # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
+    # But matrix op with += calls keep=true always, so need never call init at all,
+    # and type-widening to match init doesn't get called for in-place op anyway.
 
-    # Right now this would allow *= only with reduction * too. Could separate them:
-    # acc=0; acc = acc + rhs; Z[i] = ifelse(keep, acc, Z[i] * acc)
-    # But then keep=true can't be used for blocking, which wants to continue the same as acc.
+    # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
+    # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
 
-    ex_init = :( $ACC = ifelse(isnothing($KEEP), $init, $ZED[$(store.leftraw...)]) )
-    # ex_init = :( $ACC = isnothing($KEEP) ? $init : $ZED[$(store.leftraw...)] ) # more allocations with @avx, not sure why
+    # ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
+    ex_init = if :plusequals in store.flags && !isempty(axisleft)
+        :( $ACC = $ZED[$(store.leftraw...)] )
+    else # for non-numbers, similar() avoid ifelse to avoid undef errors:
+        :( $ACC = isnothing($KEEP) ? $(store.init) : $ZED[$(store.leftraw...)] )
+    end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
     ex_write = if store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
-    else
-        # :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
-        :( $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $ACC, $(store.finaliser)($ACC)) )
+    else # this branch is moved outside @avx by finalsplit(expr), below.
+        :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
-    ex_nored = if store.finaliser == :identity
-        :( $ZED[$(store.leftraw...)] = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right)) )
-    else
-        quote
-            $RHS = isnothing($KEEP) ? $(store.right) : $(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))
-            $ZED[$(store.leftraw...)] = ifelse(isnothing($FINAL), $RHS, $(store.finaliser)($RHS))
-        end
+    ex_nored = if :plusequals in store.flags # implies keep=true directly, and final=true since no J indices in threader.
+        :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
+    else # using finaliser without reduction, and without +=, is now an error.
+        :( $ZED[$(store.leftraw...)] = $(store.right) )
     end
 
     if isempty(store.redind)
@@ -729,7 +804,7 @@ function action_functions(store)
         store.threads
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...), $(axisunsafe...),),
+            tuple($(store.arrays...), $(store.scalars...),),
             tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
     end)
@@ -757,8 +832,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = sum($ex)))
-             return :($(store.leftscalar) = sum($ex))
+             push!(store.outex, :($(store.leftscalar) = $getonly($ex)))
+             return :($(store.leftscalar) = $getonly($ex))
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex
@@ -781,7 +856,7 @@ This makes several functions of this form,
 decorated as necessary with `@inbouds` or `@avx` etc,
 and with appropriate `storage_type` as the first argument.
 ```
-f!(::Type, args..., keep=nothing) where {T}
+f!(::Type, args..., keep=nothing, final=true) where {T}
     ex1
     ex2 = (for i in axis_i
         ex3
@@ -823,20 +898,46 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     else
         ex1, ex2, nothing
     end
+    exloop, exloopfinal = finalsplit(exloop)
 
-    if store.avx != false && isdefined(store.mod, :LoopVectorization)
+    # Disable @avx for scatter, https://github.com/chriselrod/LoopVectorization.jl/issues/145
+    safe = if act! == ACT!
+        isempty(store.unsafeleft)
+    else # working on ∇act!
+        isempty(store.unsaferight)
+    end
+
+    if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
-        try lex = macroexpand(store.mod, quote
+        try
+            lex = if isnothing(exloopfinal)
+                macroexpand(store.mod, quote
 
-                local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                    $expre
-                    $info1
-                    LoopVectorization.@avx unroll=$unroll $exloop
-                    $expost
-                end
+                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $expre
+                        $info1
+                        LoopVectorization.@avx unroll=$unroll $exloop
+                        $expost
+                    end
 
-            end) # macroexpand quote
+                end)
+            else # "isnothing(final) ? exp(rhs) : rhs" does not prevent execution of finaliser within @avx
+                macroexpand(store.mod, quote
+
+                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $expre
+                        $info1
+                        if isnothing($FINAL)
+                            LoopVectorization.@avx unroll=$unroll $exloop
+                        else
+                            LoopVectorization.@avx unroll=$unroll $exloopfinal
+                        end
+                        $expost
+                    end
+
+                end)
+            end
             push!(store.outpre, lex)
             store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
         catch err
@@ -849,7 +950,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
 
         kernel = gensym(:🇨🇺)
-        asserts = map(ax -> :( first($ax)==1 || error("KernelAbstractions can't handle OffsetArrays here")), axouter)
+        asserts = map(ax -> :( first($ax)==1 || throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         try
             if isempty(outer)
@@ -873,27 +974,12 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             store.verbose==2 && @show verbosetidy(kex0)
             kex1 = macroexpand(store.mod, kex0)
             push!(store.outpre, kex1)
-            if isdefined(store.mod, :CuArrays) && isdefined(store.mod, :CuArray) # old-style, CuArrays.jl
-                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CuArrays actor $($note)") : nothing
+            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
+                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
                 kex2 = quote
 
                     local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
-                        cu_kern! = $kernel(CUDA(), $(store.cuda))
-                        $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                        KernelAbstractions.wait($ACC)
-                    end
-
-                end
-                push!(store.outpre, kex2)
-            end
-            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
-                info2bis = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
-                kex2bis = quote
-
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                        $info2bis
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
                         $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
@@ -901,7 +987,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     end
 
                 end
-                push!(store.outpre, kex2bis)
+                push!(store.outpre, kex2)
             end
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
             kex3 = quote
@@ -942,16 +1028,38 @@ recurseloops(ex, list::Vector) =
         return recurseloops(ex, list[2:end])
     end
 
+finalsplit(expr) = begin
+    yes = false
+    ex_1 = MacroTools_postwalk(expr) do ex
+        yes |= isifelsefinal(ex)
+        isifelsefinal(ex) ? ex.args[2] : ex
+    end
+    ex_2 = MacroTools_postwalk(expr) do ex
+        isifelsefinal(ex) ? ex.args[3] : ex
+    end
+    if yes
+        return ex_1, ex_2
+    else
+        return ex_1, nothing
+    end
+end
+
+# This matches ex == :(isnothing(💀) ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
+isifelsefinal(ex) = ex isa Expr && ex.head == :if && length(ex.args) == 3 &&
+        ex.args[1] isa Expr && ex.args[1].head == :call &&
+        ex.args[1].args[1] == :isnothing && ex.args[1].args[2] == FINAL
+
+
 #===== define gradient hooks =====#
 
 function backward_definitions(store)
     store.grad == false && return nothing # no gradient wanted
 
-    axisunsafe = map(i -> Symbol(AXIS, i), store.unsafeind)
-    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsafeind))
+    axisshared = map(i -> Symbol(AXIS, i), setdiff(store.sharedind, store.unsaferight)) # safe to multi-thread
     loopind = vcat(store.leftind, store.redind)
-    axisnonshared = map(i -> Symbol(AXIS, i), setdiff(loopind, store.sharedind, store.unsafeind))
-    axislist = vcat(axisunsafe, axisshared, axisnonshared) # order of arguments of ∇act!
+    axisnonshared = map(i -> Symbol(AXIS, i), union(setdiff(loopind, store.sharedind), store.unsaferight))
+
+    axislist = vcat(axisshared, axisnonshared) # this defines the order of arguments of ∇act!
 
     ok = false
     if store.grad == :Dual && store.redfun == :+
@@ -1002,7 +1110,7 @@ function backward_definitions(store)
                 $(defineempties...)
                 $(store.axisdefs...)
                 $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...), $(axisunsafe...), ),
+                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
                     tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
                 return ($(returns...),)
             end

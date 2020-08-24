@@ -55,9 +55,14 @@ macro capture_(ex, pat::Expr)
         _endswithone(pat.args[1]) && _endswithone(pat.args[2]) # :( f_(x_) )
         _symbolone(pat.args[1]), _symbolone(pat.args[2])
 
-    elseif pat.head in [:call, :(=), :(:=), :+=, :-=, :*=, :/=] &&
+    elseif pat.head in [:call, :(=), :(:=), :+=, :-=, :*=, :/=, :^=] &&
         _endswithone(pat.args[1]) && _endswithone(pat.args[2]) # :( A_ += B_ )
         _symbolone(pat.args[1]), _symbolone(pat.args[2])
+
+    # elseif pat.head == :call  && length(pat.args)==3 && pat.args[1] == :!= &&
+    #     _endswithone(pat.args[2]) && _endswithone(pat.args[3]) # :( A_ != B_ )
+    #     H = QuoteNode(pat.args[1])
+    #     _symbolone(pat.args[2]), _symbolone(pat.args[3])
 
     elseif pat.head == :vect && _endswithtwo(pat.args[1]) # :( [ijk__] )
         _symboltwo(pat.args[1]), gensym(:ignore)
@@ -106,12 +111,18 @@ _trymatch(ex::Expr, pat::Val{:call}) =
     else
         nothing
     end
-_trymatch(ex::Expr, pat::Union{Val{:(=)}, Val{:(:=)}, Val{:(+=)}, Val{:(-=)}, Val{:(*=)}, Val{:(/=)}}) =
+_trymatch(ex::Expr, pat::Union{Val{:(=)}, Val{:(:=)}, Val{:(+=)}, Val{:(-=)}, Val{:(*=)}, Val{:(/=)}, Val{:(^=)}}) =
     if ex.head === _getvalue(pat)
         ex.args[1], ex.args[2]
     else
         nothing
     end
+# _trymatch(ex::Expr, pat::Val{:!=}) =
+#     if ex.head === :call && length(ex.args) == 3 && ex.args[1] == :!=
+#         ex.args[2], ex.args[3]
+#     else
+#         nothing
+#     end
 _trymatch(ex::Expr, ::Val{:vect}) = # [ijk__]
     if ex.head === :vect
         ex.args, nothing

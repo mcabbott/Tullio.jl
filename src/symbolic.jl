@@ -16,7 +16,7 @@ function insert_symbolic_gradient(axislist, store)
     elseif store.redfun in [:min, :max] # :*,
         store.leftind, store.redind
     else
-        error("can't take gradients with reduction $(store.redfun)")
+        throw("can't take gradients with reduction $(store.redfun)")
     end
 
     targets = []
@@ -95,7 +95,7 @@ _leibfinal(out, res) = begin
         ex == out ? res : ex
     end
     MacroTools_postwalk(grad2) do ex
-        ex == RHS ? error("couldn't eliminate partial sum") : ex
+        ex == RHS ? throw("couldn't eliminate partial sum") : ex
     end
 end
 
@@ -108,7 +108,7 @@ leibfinal(ex::Expr, res) = begin
             length(lines) == 1 && return _leinfinal(first(lines), res)
         end
     end
-    error("couldn't understand finaliser")
+    throw("couldn't understand finaliser")
 end
 
 #=
@@ -196,7 +196,7 @@ leibnitz(ex::Expr, target) = begin
         ex.head = :call
         pushfirst!(ex.args, :adjoint)
     end
-    ex.head == :call || error("expected a functionn call, got $ex.")
+    ex.head == :call || throw("expected a functionn call, got $ex.")
     fun = ex.args[1]
     if fun == :log # catch log(a*b) and especially log(a/b)
         arg = ex.args[2]
@@ -228,7 +228,7 @@ leibnitz(ex::Expr, target) = begin
         dz = leibnitz(ex.args[4], target)
         return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy), simplitimes(fz, dz))
     end
-    error("don't know how to handle $ex.")
+    throw("don't know how to handle $ex.")
 end
 
 simplitimes(x::Number, y::Number) = x*y
@@ -251,6 +251,7 @@ mydiffrule(f, xs...) = begin
     f == :// && return mydivrule(xs...)
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
+    f == :abs && return myabsrule(xs...)
     f == :sqrt && return mysqrtrule(xs...)
     f == :relu && return myrelurule(xs...)
     f in BASE_NOGRAD && return map(_->0, xs)
@@ -258,7 +259,7 @@ mydiffrule(f, xs...) = begin
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
         return DiffRules.diffrule(:SpecialFunctions, f, xs...)
-    error("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
+    throw("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
 end
 
 BASE_NOGRAD = [:(==), :(!=), :(<), :(<=), :(>), :(>=), :trunc, :round]
@@ -301,6 +302,9 @@ simplipow(x, p) = :($x^$p)
 
 myrelurule(x::Number) = x>0 ? 1 : 0
 myrelurule(x) = :(ifelse($x>0, 1, 0))
+
+myabsrule(x::Number) = x<0 ? -1 : 1
+myabsrule(x) = :(ifelse($x<0, -1, 1)) # matches DiffRules._abs_deriv, which uses signbit(x)
 
 #========== CSE ==========#
 
