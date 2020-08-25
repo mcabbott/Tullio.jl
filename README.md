@@ -20,14 +20,14 @@ Tullio is a very flexible einsum macro. It understands many array operations wri
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
 One difference is that it can parse more expressions (such as the convolution `M`, and worse).
-Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
+Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)) and recursive tiling, on large enough arrays. 
 But it also co-operates with various other packages, provided they are loaded before the macro is called:
 
-* It can use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
+* It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
 
-* It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
+* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
-* It can use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
+* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
 The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
@@ -39,16 +39,17 @@ The macro also tries to provide a gradient for use with [Tracker](https://github
 The expression need not be just one line, for example:
 
 ```julia
-@tullio out[x,y,n] := begin              # sum over a,b
+@tullio out[x,y] := begin                # sum over k
+        a,b = off[k]
         i = mod(x+a, axes(mat,1))
         j = mod(y+b, axes(mat,2))
-        @inbounds mat[i,j,n] * abs(kern[a,b])
-    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
+        @inbounds mat[i,j]
+    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
 ```
 
 Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
 (If writing into an existing array, with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.)
-It knows that it should not sum over indices `i,j`, but since it can't be sure  of their ranges, it will not add `@inbounds` in such cases.
+It knows that it should not sum over indices `i,j`, but since it can't be sure of their ranges, it will not add `@inbounds` in such cases.
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
 
 Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
@@ -156,8 +157,11 @@ Tracker.gradient(x -> (@tullio (max) res := x[i]^3), [1,2,3,-2,-1,3])[1]
 <details><summary><b>Larger expressions</b></summary>
 
 ```julia
-mat = zeros(10,10,1); mat[1,1] = 101;
-@tullio kern[i,j] := 1/(1+i^2+j^2)  (i in -2:2, j in -2:2)
+using Tullio, OffsetArrays
+
+# A convolution with cyclic indices
+mat = zeros(10,10,1); mat[2,2] = 101; mat[10,10] = 1;
+@tullio kern[i,j] := 1/(1+i^2+j^2)  (i in -3:3, j in -3:3)
 
 @tullio out[x,y,c] := begin
     xi = mod(x+i, axes(mat,1)) # xi = ... means that it won't be summed,
@@ -165,22 +169,25 @@ mat = zeros(10,10,1); mat[1,1] = 101;
     @inbounds trunc(Int, mat[xi, yj, c] * kern[i,j]) # and disables automatic @inbounds,
 end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 
+# A stencil?
+offsets = [(a,b) for a in -2:2 for b in -2:2 if a>=b] # vector of tuples
+
+@tullio out[x,y,1] = begin 
+        a,b = offsets[k]
+        i = clamp(x+a, extrema(axes(mat,1))...)
+        j = clamp(y+b, extrema(axes(mat,2))...)
+        @inbounds mat[i,j,1] * 10
+    end # ranges of x,y read from out[x,y,1]
+
+# Applying a vector of functions
 fs = [sin, cos, tan]
 xs = randn(3,100)
-
-@tullio ys[r,c] := (fs[r])(xs[r,c]) # works, but not the gradient
-
-function rowmap(fs, xs)
-    axes(fs,1) == axes(xs,1) || error()
-    @tullio ys[r,c] := begin
-        @inbounds f = getindex($fs, r) # not writing fs[r] avoids trying to make Δfs
-        @inbounds f(xs[r,c]) # assignment f = ... has again disabled @inbounds.
-    end grad=Dual
-end
+@tullio ys[r,c] := (fs[r])(xs[r,c])
 
 using Zygote, ForwardDiff
+rowmap(fs, xs) = @tullio ys[r,c] := (fs[r])(xs[r,c]) grad=Dual nograd=fs
 Zygote.gradient(sum∘rowmap, fs, ones(3,2))
-[f'(1) for f in fs]
+[f'(1) for f in fs] # agrees
 ```
 
 </details>
