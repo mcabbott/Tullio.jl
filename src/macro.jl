@@ -958,14 +958,21 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
-            kex1 = macroexpand(store.mod, quote
+            ka_args = map(args) do x # mark everything const, except for ZED::AbstractArray{TYP} and gradients
+                x isa Symbol || return x
+                startswith(string(x), string(DEL)) && x != Symbol(DEL, ZED) && return x
+                :(@Const($x))
+            end
+            kex0 = quote
 
-                KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
+                KernelAbstractions.@kernel function $kernel($(ka_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
-                    ($ex1; $ex3; $ex4; $ex6)
+                    @views ($ex1; $ex3; $ex4; $ex6)
                 end
 
-            end)
+            end
+            store.verbose==2 && @show verbosetidy(kex0)
+            kex1 = macroexpand(store.mod, kex0)
             push!(store.outpre, kex1)
             if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing

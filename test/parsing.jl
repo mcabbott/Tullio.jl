@@ -135,6 +135,12 @@ using Tullio, Test, LinearAlgebra
     @test A == @tullio P[i'] := A[i′]
     @test [1,4,9] == @tullio Q[i'] := (i′)^2  (i' in 1:3)
 
+    # colons
+    @tullio R[i] := prod(M[:,i]) avx=false
+    @test R ≈ vec(prod(M, dims=1))
+
+    # @tullio S[:,i] := cumsum(M[:,i]) avx=false
+
     # non-numeric array
     @tullio Y[i] := (ind=i, val=A[i])
     @test Y[2] === (ind = 2, val = 4)
@@ -204,6 +210,15 @@ end
     @test W2 == W
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
+
+    # colons
+    R = similar(A)
+    @tullio R[i] = sum(D[:,i]) avx=false
+    @test R == vec(sum(D, dims=1))
+
+    S = similar(D);
+    @tullio S[i,:] = cumsum(D[:,i]) avx=false
+    @test_broken S == cumsum(D, dims=1)
 
     # zero off-diagonal? not now, but maybe it should?
     @tullio D[i,i] = A[i]
