@@ -92,7 +92,7 @@ function _tullio(exs...; mod=Main)
 
     ex = action_functions(store)
 
-    opts.verbose == 2 && verboseprint(store)
+    opts.verbose > 1 && verboseprint(store)
 
     ex |> esc
 end
@@ -100,7 +100,7 @@ end
 #========== options, etc ==========#
 
 OPTS = Dict(
-    :verbose => Any[true, false, 2],
+    :verbose => Any[true, false, 2, 3],
     :fastmath => [true, false],
     :threads => Integer,
     :grad => [false, :Base, :Dual],
@@ -202,14 +202,6 @@ checklegal(opt, val) =
         # allows threads=64^3 to work
     elseif OPTS[opt] == Integer
         val isa Integer && val >= 0 || throw("keyword $opt accepts false or a positive integer")
-    end
-
-verboseprint(store) =
-    foreach(propertynames(store)) do k
-        r = getproperty(store, k) # startswith(string(k), "out") fails?
-        k ∉ [:outpre, :outex] && return printstyled("    $k = ", repr(r), "\n", color=:blue)
-        printstyled("    $k =\n", color=:blue)
-        foreach(ex -> printstyled(verbosetidy(ex) , "\n", color=:green), r)
     end
 
 #========== symbols ==========#
@@ -735,6 +727,8 @@ function output_array(store)
         push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
     end
 
+    ex_pre = quote $(store.outpre...) end # before act! gets pushed into store.outpre
+    store.verbose==2 && @info "Preliminary expressions" verbosetidy(ex_pre)
 end
 
 #========== action functions ==========#
@@ -812,11 +806,15 @@ function action_functions(store)
 
     if :newarray in store.flags
         # then slurp up outex to make a function:
+        ex_make = quote
+            local @inline function $MAKE($(store.arrays...), $(store.scalars...), )
+                $(store.outex...)
+            end
+        end
+        store.verbose==2 && @info "Maker function" verbosetidy(ex_make)
         ex = quote
             let $ACT! = $ACT!
-                local @inline function $MAKE($(store.arrays...), $(store.scalars...), )
-                    $(store.outex...)
-                end
+                $ex_make
                 $Eval($MAKE, $∇make)($(store.arrays...), $(store.scalars...), )
             end
         end
@@ -841,6 +839,8 @@ function action_functions(store)
 
     else
         # in-place, no MAKE function, but still keep ACT! from escaping
+        ex_body = quote $(store.outex...) end
+        store.verbose==2 && @info "In-place body" verbosetidy(ex_body)
         return :(let
             $(store.outpre...)
             $(store.outex...)
@@ -873,25 +873,27 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
 
-    if store.fastmath && isempty(store.notfree)
-        push!(store.outpre, quote
+    ex_act = if store.fastmath && isempty(store.notfree)
+        quote
             local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 @inbounds @fastmath ($ex1; $ex2)
             end
-        end)
+        end
     elseif isempty(store.notfree)
-        push!(store.outpre, quote
+        quote
             local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 @inbounds ($ex1; $ex2)
             end
-        end)
+        end
     else
-        push!(store.outpre, quote
+        quote
             local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 ($ex1; $ex2)
             end
-        end)
+        end
     end
+    store.verbose==2 && @info "Base actor $note" verbosetidy(ex_act)
+    push!(store.outpre, ex_act)
 
     expre, exloop, expost = if isempty(outer)
         :($ex1; $ex3), ex4, ex6
@@ -912,7 +914,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
         try
             lex = if isnothing(exloopfinal)
-                macroexpand(store.mod, quote
+                quote
 
                     local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
@@ -921,9 +923,9 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $expost
                     end
 
-                end)
+                end
             else # "isnothing(final) ? exp(rhs) : rhs" does not prevent execution of finaliser within @avx
-                macroexpand(store.mod, quote
+                quote
 
                     local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
@@ -936,12 +938,13 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $expost
                     end
 
-                end)
+                end
             end
-            push!(store.outpre, lex)
-            store.verbose == 2 && @info "success wtih LoopVectorization, unroll=$unroll $note"
+            store.verbose==2 && @info "LoopVectorization actor $note" verbosetidy(lex)
+            push!(store.outpre, macroexpand(store.mod, lex))
+            store.verbose==2 && @info "success expanding LoopVectorization.@avx"
         catch err
-            store.verbose > 0 && @warn "LoopVectorization failed $note" err
+            store.verbose>0 && @warn "LoopVectorization failed $note" err
         end
     end
 
@@ -954,19 +957,20 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         sizes = map(ax -> :(length($ax)), axouter)
         try
             if isempty(outer)
-                store.verbose > 0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
+                store.verbose>0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
-            kex1 = macroexpand(store.mod, quote
+            kex1 = quote
 
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
                 end
 
-            end)
-            push!(store.outpre, kex1)
+            end
+            store.verbose==2 && @info "KernelAbstractions kernel $note" verbosetidy(kex1)
+            push!(store.outpre, macroexpand(store.mod, kex1))
             if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
                 kex2 = quote
@@ -980,6 +984,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     end
 
                 end
+                store.verbose==2 && @info "KernelAbstractions CUDA actor $note" verbosetidy(kex2)
                 push!(store.outpre, kex2)
             end
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
@@ -999,14 +1004,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 # offers a way to control whether it gets used or not. By default, not.
                 push!(store.outpre, kex3)
             end
-            store.verbose == 2 && @info "success wtih KernelAbstractions $note"
+            store.verbose==2 && @info "success expanding KernelAbstractions.@kernel"
         catch err
-            store.verbose > 0 && @warn "KernelAbstractions failed $note" err
+            store.verbose>0 && @warn "KernelAbstractions failed $note" err
         end
     end
 
-    if act! != ACT! && isempty(store.sharedind) && Threads.nthreads()>1
-        store.verbose > 0 && @warn "can't parallelise this gradient, no shared indices $note"
+    if act! != ACT! && isempty(store.sharedind) && store.threads != false
+        store.verbose>0 && @warn "can't parallelise this gradient, no shared indices $note"
     end
 end
 
@@ -1059,17 +1064,17 @@ function backward_definitions(store)
         try
             insert_forward_gradient(axislist, store)
             ok = true
-            store.verbose == 2 && @info "using ForwardDiff gradient"
+            store.verbose==2 && @info "using ForwardDiff gradient"
         catch err
-            store.verbose > 0 && @warn "ForwardDiff gradient failed" err
+            store.verbose>0 && @warn "ForwardDiff gradient failed" err
         end
     elseif store.grad == :Base
         try
             insert_symbolic_gradient(axislist, store)
             ok = true
-            store.verbose == 2 && @info "success wtih Symbolic gradient"
+            store.verbose==2 && @info "success wtih symbolic gradient"
         catch err
-            store.verbose > 0 && @warn "Symbolic gradient failed" err
+            store.verbose>0 && @warn "symbolic gradient failed" err
         end
     end
 
@@ -1096,19 +1101,23 @@ function backward_definitions(store)
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
-    push!(store.outpre, quote
+    ex_make = quote
 
-        local $∇make = let $∇act! = $∇act!
-            local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
-                $(defineempties...)
-                $(store.axisdefs...)
-                $∇threader($∇act!, $ST,
-                    tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
-                    tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
-                return ($(returns...),)
-            end
+        local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+            $(defineempties...)
+            $(store.axisdefs...)
+            $∇threader($∇act!, $ST,
+                tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
+                tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
+            return ($(returns...),)
         end
 
+    end
+    store.verbose==2 && @info "Gradient maker function" verbosetidy(ex_make)
+    push!(store.outpre, quote
+        local $∇make = let $∇act! = $∇act!
+            $ex_make
+        end
     end)
 
     return ∇make

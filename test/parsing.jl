@@ -517,10 +517,10 @@ end
     @tullio A[i] := (1:10)[i]^2  threads=block # Symbol
     @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  threads=:maybe
 
-    # keyword verbose accepts values [true, false, 2]
+    # keyword verbose accepts values [true, false, 2, 3]
     @tullio A[i] := (1:10)[i]^2  verbose=1
     @tullio A[i] := (1:10)[i]^2  verbose=false
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=3
+    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=4
 
     # keyword grad accepts values [false, Base, Dual]
     @tullio A[i] := (1:10)[i]^2  grad=false

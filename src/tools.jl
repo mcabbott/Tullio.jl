@@ -11,7 +11,7 @@ Base.parent(x::DotDict) = getfield(x, :store)
 Base.propertynames(x::DotDict) = Tuple(sort(collect(keys(parent(x)))))
 Base.getproperty(x::DotDict, s::Symbol) = getindex(parent(x), s)
 function Base.setproperty!(x::DotDict, s::Symbol, v)
-    s in propertynames(x) || error("DotDict has no field $s")
+    s in propertynames(x) || throw("DotDict has no field $s")
     T = typeof(getproperty(x, s))
     if T == Nothing
         setindex!(parent(x), v, s)
@@ -24,6 +24,32 @@ function Base.show(io::IO, x::DotDict)
     print(io, "DotDict(")
     strs = map(k -> string(k, " = ", getproperty(x, k)), propertynames(x))
     print(io, join(strs, ", "), ")")
+end
+
+verboseprint(store) = begin
+    printstyled("┌ store.\n", color=:blue)
+    foreach(propertynames(store)) do k
+        printstyled("│   $k = ", color=:blue)
+        r = getproperty(store, k)
+        if k ∉ [:outpre, :outex]
+            println(repr(r))
+        else
+            str = repr(verbosetidy.(r))
+            ind = nextind(str, 120)
+            println(str[1:min(ind,end)], " ...")
+        end
+    end
+    printstyled("└\n", color=:blue)
+    if store.verbose == 3
+        if haskey(store, :outpre)
+            printstyled("store.outpre = \n", color=:blue)
+            printstyled(verbosetidy(store.outpre) , "\n", color=:green)
+        end
+        if haskey(store, :outex)
+            printstyled("\nstore.outex = \n", color=:blue)
+            printstyled(verbosetidy(store.outpre) , "\n", color=:green)
+        end
+    end
 end
 
 #========== capture macro ==========#
@@ -68,7 +94,7 @@ macro capture_(ex, pat::Expr)
         _symboltwo(pat.args[1]), gensym(:ignore)
 
     else
-        error("@capture_ doesn't work on pattern $pat")
+        throw("@capture_ doesn't work on pattern $pat")
     end
 
     @gensym res
