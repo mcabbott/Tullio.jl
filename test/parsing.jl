@@ -89,6 +89,8 @@ using Tullio, Test, LinearAlgebra
     @tullio N[i,j] := A[i]/j  (j in axes(K,1))  (i in axes(A,1)) # K not an argument
     @test N ≈ A ./ (1:3)'
 
+    @test_throws String @tullio A[i] := i^2 (i in 1+10) # not a range
+
     # repeated scalar arg
     tri = Base.OneTo(3) # with 1:3, this fails without OffsetArrays,
     # as it only converts shifted indices to OneTo

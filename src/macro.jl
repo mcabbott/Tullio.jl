@@ -543,6 +543,8 @@ function parse_ranges(ranges, store) # now runs after parse_input
         else
             s = Symbol(string("≪", r, "≫"))
             push!(store.outpre, :($s = $r))
+            str = "expected a range for ($i in $r), got "
+            push!(store.outpre, :($s isa AbstractRange || throw($str * string($r))))
             push!(store.scalars, s)
             push!(v, s)
         end
