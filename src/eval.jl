@@ -79,6 +79,8 @@ using Requires
         res
     end
 
+    # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
+
 end
 
 @init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin

@@ -65,7 +65,7 @@ issubset(addranges(1:10, 1:3) .- 3, 1:10)
 # and for A[I[j]+k] (where it enters into the calculation of k's range).
 
 function extremerange(A)
-    α, ω = extrema(A)
+    α, ω = minimum(A), maximum(A)
     α isa Integer && ω isa Integer || throw("expected integers!")
     α:ω
 end
