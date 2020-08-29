@@ -730,7 +730,7 @@ function output_array(store)
     end
 
     ex_pre = quote $(store.outpre...) end # before act! gets pushed into store.outpre
-    store.verbose==2 && @info "Preliminary expressions" verbosetidy(ex_pre)
+    store.verbose==2 && @info ">>>>> Preliminary expressions" verbosetidy(ex_pre)
 end
 
 #========== action functions ==========#
@@ -813,7 +813,7 @@ function action_functions(store)
                 $(store.outex...)
             end
         end
-        store.verbose==2 && @info "Maker function" verbosetidy(ex_make)
+        store.verbose==2 && @info ">>>>> Maker function" verbosetidy(ex_make)
         ex = quote
             let $ACT! = $ACT!
                 $ex_make
@@ -894,15 +894,21 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             end
         end
     end
-    store.verbose==2 && @info "Base actor $note" verbosetidy(ex_act)
+    store.verbose==2 && @info "===== Base actor $note" verbosetidy(ex_act)
     push!(store.outpre, ex_act)
 
-    expre, exloop, expost = if isempty(outer)
+    if act! != ACT! && isempty(store.sharedind) && store.threads != false
+        store.verbose>0 && @warn "can't parallelise this gradient, no shared indices $note"
+    end
+
+    #===== LoopVectorization =====#
+
+    expre, exloop0, expost = if isempty(outer)
         :($ex1; $ex3), ex4, ex6
     else
         ex1, ex2, nothing
     end
-    exloop, exloopfinal = finalsplit(exloop)
+    exloop, exloopfinal = finalsplit(exloop0)
 
     # Disable @avx for scatter, https://github.com/chriselrod/LoopVectorization.jl/issues/145
     safe = if act! == ACT!
@@ -913,7 +919,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
-        info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)") : nothing
+        info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
+        check1 = store.verbose>0 ? :(LoopVectorization.check_args($(store.arrays...)) || @error "rejected by LoopVectorization's check_args! $($note)" maxlog=3 _id=$(hash(store))) : nothing
         try
             lex = if isnothing(exloopfinal)
                 quote
@@ -921,6 +928,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
+                        $check1
                         LoopVectorization.@avx unroll=$unroll $exloop
                         $expost
                     end
@@ -932,6 +940,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
+                        $check1
                         if isnothing($FINAL)
                             LoopVectorization.@avx unroll=$unroll $exloop
                         else
@@ -942,13 +951,15 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
                 end
             end
-            store.verbose==2 && @info "LoopVectorization actor $note" verbosetidy(lex)
+            store.verbose==2 && @info "=====LV===== LoopVectorization actor $note" verbosetidy(lex)
             push!(store.outpre, macroexpand(store.mod, lex))
             store.verbose==2 && @info "success expanding LoopVectorization.@avx"
         catch err
             store.verbose>0 && @warn "LoopVectorization failed $note" err
         end
     end
+
+    #===== KernelAbstractions =====#
 
     axouter = map(i -> Symbol(AXIS, i), outer)
 
@@ -971,10 +982,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 end
 
             end
-            store.verbose==2 && @info "KernelAbstractions kernel $note" verbosetidy(kex1)
+            store.verbose==2 && @info "=====KA===== KernelAbstractions kernel $note" verbosetidy(kex1)
             push!(store.outpre, macroexpand(store.mod, kex1))
             if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
-                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)") : nothing
+                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
                 kex2 = quote
 
                     local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
@@ -986,10 +997,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     end
 
                 end
-                store.verbose==2 && @info "KernelAbstractions CUDA actor $note" verbosetidy(kex2)
+                store.verbose==2 && @info "=====KA===== KernelAbstractions CUDA actor $note" verbosetidy(kex2)
                 push!(store.outpre, kex2)
             end
-            info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)") : nothing
+            info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
             kex3 = quote
 
                 local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
@@ -1010,10 +1021,6 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         catch err
             store.verbose>0 && @warn "KernelAbstractions failed $note" err
         end
-    end
-
-    if act! != ACT! && isempty(store.sharedind) && store.threads != false
-        store.verbose>0 && @warn "can't parallelise this gradient, no shared indices $note"
     end
 end
 
@@ -1115,7 +1122,7 @@ function backward_definitions(store)
         end
 
     end
-    store.verbose==2 && @info "Gradient maker function" verbosetidy(ex_make)
+    store.verbose==2 && @info "<<<<< Gradient maker function" verbosetidy(ex_make)
     push!(store.outpre, quote
         local $∇make = let $∇act! = $∇act!
             $ex_make

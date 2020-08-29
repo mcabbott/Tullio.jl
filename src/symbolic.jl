@@ -66,7 +66,7 @@ function insert_symbolic_gradient(axislist, store)
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, " (symbolic gradient)")
+        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, "(symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
@@ -75,7 +75,7 @@ function insert_symbolic_gradient(axislist, store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
-            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, " (method for FillArrays)")
+            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, "(gradient method for FillArrays)")
     end
 
 end
