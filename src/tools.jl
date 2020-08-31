@@ -35,8 +35,7 @@ verboseprint(store) = begin
             println(repr(r))
         else
             str = repr(verbosetidy.(r))
-            ind = nextind(str, 120)
-            println(str[1:min(ind,end)], " ...")
+            println(first(str, 150), length(str)>150 ? " ..." : "")
         end
     end
     printstyled("└\n", color=:blue)

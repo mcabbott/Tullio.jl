@@ -10,8 +10,8 @@ The expression on the right is summed over all possible valued of the free index
 and `:=` makes a new array `C`, while `=` and `+=` would write into an existing one.
 Scalar arguments should have a dollar sign, like `\$α` or `A[i,\$γ]`.
 
-    @tullio G[i,j] := A[i+x+1, j+y+1] * K[x,y]
-    @tullio H[i,j] := A[2i+x, 2j+y]  (x in -1:1, y in -1:1)
+    @tullio G[i,j] := M[i+x+1, j+y+1] * K[x,y]
+    @tullio H[i,j] := M[2i+x, 2j+y]  (x in -1:1, y in -1:1)
 
 Shifts and scaling of indices are allowed, including shifts by other indices.
 Ranges can be provided as shown, for under-constrained indices.
