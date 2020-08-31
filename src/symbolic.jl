@@ -7,7 +7,8 @@ function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
-    maxflag = Symbol(RHS, :👍)
+    maxflag = Symbol(RHS, :⛰)
+    maxdone = Symbol(:🆗, RHS)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
@@ -53,13 +54,16 @@ function insert_symbolic_gradient(axislist, store)
 
     ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
         product_grad(prebody, store)
+    elseif store.redfun in [:min, :max]
+        :($maxdone = 0), nothing
     else
         nothing, nothing
     end
     if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
         ex_body = :(
-            $maxflag = $ZED[$(store.leftraw...)] == $(store.right);
-            $ex_body
+            $maxflag = Tullio.onlyone($ZED[$(store.leftraw...)] == $(store.right), $maxdone);
+            $ex_body;
+            $maxdone += Tullio.anyone($maxflag);
             )
     end
 

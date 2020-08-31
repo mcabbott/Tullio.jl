@@ -44,6 +44,33 @@ using Requires
 end
 =#
 
+@inline onlyone(cond::Bool) = cond
+@inline onlyone(cond::Bool, seen::Int) = cond && iszero(seen)
+
+@inline anyone(cond::Bool) = cond
+
+@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
+
+    using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+
+    # Functions needed for safe vectorised max gradient
+    @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
+
+    @inline Tullio.onlyone(cond::Mask{W}) where {W} = Mask{W}(prevpow2(cond.u))
+    @inline Tullio.onlyone(cond::Mask, seen::Union{Int,SVec}) =
+        Tullio.allzero(seen) ? Tullio.onlyone(cond) : zero(cond)
+
+    @inline allzero(seen::Int) = iszero(seen)
+    @inline allzero(seen::SVec{N,Int}) where {N} = iszero((!iszero(seen)).u)
+
+    @inline Tullio.anyone(cond::Mask) = cond != zero(cond)
+
+    @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
+        # Dual numbers + svec, should live in PaddedMatricesForwardDiff?
+        # (And where would the conditional loading go, still here?)
+        include("grad/avxdual.jl")
+    end
+end
 
 #========== not gradients ==========#
 
@@ -82,15 +109,6 @@ using Requires
     # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
 
 end
-
-@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
-    @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-        # dual numbers + svec, should live in PaddedMatricesForwardDiff?
-        # (And where would the conditional loading go, still here?)
-        include("grad/avxdual.jl")
-    end
-end
-
 
 #========== storage unwrapper ==========#
 

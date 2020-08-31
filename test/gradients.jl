@@ -209,14 +209,15 @@ if Tullio._GRAD[] != :Dual
 =#
     @testset "min/max" begin
 
-        f1(x) = @tullio (max) z = x[i] # avx fails
+        f1(x) = @tullio (max) z = x[i]
         f2(x) = @tullio (min) z = x[i] avx=false
 
         @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
         @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4)
 
-        @test _gradient(f1, [1,2,3,3])[1] == [0,0,1,1]
-        ForwardDiff.gradient(f1, [1,2,3,3]) == [0,0,0,1] # I prefer mine?
+        @test _gradient(f1, [2,2,3,3])[1] in ([0,0,1,0], [0,0,0,1]) # changes with @avx
+        ForwardDiff.gradient(f1, [2,2,3,3]) == [0,0,0,1] # different sub-gradient, OK
+        @test _gradient(f2, [2,2,3,3])[1] == [1,0,0,0]
 
         m4 = reshape(shuffle(1:3*4*5*2), 3,4,5,2);
 

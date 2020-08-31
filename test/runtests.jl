@@ -204,6 +204,13 @@ _gradient(x...) = Yota.grad(x...)[2]
 t8 = time()
 using LoopVectorization
 
+using LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
+ms = Mask(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+@test Tullio.onlyone(ms, 0) == Mask(0x02)
+@test Tullio.onlyone(ms, sv) == Mask(0x00)
+@test Tullio.onlyone(ms, zero(sv)) == Mask(0x02)
+
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
 
