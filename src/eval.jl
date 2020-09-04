@@ -44,6 +44,8 @@ using Requires
 end
 =#
 
+#========== vectorised gradients ==========#
+
 @inline onlyone(cond::Bool) = cond
 @inline onlyone(cond::Bool, seen::Int) = cond && iszero(seen)
 
@@ -72,7 +74,7 @@ end
     end
 end
 
-#========== not gradients ==========#
+#========== CuArrays ==========#
 
 @inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
 @inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
