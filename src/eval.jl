@@ -76,9 +76,6 @@ end
 
 #========== CuArrays ==========#
 
-@inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
-@inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
-
 using Requires
 
 @init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
@@ -93,20 +90,7 @@ using Requires
         As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
 
-    function Tullio.getonly(a::CuArray) # @allowscalar first(a)
-        prev = GPUArrays.scalar_allowed[]
-        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
-        res = first(a)
-        GPUArrays.scalar_allowed[] = prev
-        res
-    end
-    function Tullio.setonly!(a::CuArray, val) # @allowscalar a[1] = val
-        prev = GPUArrays.scalar_allowed[]
-        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
-        res = setindex!(a, val, 1)
-        GPUArrays.scalar_allowed[] = prev
-        res
-    end
+    # Tullio.thread_scalar ... ought to work? Was never fast.
 
     # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
 

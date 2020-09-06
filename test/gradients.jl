@@ -17,6 +17,10 @@ r100 = randn(100)
 g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
 @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
 
+# scalar output
+s2(x) = @tullio s := exp(x[i]) / x[j]
+@test _gradient(s2, r100)[1] ≈ ForwardDiff.gradient(s2, r100)
+
 # two arrays, and a sum
 h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]
 @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))

@@ -287,9 +287,7 @@ function parse_input(expr, store)
             store.right = MacroTools_postwalk(dollarwalk(store), right2.args[3])
         end
         if :scalar in store.flags
-            # scalar threaded reduction won't work with nontrivial finalisers
-            store.verbose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
-            store.threads = false
+            throw("can't use a finaliser $(right2.args[1]) with scalar output")
         end
     else
         store.right = MacroTools_postwalk(dollarwalk(store), right2)
@@ -705,7 +703,12 @@ function output_array(store)
             end
         end
 
-        simex = if isempty(store.arrays)
+        simex = if :scalar in store.flags && :plusequals in store.flags
+            # Deal with scalar += now, by writing into array, later read it out:
+            :( $(store.leftscalar):$(store.leftscalar) )
+        elseif :scalar in store.flags # no longer writes into this, but still needs something!
+            :( zero($TYP):zero($TYP) )
+        elseif isempty(store.arrays)
             # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
@@ -717,11 +720,6 @@ function output_array(store)
         else
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
             push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
-        end
-
-        # Deal with scalar += now: write into array, later read it out:
-        if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($setonly!($(store.leftarray), $(store.leftscalar))))
         end
     end
 
@@ -762,7 +760,9 @@ function action_functions(store)
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    ex_write = if store.finaliser == :identity
+    ex_write = if :scalar in store.flags # then we return the value instead, ZED is immutable
+        :( $ACC )
+    elseif store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
     else # this branch is moved outside @avx by finalsplit(expr), below.
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
@@ -798,12 +798,21 @@ function action_functions(store)
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
-    push!(store.outex, quote
-        $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...),),
-            tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
-        $(store.leftarray)
-    end)
+    if :scalar in store.flags
+        @assert isempty(axisleft) # ???
+        push!(store.outex, :(
+            $thread_scalar($ACT!, $ST, $(store.leftarray),
+                tuple($(store.arrays...), $(store.scalars...),),
+                tuple($(axisred...),), $(store.redfun), $block, $keep)
+        ))
+    else
+        push!(store.outex, :(
+            $threader($ACT!, $ST, $(store.leftarray),
+                tuple($(store.arrays...), $(store.scalars...),),
+                tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep);
+            $(store.leftarray)
+        ))
+    end
     store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
     if :newarray in store.flags
@@ -832,8 +841,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = $getonly($ex)))
-             return :($(store.leftscalar) = $getonly($ex))
+             push!(store.outex, :($(store.leftscalar) = $ex))
+             return :($(store.leftscalar) = $ex)
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex
@@ -1110,13 +1119,18 @@ function backward_definitions(store)
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
+    input, acton = if :scalar in store.flags
+        :($dZ::$TYP), :($dZ:$dZ) # a hack to minimise changes to Act!, for now! ??
+    else
+        :($dZ::AbstractArray{$TYP}), dZ
+    end
     ex_make = quote
 
-        local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+        local function $∇make($input, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
             $(defineempties...)
             $(store.axisdefs...)
             $∇threader($∇act!, $ST,
-                tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
+                tuple($(gradarrays...), $acton, $ZED, $(store.arrays...), $(store.scalars...),),
                 tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
             return ($(returns...),)
         end

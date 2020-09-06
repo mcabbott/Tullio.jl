@@ -61,9 +61,6 @@ Then it divides up the other axes, each accumulating in its own copy of `Z`.
 
     if length(Is) >= 1 && threads>1
         thread_halves(fun!, T, (Z, As...), Is, Js, threads, keep)
-    elseif length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number
-        scalar_threads = min(Threads.nthreads(), cld(Jelements, block), Jelements)
-        thread_scalar(fun!, T, Z, As, Js, redfun, scalar_threads, keep)
     else
         tile_halves(fun!, T, (Z, As...), Is, Js, keep)
     end
@@ -215,23 +212,48 @@ colour!(zeros(Int, 11,9), 2)
 
 =#
 
+#========== scalar case ==========#
 
-function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads::Int, keep=nothing) where {F <: Function, T}
-    if threads < 1
-        fun!(T, Z, As..., Js..., keep)
-    else
-        J1s, J2s = cleave(Js)
-        Znew = similar(Z)
-        task = Threads.@spawn begin
-            thread_scalar(fun!, T, Znew, As, J1s, redfun, threads÷2, nothing)
-        end
-        thread_scalar(fun!, T, Z, As, J2s, redfun, threads÷2, keep)
-        wait(task)
-        Z[1] = redfun(Z[1], Znew[1])
+"""
+    thread_scalar(f,T, Z, (A,B), (1:5,1:6), +, block=100, keep=nothing)
+
+Just like `threader`, but doesn't take any safe indices `Is`.
+And `f` doesn't actually mutate anything, it returns the value.
+`Z` is a trivial array which serves mostly to propagate an eltype.
+"""
+@inline function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, J0s::Tuple, redfun, block, keep=nothing)::eltype(T) where {F <: Function, T}
+    if isnothing(block) # then threading is disabled
+        return fun!(T, Z, As..., J0s..., keep)
+    elseif !all(r -> r isa AbstractUnitRange, J0s)
+        # don't thread ranges like 10:-1:1, and disable @avx too
+        return fun!(Array, Z, As..., J0s..., keep)
     end
-    nothing
+
+    Js = map(UnitRange, J0s)
+    Jelements = productlength(Js)
+    threads = min(Threads.nthreads(), cld(Jelements, block), Jelements)
+
+    if threads < 2
+        return fun!(T, Z, As..., Js..., keep)
+    else
+        return scalar_halves(fun!, T, Z, As, Js, redfun, threads, keep)
+    end
 end
 
+function scalar_halves(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads, keep=nothing)::eltype(T) where {F <: Function, T}
+    if threads < 1
+        return fun!(T, Z, As..., Js..., keep)
+    else
+        J1s, J2s = cleave(Js)
+        S1 = first(Z) # scope
+        task = Threads.@spawn begin
+            S1 = scalar_halves(fun!, T, Z, As, J1s, redfun, threads÷2, nothing)
+        end
+        S2 = scalar_halves(fun!, T, Z, As, J2s, redfun, threads÷2, keep)
+        wait(task)
+        return redfun(S1, S2)
+    end
+end
 
 #========== tuple functions ==========#
 
