@@ -997,8 +997,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CuDevice(0)))
-                        KernelAbstractions.wait(CuDevice(0), $ACC)
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CUDADevice()))
+                        KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
                 end
