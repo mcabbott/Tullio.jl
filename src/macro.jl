@@ -974,8 +974,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
+            # const_args = map(args) do a
+            #     a isa Symbol || return a  # this skips output ZED::AbstractArray{TYP}
+            #     a == store.leftarray && return a  # case A[i] = A[i]^2 / B[i,j]
+            #     :(@Const($a))
+            # end
             kex1 = quote
-
+                # @Const removed, see https://github.com/mcabbott/Tullio.jl/pull/32
+                # KernelAbstractions.@kernel function $kernel($(const_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
@@ -992,8 +998,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                        KernelAbstractions.wait($ACC)
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CUDADevice()))
+                        KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
                 end
