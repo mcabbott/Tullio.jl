@@ -11,7 +11,7 @@ Base.parent(x::DotDict) = getfield(x, :store)
 Base.propertynames(x::DotDict) = Tuple(sort(collect(keys(parent(x)))))
 Base.getproperty(x::DotDict, s::Symbol) = getindex(parent(x), s)
 function Base.setproperty!(x::DotDict, s::Symbol, v)
-    s in propertynames(x) || error("DotDict has no field $s")
+    s in propertynames(x) || throw("DotDict has no field $s")
     T = typeof(getproperty(x, s))
     if T == Nothing
         setindex!(parent(x), v, s)
@@ -24,6 +24,31 @@ function Base.show(io::IO, x::DotDict)
     print(io, "DotDict(")
     strs = map(k -> string(k, " = ", getproperty(x, k)), propertynames(x))
     print(io, join(strs, ", "), ")")
+end
+
+verboseprint(store) = begin
+    printstyled("┌ store.\n", color=:blue)
+    foreach(propertynames(store)) do k
+        printstyled("│   $k = ", color=:blue)
+        r = getproperty(store, k)
+        if k ∉ [:outpre, :outex]
+            println(repr(r))
+        else
+            str = repr(verbosetidy.(r))
+            println(first(str, 150), length(str)>150 ? " ..." : "")
+        end
+    end
+    printstyled("└\n", color=:blue)
+    if store.verbose == 3
+        if haskey(store, :outpre)
+            printstyled("store.outpre = \n", color=:blue)
+            printstyled(verbosetidy(store.outpre) , "\n", color=:green)
+        end
+        if haskey(store, :outex)
+            printstyled("\nstore.outex = \n", color=:blue)
+            printstyled(verbosetidy(store.outpre) , "\n", color=:green)
+        end
+    end
 end
 
 #========== capture macro ==========#
@@ -55,15 +80,20 @@ macro capture_(ex, pat::Expr)
         _endswithone(pat.args[1]) && _endswithone(pat.args[2]) # :( f_(x_) )
         _symbolone(pat.args[1]), _symbolone(pat.args[2])
 
-    elseif pat.head in [:call, :(=), :(:=), :+=, :-=, :*=, :/=] &&
+    elseif pat.head in [:call, :(=), :(:=), :+=, :-=, :*=, :/=, :^=] &&
         _endswithone(pat.args[1]) && _endswithone(pat.args[2]) # :( A_ += B_ )
         _symbolone(pat.args[1]), _symbolone(pat.args[2])
+
+    # elseif pat.head == :call  && length(pat.args)==3 && pat.args[1] == :!= &&
+    #     _endswithone(pat.args[2]) && _endswithone(pat.args[3]) # :( A_ != B_ )
+    #     H = QuoteNode(pat.args[1])
+    #     _symbolone(pat.args[2]), _symbolone(pat.args[3])
 
     elseif pat.head == :vect && _endswithtwo(pat.args[1]) # :( [ijk__] )
         _symboltwo(pat.args[1]), gensym(:ignore)
 
     else
-        error("@capture_ doesn't work on pattern $pat")
+        throw("@capture_ doesn't work on pattern $pat")
     end
 
     @gensym res
@@ -106,12 +136,18 @@ _trymatch(ex::Expr, pat::Val{:call}) =
     else
         nothing
     end
-_trymatch(ex::Expr, pat::Union{Val{:(=)}, Val{:(:=)}, Val{:(+=)}, Val{:(-=)}, Val{:(*=)}, Val{:(/=)}}) =
+_trymatch(ex::Expr, pat::Union{Val{:(=)}, Val{:(:=)}, Val{:(+=)}, Val{:(-=)}, Val{:(*=)}, Val{:(/=)}, Val{:(^=)}}) =
     if ex.head === _getvalue(pat)
         ex.args[1], ex.args[2]
     else
         nothing
     end
+# _trymatch(ex::Expr, pat::Val{:!=}) =
+#     if ex.head === :call && length(ex.args) == 3 && ex.args[1] == :!=
+#         ex.args[2], ex.args[3]
+#     else
+#         nothing
+#     end
 _trymatch(ex::Expr, ::Val{:vect}) = # [ijk__]
     if ex.head === :vect
         ex.args, nothing
@@ -153,5 +189,24 @@ replace(ex, s, s′) = prewalk(x -> x == s ? s′ : x, ex)
 
 const MacroTools_prewalk = prewalk
 const MacroTools_postwalk = postwalk
+
+#========== prettify ==========#
+
+verbosetidy(expr) = MacroTools_postwalk(expr) do ex
+        if ex isa Expr && ex.head == :block
+            args = filter(x -> !(x isa LineNumberNode || x == nothing), ex.args)
+            if length(args) == 1 && args[1] isa Expr && args[1].head == :block
+                # disallow block(block(stuff))
+                args[1]
+            else
+                Expr(ex.head, args...)
+            end
+        elseif ex isa Expr && ex.head == :macrocall && length(ex.args) >= 2
+            # line number after macro name can't be dropped, but can be nothing:
+            Expr(ex.head, ex.args[1], nothing, filter(x -> !(x isa LineNumberNode), ex.args[3:end])...)
+        else
+            ex
+        end
+    end
 
 #========== the end ==========#

@@ -15,7 +15,7 @@ function divrange(r::AbstractUnitRange, f::Integer)
         # z = div(first(r), f, RoundDown)
         z = fld(first(r), f)
     else
-        error("can't scale indices by zero")
+        throw("can't scale indices by zero")
     end
     a:z
 end
@@ -65,8 +65,8 @@ issubset(addranges(1:10, 1:3) .- 3, 1:10)
 # and for A[I[j]+k] (where it enters into the calculation of k's range).
 
 function extremerange(A)
-    α, ω = extrema(A)
-    α isa Integer && ω isa Integer || error("expected integers!")
+    α, ω = minimum(A), maximum(A)
+    α isa Integer && ω isa Integer || throw("expected integers!")
     α:ω
 end
 
@@ -93,11 +93,11 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
     ex.head == :kw && return range_expr_kw(r, ex)
     if ex.head == :ref # case of M[I[j], k] with r=size(M,1)
         A = ex.args[1]
-        push!(con, :(minimum($A) in $r && maximum($A) in $r || error("not safe!")))
+        push!(con, :(minimum($A) in $r && maximum($A) in $r || throw("not safe!")))
         # return (r,nothing)
         return (:($extremerange($A)),nothing)
     end
-    ex.head == :call || error("not sure what to do with $ex")
+    ex.head == :call || throw("not sure what to do with $ex")
     if length(ex.args) == 2
         op, a = ex.args
         if op == :+
@@ -133,7 +133,7 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
         elseif op == :÷
             is_const(b) && return range_expr_walk(:($r .* $b), a)
         elseif op == :/
-            error("not sure what to do with $ex, perhaps you wanted ÷")
+            throw("not sure what to do with $ex, perhaps you wanted ÷")
         end
     elseif length(ex.args) > 3
         op, a, b, c = ex.args[1:4]
@@ -144,7 +144,7 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
             is_const(c) && return range_expr_walk(:($r .- $c), :(+($a, $b, $(ds...))))
         end
     end
-    error("not sure what to do with $ex, sorry")
+    throw("not sure what to do with $ex, sorry")
 end
 
 range_expr_walk(range::Expr, s::Symbol) = range, s
@@ -185,7 +185,7 @@ range_unwrap(ex::Expr) = begin
         A = ex.args[1]
         return :($extremerange($A))
     end
-    ex.head == :call || error("don't know how to handle $ex")
+    ex.head == :call || throw("don't know how to handle $ex")
     if length(ex.args) == 2
         op, a = ex.args
         if op == :-
@@ -206,7 +206,7 @@ range_unwrap(ex::Expr) = begin
             is_const(b) && return :($(range_unwrap(a)) .- $b)
         end
     end
-    error("don't know how to handle $ex, sorry")
+    throw("don't know how to handle $ex, sorry")
 end
 
 @specialize

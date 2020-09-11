@@ -12,6 +12,11 @@ mat = [1 1 3; 1 1 5; 7 7 7]
 g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
 @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
 
+# larger array, no shared indices -- https://github.com/mcabbott/Tullio.jl/issues/14
+r100 = randn(100)
+g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
+@test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
+
 # two arrays, and a sum
 h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]
 @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
@@ -33,6 +38,13 @@ dx, dy = _gradient(sum∘mm, x1, y1)
 @test dx ≈ 2 * ones(3,5) * y1'
 @test dy ≈ 2 * x1' * ones(3,5)
 
+# abs, abs2
+va = [1,-2,3,-4,5]
+abs_grad = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
+@test abs_grad ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
+abs2_grad = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
+@test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
+
 # Using zero-dim arrays fails on ReverseDiff & Tracker
 # Tracker.gradient(x -> x[], fill(1.0))
 # ReverseDiff.gradient(x -> x[], fill(1.0)) # is ambiguous
@@ -46,21 +58,22 @@ end
 # which is what's now used for this:
 @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
-# indexing
+# gather/scatter
+inds = vcat(1:3, 1:2)
+@test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
 
-if Tullio._GRAD[] != :Dual
-    inds = vcat(1:3, 1:2)
-    @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+_gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5))[1] == [1,1,1,1,1]
+ForwardDiff.gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5)) == [0,0,1,1,1]
+# This difference may be another edge case like multiple maxima?
 
-    # I expected this to fail, due to threads?
-    ind2 = rand(1:10, 1024)
-    dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
-    @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+ind2 = rand(1:10, 1024) # many repeats
+dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
+@test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
 
-else
-    inds = vcat(1:3, 1:2)
-    @test_broken _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
-end
+ind3 = vcat(unique(rand(1:1024, 10)), 1) # many missing, but includes at 1
+g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))
+@test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
+# You get weird errors here if indices of y don't start at 1.
 
 #=
 # shifts, etc
@@ -196,14 +209,15 @@ if Tullio._GRAD[] != :Dual
 =#
     @testset "min/max" begin
 
-        f1(x) = @tullio (max) z = x[i] # avx fails
+        f1(x) = @tullio (max) z = x[i]
         f2(x) = @tullio (min) z = x[i] avx=false
 
         @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
         @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4)
 
-        @test _gradient(f1, [1,2,3,3])[1] == [0,0,1,1]
-        ForwardDiff.gradient(f1, [1,2,3,3]) == [0,0,0,1] # I prefer mine?
+        @test _gradient(f1, [2,2,3,3])[1] in ([0,0,1,0], [0,0,0,1]) # changes with @avx
+        ForwardDiff.gradient(f1, [2,2,3,3]) == [0,0,0,1] # different sub-gradient, OK
+        @test _gradient(f2, [2,2,3,3])[1] == [1,0,0,0]
 
         m4 = reshape(shuffle(1:3*4*5*2), 3,4,5,2);
 
@@ -254,5 +268,43 @@ if Tullio._GRAD[] != :Dual
         @test dv ≈ _gradient(sum∘f9, m4, v2)[2]
 
     end
+
+    @testset "finalisers" begin
+
+        norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
+
+        gradtest(norm2, (3,4))
+        mat = rand(3,3)
+        @test _gradient(sum∘norm2, mat)[1] ≈ ForwardDiff.gradient(sum∘norm2, mat)
+        @test gradtest(norm2, (3,4))
+
+        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
+        @test gradtest(layer, (3,4))
+
+        lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
+        @test gradtest(lse1, (3,4))
+
+        # relu(x) = max(x, zero(x))
+        # lay2(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> relu
+
+        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt
+        mx3(mat) # hmmm what is this?
+        _gradient(sum∘mx3, mat)[1] # zero
+
+    end
 end
 
+if GRAD == :Zygote
+    @testset "nograd keyword" begin
+
+        f2(x,y) = @tullio out[i,j] := x[i] + y[j]  nograd=y threads=false
+        @test _gradient(sum∘f2, rand(2), rand(2)) == ([2,2], nothing)
+
+        f3(x,y,z) = @tullio out[i,j] := x[i] + y[j] * z[k]  nograd=(x,z) threads=false
+        @test _gradient(sum∘f3, rand(2), rand(2), ones(2)) == (nothing, [4,4], nothing)
+
+        f0(x,y) = @tullio out[i,j] := x[i]/y[j]  nograd=(y,x) threads=false
+        @test _gradient(sum∘f0, rand(2), rand(2)) == (nothing, nothing)
+
+    end
+end

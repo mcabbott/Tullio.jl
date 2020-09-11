@@ -28,7 +28,7 @@ function try_tensor(expr, ranges, store)
         ex
     end
     if fail != nothing
-        store.verbose > 0 && @warn fail
+        store.verbose>0 && @warn fail
         return nothing
     end
 
@@ -87,18 +87,18 @@ function try_tensor(expr, ranges, store)
                 ex
             end
         end
-        store.verbose == 2 && verbose_tensor(outex)
+        store.verbose>1 && verbose_tensor(outex, store)
         return outex
 
     catch err
-        store.verbose > 0 && @warn "TensorOperations failed" err
+        store.verbose>0 && @warn "TensorOperations failed" err
         return nothing
     end
 end
 
-verbose_tensor(outex) = begin
-    @info "using TensorOperations"
-    printstyled("    outex =\n", color=:blue)
+verbose_tensor(outex, store) = begin
+    verboseprint(store)
+    printstyled("TensorOperations outex =\n", color=:blue)
     foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), outex)
 end
 
@@ -123,13 +123,13 @@ function tensor_grad(right, leftind, store)
         if B in backseen
             addon = macroexpand(store.mod, :( @tensor $deltaB[$(ijk...)] = $deltaB[$(ijk...)] + $newright ))
             push!(backsteps, addon)
-            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] += " newright
+            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] += $newright"
         else
             push!(backseen, B)
             symB = Symbol(DEL, B, '_', join(ijk))
             create = macroexpand(store.mod, :( @tensor( $deltaB[$(ijk...)] := $newright ) ))
             push!(backsteps, create)
-            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] := " newright
+            store.verbose>0 && @info "gradient @tensor $deltaB[$(join(ijk,','))] := $newright"
         end
     end
 

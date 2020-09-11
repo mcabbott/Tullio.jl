@@ -2,6 +2,8 @@
 #========== backward gradient using ForwardDiff ==========#
 
 function insert_forward_gradient(axislist, store)
+    store.finaliser == :identity || error("can't use grad=Dual with |> finaliser")
+
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
@@ -10,7 +12,7 @@ function insert_forward_gradient(axislist, store)
 
     epsilondict = Dict{Symbol,Expr}()
 
-    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict), store.right)
+    epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store), store.right)
     # epsilonright = MacroTools_postwalk(epsilonwalk(epsilondict, store.scalars), store.right)
 
     defineepsilons, readepsilons = [], []
@@ -20,12 +22,18 @@ function insert_forward_gradient(axislist, store)
         push!(readepsilons, :($Aex = $Aex + ForwardDiff.partials($ZED, $d) * $dZ[$(store.leftraw...)]))
     end
 
+    if isempty(defineepsilons) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
+        return nothing
+    end
+
     ex_iter = :($ZED = $(epsilonright); $(readepsilons...))
 
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store, " (gradient using ForwardDiff)")
+        :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store, "(gradient using ForwardDiff)")
 
     if isdefined(store.mod, :Zygote)
         ex_iter2 = fillarrayreplace(ex_iter, dZ)
@@ -33,7 +41,7 @@ function insert_forward_gradient(axislist, store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
-            :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store, " (method for FillArrays)")
+            :(($(defineepsilons...); $ex_value)), store.sharedind, nothing, nonshared, ex_iter2, nothing, store, "(gradient method for FillArrays)")
 
         # push!(store.outeval, quote
         #     Tullio.promote_storage(T::Type, ::Type{<:Zygote.Fill}) = T
@@ -43,10 +51,11 @@ function insert_forward_gradient(axislist, store)
 
 end
 
-epsilonwalk(dict) = ex -> begin
+epsilonwalk(dict, store) = ex -> begin
 # epsilonwalk(dict, scalars) = ex -> begin
 #         ex isa Symbol && ex in scalars && return scalarplusepsilon(ex, dict)
         @capture_(ex, A_[inds__]) || return ex
+        A in store.nograd && return ex
         return arrayplusepsilon(A, inds, dict)
     end
 

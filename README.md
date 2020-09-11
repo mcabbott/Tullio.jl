@@ -1,8 +1,12 @@
-# Tullio.jl
+<div align="center">
+<h1>Tullio.jl</h1>
 
-[![Build Status](https://travis-ci.org/mcabbott/Tullio.jl.svg?branch=master)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Travis CI](https://img.shields.io/travis/mcabbott/Tullio.jl/master?logo=travis)](https://travis-ci.org/mcabbott/Tullio.jl)
+[![Gitlab GPU](https://img.shields.io/gitlab/pipeline/JuliaGPU/Tullio.jl/master?logo=nvidia&color=ddd)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
+[![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=github)](https://github.com/mcabbott/Tullio.jl/releases)
+</div>
 
-This is a package is for writing array operations in index notation, such as:
+Tullio is a very flexible einsum macro. It understands many array operations written in index notation, for example:
 
 ```julia
 @tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]     # sum over i,j, and create M
@@ -16,16 +20,17 @@ This is a package is for writing array operations in index notation, such as:
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
 One difference is that it can parse more expressions (such as the convolution `M`, and worse).
-Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)), dividing large enough arrays into blocks. 
+Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)) and recursive tiling, on large enough arrays. 
 But it also co-operates with various other packages, provided they are loaded before the macro is called:
 
-* It can use [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.)
+* It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
 
-* It can use [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.)
+* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
-* It can use [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
+* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
-The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). --> (Disable with `grad=false`.) This is done in one of two ways:
+The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
+(Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
 
 * By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
 
@@ -34,17 +39,24 @@ The macro also tries to provide a gradient for use with [Tracker](https://github
 The expression need not be just one line, for example:
 
 ```julia
-@tullio out[x,y,n] := begin              # sum over a,b
+@tullio out[x,y] := begin                # sum over k
+        a,b = off[k]
         i = mod(x+a, axes(mat,1))
         j = mod(y+b, axes(mat,2))
-        @inbounds mat[i,j,n] * abs(kern[a,b])
-    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
+        @inbounds mat[i,j]
+    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
 ```
 
 Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
 (If writing into an existing array, with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.)
-It knows that it should not sum over indices `i,j`, but since it can't be sure  of their ranges, it will not add `@inbounds` in such cases.
+It knows that it should not sum over indices `i,j`, but since it can't be sure of their ranges, it will not add `@inbounds` in such cases.
 It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
+
+Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
+
+```julia
+@tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1))) 
+```
 
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
 and notices when it is unable to use the packages mentioned above.
@@ -71,7 +83,11 @@ K = OffsetArray([1,-1,2,-1,1], -2:2)
 
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
-fft(S) ≈ @tullio (k ∈ axes(S,1)) F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)
+fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
+
+# Finalisers <| or |> are applied after sum:
+@tullio N2[j] := sqrt <| M[i,j]^2   # N2 ≈ map(norm, eachcol(M)) 
+@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product
@@ -141,8 +157,11 @@ Tracker.gradient(x -> (@tullio (max) res := x[i]^3), [1,2,3,-2,-1,3])[1]
 <details><summary><b>Larger expressions</b></summary>
 
 ```julia
-mat = zeros(10,10,1); mat[1,1] = 101;
-@tullio kern[i,j] := 1/(1+i^2+j^2)  (i in -2:2, j in -2:2)
+using Tullio, OffsetArrays
+
+# A convolution with cyclic indices
+mat = zeros(10,10,1); mat[2,2] = 101; mat[10,10] = 1;
+@tullio kern[i,j] := 1/(1+i^2+j^2)  (i in -3:3, j in -3:3)
 
 @tullio out[x,y,c] := begin
     xi = mod(x+i, axes(mat,1)) # xi = ... means that it won't be summed,
@@ -150,22 +169,25 @@ mat = zeros(10,10,1); mat[1,1] = 101;
     @inbounds trunc(Int, mat[xi, yj, c] * kern[i,j]) # and disables automatic @inbounds,
 end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 
+# A stencil?
+offsets = [(a,b) for a in -2:2 for b in -2:2 if a>=b] # vector of tuples
+
+@tullio out[x,y,1] = begin 
+        a,b = offsets[k]
+        i = clamp(x+a, extrema(axes(mat,1))...)
+        j = clamp(y+b, extrema(axes(mat,2))...)
+        @inbounds mat[i,j,1] * 10
+    end # ranges of x,y read from out[x,y,1]
+
+# Applying a vector of functions
 fs = [sin, cos, tan]
 xs = randn(3,100)
-
-@tullio ys[r,c] := (fs[r])(xs[r,c]) # works, but not the gradient
-
-function rowmap(fs, xs)
-    axes(fs,1) == axes(xs,1) || error()
-    @tullio ys[r,c] := begin
-        @inbounds f = getindex($fs, r) # not writing fs[r] avoids trying to make Δfs
-        @inbounds f(xs[r,c]) # assignment f = ... has again disabled @inbounds.
-    end grad=Dual
-end
+@tullio ys[r,c] := (fs[r])(xs[r,c])
 
 using Zygote, ForwardDiff
+rowmap(fs, xs) = @tullio ys[r,c] := (fs[r])(xs[r,c]) grad=Dual nograd=fs
 Zygote.gradient(sum∘rowmap, fs, ones(3,2))
-[f'(1) for f in fs]
+[f'(1) for f in fs] # agrees
 ```
 
 </details>
@@ -176,11 +198,13 @@ The default setting is:
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
+* `nograd=A` turns of the gradient calculation just for `A`, and `nograd=(A,B,C)` does this for several arrays. 
 * `tensor=false` turns off the use of `TensorOperations`.
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.
 * `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
-* `@tullio (*) A[i,j] := ...` is a product, as is `@tullio A[i,j] *= ...`. 
+* `@tullio (*) A[i,j] := ...` is a product, as is `@tullio A[i,j] *= ...`. For other reductions, `@tullio (f) A[i,j] ^= ...` is an in-place update.
+* `init=0.0` gives the initial value for reductions. For `+`, `*`, `min`, `min`, `&`, `|` it has sensible defaults, for other reductions uses zero.
 
 Implicit:
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.

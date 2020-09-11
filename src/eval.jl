@@ -44,39 +44,52 @@ using Requires
 end
 =#
 
+#========== vectorised gradients ==========#
 
-#========== not gradients ==========#
+@inline onlyone(cond::Bool) = cond
+@inline onlyone(cond::Bool, seen::Int) = cond && iszero(seen)
+
+@inline anyone(cond::Bool) = cond
+
+@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
+    using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+
+    # Functions needed for safe vectorised max gradient
+    @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
+
+    @inline Tullio.onlyone(cond::Mask{W}) where {W} = Mask{W}(prevpow2(cond.u))
+    @inline Tullio.onlyone(cond::Mask, seen::Union{Int,SVec}) =
+        Tullio.allzero(seen) ? Tullio.onlyone(cond) : zero(cond)
+
+    @inline allzero(seen::Int) = iszero(seen)
+    @inline allzero(seen::SVec{N,Int}) where {N} = iszero((!iszero(seen)).u)
+
+    @inline Tullio.anyone(cond::Mask) = cond != zero(cond)
+
+    @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
+        # Dual numbers + svec, should live in PaddedMatricesForwardDiff?
+        # (And where would the conditional loading go, still here?)
+        include("grad/avxdual.jl")
+    end
+end
+
+#========== CuArrays ==========#
+
+@inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
+@inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
 
 using Requires
 
-@init @require CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae" begin
-    using .CuArrays
-
-    Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
-        fun!(T, Z, As..., Is..., Js..., keep)
-
-    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
-        fun!(T, As..., Is..., Js...,)
-
-    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: CuArray{T,N}, B <: AbstractRange{S}} where {T,N,S} =
-           N==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
-    Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: AbstractRange{T}, B <: CuArray{S,M}} where {T,S,M} =
-           M==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
-
-end
-
-# CUDA replaces CuArrays, Julia >=1.4 only.
 @init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
-    using .CUDA
+    using .CUDA: CuArray, GPUArrays
 
-    Tullio.threader(fun!::Function, T::Type{<:CuArray},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple; block=0, keep=nothing) =
+    Tullio.threader(fun!::F, ::Type{T},
+        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple,
+        redfun, block=0, keep=nothing) where {F<:Function, T<:CuArray} =
         fun!(T, Z, As..., Is..., Js..., keep)
 
-    Tullio.∇threader(fun!::Function, T::Type{<:CuArray},
-        As::Tuple, Is::Tuple, Js::Tuple; block=0) =
+    Tullio.∇threader(fun!::F, ::Type{T},
+        As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
 
     # Mixing CuArrays & ranges is OK
@@ -84,17 +97,26 @@ end
            N==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
     Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: AbstractRange{T}, B <: CuArray{S,M}} where {T,S,M} =
            M==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
-
 end
 
-@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
-    @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-        # dual numbers + svec, should live in PaddedMatricesForwardDiff?
-        # (And where would the conditional loading go, still here?)
-        include("grad/avxdual.jl")
+    function Tullio.getonly(a::CuArray) # @allowscalar first(a)
+        prev = GPUArrays.scalar_allowed[]
+        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
+        res = first(a)
+        GPUArrays.scalar_allowed[] = prev
+        res
     end
-end
+    function Tullio.setonly!(a::CuArray, val) # @allowscalar a[1] = val
+        prev = GPUArrays.scalar_allowed[]
+        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
+        res = setindex!(a, val, 1)
+        GPUArrays.scalar_allowed[] = prev
+        res
+    end
 
+    # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
+
+end
 
 #========== storage unwrapper ==========#
 

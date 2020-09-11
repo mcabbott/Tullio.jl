@@ -1,13 +1,14 @@
 
 using Test, Printf
 
-@info "Testing with $(Threads.nthreads()) threads"
-
 t1 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t1)
 
-Tullio.BLOCK[] = 32 # use threading even on small arrays
-Tullio.MINIBLOCK[] = 32
+@info "Testing with $(Threads.nthreads()) threads"
+if Threads.nthreads() > 1 # use threading even on small arrays
+    Tullio.BLOCK[] = 32
+    Tullio.TILE[] = 32
+end
 
 #===== stuff =====#
 
@@ -35,6 +36,12 @@ t2 = time()
             Z = rand(T, N+2,N+1);
             @test X * Y * Z ≈ @tullio C[a,d] := X[a,b] * Y[b,c] * Z[c,d]
         end
+    end
+    @testset "@allocated" begin
+        m!(C,A,B) = @tullio C[i,k] = A[i,j] * B[j,k] threads=false
+        C1, A1, B1 = rand(4,4), rand(4,4), rand(4,4)
+        @allocated m!(C1, A1, B1)
+        @test 0 == @allocated m!(C1, A1, B1)
     end
 end
 
@@ -74,17 +81,18 @@ using KernelAbstractions
     end
 end
 
-#=
 using CUDA
 
 if CUDA.has_cuda_gpu()
+    @info "===== found a GPU, starting CUDA tests ====="
     @testset "===== CUDA tests on GPU =====" begin
         include("cuda.jl")
     end
 end
-=#
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
+
+@tullio cuda=false
 
 #===== Zygote =====#
 
@@ -101,6 +109,7 @@ _gradient(x...) = Zygote.gradient(x...)
 @testset "gradients: Zygote + ForwardDiff" begin include("gradients.jl") end
 
 @tullio grad=Base
+if VERSION >= v"1.4" # mysterious failures on 1.3
 @testset "complex gradients with Zygote" begin
 
     x0 = [1,2,3] .+ [5im, 0, -11im]
@@ -124,6 +133,12 @@ _gradient(x...) = Zygote.gradient(x...)
         @test g3i ≈ _gradient(x -> imag(@tullio y := 1/(x[i] + im)^2), x0)[1]
         @test g3i ≈ _gradient(x -> imag(@tullio y := inv(x[i] + im)^2), x0)[1]
 
+        # with finaliser
+        g7 = _gradient(x -> real(sum(sqrt.(sum(exp.(x), dims=2)))), x0 .+ x0')[1]
+        g7i = _gradient(x -> imag(sum(sqrt.(sum(exp.(x), dims=2)))), x0 .+ x0')[1]
+        @test g7 ≈ _gradient(x -> real(sum(@tullio y[i] := sqrt <| exp(x[i,j]) )), x0 .+ x0')[1]
+        @test g7i ≈ _gradient(x -> imag(sum(@tullio y[i] := sqrt <| exp(x[i,j]) )), x0 .+ x0')[1]
+
     end
     @testset "non-analytic" begin
 
@@ -146,6 +161,7 @@ _gradient(x...) = Zygote.gradient(x...)
 
     end
 end
+end # VERSION
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
 
@@ -187,6 +203,13 @@ _gradient(x...) = Yota.grad(x...)[2]
 #=
 t8 = time()
 using LoopVectorization
+
+using LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
+ms = Mask(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+@test Tullio.onlyone(ms, 0) == Mask(0x02)
+@test Tullio.onlyone(ms, sv) == Mask(0x00)
+@test Tullio.onlyone(ms, zero(sv)) == Mask(0x02)
 
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)

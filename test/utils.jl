@@ -79,20 +79,25 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
     end
 end
 
-using Tullio: cleave, quarter, productlength
+using Tullio: cleave, trisect, productlength
 
 @testset "threading" begin
     @test cleave((1:10, 1:4, 7:8)) == ((1:4, 1:4, 7:8), (5:10, 1:4, 7:8))
     @test cleave((7:8, 9:9)) == ((7:7, 9:9), (8:8, 9:9))
+    @test cleave((1:4,)) == ((1:2,), (3:4,))
+    @test cleave(()) == ((), ())
 
-    @test quarter((1:10, 11:20)) == ((1:4, 11:14), (1:4, 15:20), (5:10, 11:14), (5:10, 15:20))
-    @test sum(productlength, quarter((1:10, 11:20))) == 100
+    @test trisect((1:9, 11:12)) == ((1:3, 11:12), (4:6, 11:12), (7:9, 11:12))
+    @test trisect((1:9,)) == ((1:3,), (4:6,), (7:9,))
+    @test trisect(()) == ((), (), ())
+
+    @test sum(productlength, trisect((1:10, 11:20))) == 100
 
     for r1 in [1:10, 3:4, 5:5], r2 in [11:21, -3:-2, 0:0], r3 in [2:7, 8:9, 0:0]
         tup = (r1,r2,r3)
         len = productlength(tup)
         @test len == sum(productlength, cleave(tup))
-        @test len == sum(productlength, quarter(tup))
+        @test len == sum(productlength, trisect(tup))
     end
 end
 

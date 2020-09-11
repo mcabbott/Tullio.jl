@@ -17,6 +17,7 @@ A = rand(3,40); B = rand(40,500);
 @test ΔA ≈ ones(3,500) * B'
 @test cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1]
 
+#=
 # shifts
 @tullio D[i,j] := A[i,j+k]  k in 0:10
 @test axes(D) == (1:3, 1:30)
@@ -24,7 +25,6 @@ A = rand(3,40); B = rand(40,500);
 @test cD isa CuArray
 @test cD ≈ cu(D)
 
-#=
 # ranges
 @tullio E[i,j] := A[i,j+k-1] + (-1:0.5:1)[k]
 @test axes(E) == (1:3, 1:36)
@@ -56,4 +56,8 @@ h(A) = @tullio H[j] := exp(A[i,j]) / log(A[i,j])
 A1 = Tracker.gradient(sum∘h, A)[1]
 @test cu(A1) ≈ Tracker.gradient(sum∘h, cu(A))[1]
 
-
+# scalar
+@tullio s := cu(A)[i,j]^2
+@test s ≈ sum(abs2, A)
+@tullio s += cu(B)[i,j]^2
+@test s ≈ sum(abs2, A) + sum(abs2, B)

@@ -7,6 +7,8 @@ function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
     ∇act! = Symbol(:∇, ACT!)
+    maxflag = Symbol(RHS, :⛰)
+    maxdone = Symbol(:🆗, RHS)
     gradarrays = map(A -> Symbol(DEL, A), store.arrays)
     # gradscalars = map(A -> Symbol(DEL, A), store.scalars)
 
@@ -15,24 +17,36 @@ function insert_symbolic_gradient(axislist, store)
     elseif store.redfun in [:min, :max] # :*,
         store.leftind, store.redind
     else
-        error("can't take gradients with reduction $(store.redfun)")
+        throw("can't take gradients with reduction $(store.redfun)")
     end
 
     targets = []
-    MacroTools_postwalk(symbwalk(targets), store.right)
+    MacroTools_postwalk(symbwalk(targets, store), store.right)
     # append!(targets, scalars)
+
+    if isempty(targets) # short-circuit
+        push!(store.outpre, :(local @inline $∇act!(::Type, args...) = nothing ))
+        store.verbose > 0 && @info "no gradient to calculate"
+        return nothing
+    end
 
     inbody, prebody = [], []
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
-        deltar = simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        deltar = if store.finaliser == :identity
+            simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+        else
+            rhs = :($ZED[$(store.leftraw...)])
+            dldr = leibfinal(store.finaliser, rhs)
+            simplitimes(drdt, dldr, :(conj($dZ[$(store.leftraw...)])))
+        end
         if store.redfun == :+
             push!(inbody, :($dt = $dt + conj($deltar)))
         # elseif store.redfun == :*
         #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
         #     push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
-            push!(inbody, :($dt += $deltar)) # only when max attained, i.e. rhs == lhs!
+            push!(inbody, :($dt += ifelse($maxflag, $deltar, zero($TYP))))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
@@ -40,21 +54,23 @@ function insert_symbolic_gradient(axislist, store)
 
     ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
         product_grad(prebody, store)
+    elseif store.redfun in [:min, :max]
+        :($maxdone = 0), nothing
     else
         nothing, nothing
     end
     if store.redfun in [:min, :max] # this case really wants sparse 𝛥x!
         ex_body = :(
-            if $ZED[$(store.leftraw...)] == $(store.right)
-                $ex_body
-            end
-        )
+            $maxflag = Tullio.onlyone($ZED[$(store.leftraw...)] == $(store.right), $maxdone);
+            $ex_body;
+            $maxdone += Tullio.anyone($maxflag);
+            )
     end
 
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
-        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, " (symbolic gradient)")
+        nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, "(symbolic gradient)")
 
     if isdefined(store.mod, :Zygote) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
@@ -63,11 +79,48 @@ function insert_symbolic_gradient(axislist, store)
 
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
-            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, " (method for FillArrays)")
+            ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, "(gradient method for FillArrays)")
     end
 
 end
 
+leibfinal(fun::Symbol, res) =
+    if fun == :log
+        :(exp(-$res)) # this exp gets done at every element :(
+        # :(inv(exp($res)))
+    else
+        _leibfinal(:($fun($RHS)), res)
+    end
+
+_leibfinal(out, res) = begin
+    grad1 = leibnitz(out, RHS)
+    grad2 = MacroTools_postwalk(grad1) do ex
+        # @show ex ex == out
+        ex == out ? res : ex
+    end
+    MacroTools_postwalk(grad2) do ex
+        ex == RHS ? throw("couldn't eliminate partial sum") : ex
+    end
+end
+
+leibfinal(ex::Expr, res) = begin
+    if ex.head == :call && ex.args[1] isa Expr &&
+        ex.args[1].head == :(->) && ex.args[1].args[1] == RHS # then it came from underscores
+        inner = ex.args[1].args[2]
+        if inner isa Expr && inner.head == :block
+            lines = filter(a -> !(a isa LineNumberNode), inner.args)
+            length(lines) == 1 && return _leinfinal(first(lines), res)
+        end
+    end
+    throw("couldn't understand finaliser")
+end
+
+#=
+Tullio.leibfinal(:exp, :res)   # :res
+Tullio.leibfinal(:sqrt, :res)  # :(inv(res) / 2)
+Tullio.leibfinal(:tanh, :res)  # :(1 - res ^ 2)
+Tullio.leibfinal(:log, :res)   # :(exp(-res))
+=#
 
 # This works for simple cases, but the general case is more complicatd.
 #=
@@ -130,8 +183,9 @@ end
 # but seemed simple enough to just write out, using rules from:
 # http://www.juliadiff.org/DiffRules.jl/latest/
 
-symbwalk(targets) = ex -> begin
+symbwalk(targets, store) = ex -> begin
         @capture_(ex, A_[inds__]) && A isa Symbol || return ex
+        A in store.nograd && return ex
         deltaex = :($(Symbol(DEL, A))[$(inds...)])
         push!(targets, (deltaex, ex))
         return ex
@@ -146,7 +200,7 @@ leibnitz(ex::Expr, target) = begin
         ex.head = :call
         pushfirst!(ex.args, :adjoint)
     end
-    ex.head == :call || error("expected a functionn call, got $ex.")
+    ex.head == :call || throw("expected a functionn call, got $ex.")
     fun = ex.args[1]
     if fun == :log # catch log(a*b) and especially log(a/b)
         arg = ex.args[2]
@@ -171,14 +225,21 @@ leibnitz(ex::Expr, target) = begin
         fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target)
         dxs = [leibnitz(x, target) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
+    elseif length(ex.args) == 4  # three-arg function such as ifelse
+        fx, fy, fz = mydiffrule(fun, ex.args[2:end]...)
+        dx = leibnitz(ex.args[2], target)
+        dy = leibnitz(ex.args[3], target)
+        dz = leibnitz(ex.args[4], target)
+        return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy), simplitimes(fz, dz))
     end
-    error("don't know how to handle $ex.")
+    throw("don't know how to handle $ex.")
 end
 
 simplitimes(x::Number, y::Number) = x*y
 simplitimes(x::Number, y) = x==0 ? 0 : x==1 ? y : x==-1 ? :(-$y) : :($x * $y)
 simplitimes(x, y::Number) = y==0 ? 0 : y==1 ? x : y==-1 ? :(-$x) : :($y * $x)
 simplitimes(x, y) = :($y * $x)
+simplitimes(x, y, zs...) = simplitimes(simplitimes(x, y), zs...)
 
 simpliplus(x::Number, y::Number) = x + y
 simpliplus(x::Number, y) = x==0 ? y : :($x + $y)
@@ -194,13 +255,15 @@ mydiffrule(f, xs...) = begin
     f == :// && return mydivrule(xs...)
     f == :inv && return mydivrule(1, xs...)[2]
     f == :log && return simpliinv(xs...)
+    f == :abs && return myabsrule(xs...)
     f == :sqrt && return mysqrtrule(xs...)
+    f == :relu && return myrelurule(xs...)
     f in BASE_NOGRAD && return map(_->0, xs)
     DiffRules.hasdiffrule(:Base, f, length(xs)) &&
         return DiffRules.diffrule(:Base, f, xs...)
     DiffRules.hasdiffrule(:SpecialFunctions, f, length(xs)) &&
         return DiffRules.diffrule(:SpecialFunctions, f, xs...)
-    error("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
+    throw("no diffrule found for function $f($(join(map(_->"_",xs),", "))).")
 end
 
 BASE_NOGRAD = [:(==), :(!=), :(<), :(<=), :(>), :(>=), :trunc, :round]
@@ -240,6 +303,12 @@ end
 simplipow(x::Number, p::Number) = x^p
 simplipow(x, p::Number) = p==1 ? x : p==2 ? :($x*$x) : :($x^$p)
 simplipow(x, p) = :($x^$p)
+
+myrelurule(x::Number) = x>0 ? 1 : 0
+myrelurule(x) = :(ifelse($x>0, 1, 0))
+
+myabsrule(x::Number) = x<0 ? -1 : 1
+myabsrule(x) = :(ifelse($x<0, -1, 1)) # matches DiffRules._abs_deriv, which uses signbit(x)
 
 #========== CSE ==========#
 
