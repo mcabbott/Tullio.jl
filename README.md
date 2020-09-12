@@ -39,18 +39,17 @@ The macro also tries to provide a gradient for use with [Tracker](https://github
 The expression need not be just one line, for example:
 
 ```julia
-@tullio out[x,y] := begin                # sum over k
+@tullio out[x, y] := @inbounds(begin  # sum over k
         a,b = off[k]
-        i = mod(x+a, axes(mat,1))
-        j = mod(y+b, axes(mat,2))
-        @inbounds mat[i,j]
-    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
+        mat[mod(x+a), mod(y+b)]
+    end) (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
 ```
 
 Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
-(If writing into an existing array, with `out[x,y,n] = begin ...` or `+=`, then ranges would be taken from there.)
-It knows that it should not sum over indices `i,j`, but since it can't be sure of their ranges, it will not add `@inbounds` in such cases.
-It will also not be able to take a symbolic derivative here, but dual numbers will work fine.
+(If writing into an existing array, with `out[x,y] = begin ...` or `+=`, then ranges would be taken from there.)
+Because it sees assignment being made, it does not attempt to sum over `a,b`, and it assumes that indices could go out of bounds so does not add `@inbounds` for you. 
+(Although in fact `mod(x+a) == mod(x+a, axes(mat,1))` is safe.)
+It will also not be able to take a symbolic derivative, but dual numbers will work fine.
 
 Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
 
@@ -73,6 +72,7 @@ A = [abs2(i - 11) for i in 1:21]
 
 # Shifts -- range of i calculated in terms of that given for j:
 @tullio M[i,j] := A[i+j-1]  (j in 1:15)  # i in 1:7
+@tullio M[i+_,j] := A[i+j]  (j in 1:15)  # i in 0:6, automatic shift "i+_"
 
 using OffsetArrays # Convolve a filter:
 K = OffsetArray([1,-1,2,-1,1], -2:2)
@@ -86,8 +86,8 @@ S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 
 # Finalisers <| or |> are applied after sum:
-@tullio N2[j] := sqrt <| M[i,j]^2   # N2 ≈ map(norm, eachcol(M)) 
-@tullio n3 := A[i]^3  |> (_)^(1/3)  # n3 ≈ norm(A,3), with _ anon. func.
+@tullio N2[j] := sqrt <| M[i,j]^2     # N2 ≈ map(norm, eachcol(M)) 
+@tullio n3[_] := A[i]^3  |> (_)^(1/3) # n3[1] ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product
@@ -165,8 +165,8 @@ mat = zeros(10,10,1); mat[2,2] = 101; mat[10,10] = 1;
 
 @tullio out[x,y,c] := begin
     xi = mod(x+i, axes(mat,1)) # xi = ... means that it won't be summed,
-    yj = mod(y+j, axes(mat,2))
-    @inbounds trunc(Int, mat[xi, yj, c] * kern[i,j]) # and disables automatic @inbounds,
+    # yj = mod(y+j, axes(mat,2))
+    @inbounds trunc(Int, mat[xi, mod(y+j), c] * kern[i,j]) # and disables automatic @inbounds,
 end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 
 # A stencil?
@@ -175,8 +175,8 @@ offsets = [(a,b) for a in -2:2 for b in -2:2 if a>=b] # vector of tuples
 @tullio out[x,y,1] = begin 
         a,b = offsets[k]
         i = clamp(x+a, extrema(axes(mat,1))...)
-        j = clamp(y+b, extrema(axes(mat,2))...)
-        @inbounds mat[i,j,1] * 10
+        # j = clamp(y+b, extrema(axes(mat,2))...) # can be written clamp(y+b)
+        @inbounds mat[i, clamp(y+b), 1] * 10
     end # ranges of x,y read from out[x,y,1]
 
 # Applying a vector of functions
@@ -212,13 +212,15 @@ Implicit:
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` & `Zygote`. These packages need not be loaded when the macro is run.
 * Gradients are only defined for reductions over `(+)` (default) and `min`, `max`.
-* GPU kernels are only constructed when both `KernelAbstractions` and `CuArray` are visible. The default `cuda=256` is passed to `kernel(CUDA(), 256)`.
+* GPU kernels are only constructed when both `KernelAbstractions` and `CUDA` are visible. The default `cuda=256` is passed to `kernel(CUDA(), 256)`.
 * The CPU kernels from `KernelAbstractions` are called only when `threads=false`; they are not at present very fast, but perhaps useful for testing.
 
 Extras:
 * `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
 * `A[i] := B[i, $col] - C[i, 2]` is how you fix one index to a constant (to prevent `col` being summed over).
 * `A[i] := $d * B[i]` is the preferred way to include other constants. Note that no gradient is calculated for `d`. 
+* Within indexing, `A[mod(i), clamp(j)]` both maps `i` & `j` to lie within `axes(A)`, and disables inference of their ranges from `A`.
+* On the left, when making a new array, an underscore like `A[i+_] :=` inserts whatever shift is needed to make `A` one-based.
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
 </details>
