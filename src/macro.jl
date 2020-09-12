@@ -799,10 +799,17 @@ function action_functions(store)
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     push!(store.outex, quote
+        # Of course it's a waste to make store.leftarray at all here... re-order... pass a dummy?
+        if $all_static($(axisleft...), $(axisred...))
+            args = ($(store.leftarray), $(store.arrays...), $(store.scalars...), $(axisleft...), $(axisred...))
+            @warn "all ranges static" methods($ACT!) typeof(args) hasmethod($ACT!, typeof(args))
+            $ACT!($(store.leftarray), $(store.arrays...), $(store.scalars...), $(axisleft...), $(axisred...))
+        else
         $threader($ACT!, $ST, $(store.leftarray),
             tuple($(store.arrays...), $(store.scalars...),),
             tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
         $(store.leftarray)
+        end
     end)
     store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
@@ -813,7 +820,8 @@ function action_functions(store)
                 $(store.outex...)
             end
         end
-        store.verbose==2 && @info ">>>>> Maker function" verbosetidy(ex_make)
+        # store.verbose==2 &&
+        @info ">>>>> Maker function" verbosetidy(ex_make)
         ex = quote
             let $ACT! = $ACT!
                 $ex_make
@@ -1022,46 +1030,82 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             store.verbose>0 && @warn "KernelAbstractions failed $note" err
         end
     end
-#=
+
+    #===== StaticArrays =====#
+    # https://discourse.julialang.org/t/kronecker-times-vector-with-special-structure/42477/8
+
+    # @einsum r2[e,a] := θ3[e,c,a] * a2[c]
+    # @generated function f(::Val{N}, a2::SVector{K}, ::Val{M}, θ::SVector) where {N,K,M}
+    #     vals = []
+    #     for a in 0:N-1, e in 0:M-1
+    #         terms = []
+    #         for c in 0:K-1
+    #             i = 1 + M*K*a + M*c + e
+    #             push!(terms, :(a2[$c+1] * θ[$i]))
+    #         end
+    #         push!(vals, :(+($(terms...))))
+    #     end
+    #     :(SVector($(vals...)))
+    # end
+
+# stex = quote
+#     @generated function 𝒜𝒸𝓉!(ℛ::AbstractArray{𝒯}, M, 𝒶𝓍i, 𝒶𝓍j) where 𝒯
+#             𝓇𝒽𝓈 = []
+#             for (i,) = Iterators.product((Tullio.getrange)(𝒶𝓍i))
+#                 𝒜𝒸𝒸 = []
+#                 for (j,) = Iterators.product((Tullio.getrange)(𝒶𝓍j))
+#                     push!(𝒜𝒸𝒸, $(Expr(:quote, :(M[$(Expr(:$, :i)), $(Expr(:$, :j))]))))
+#                 end
+#                 push!(𝓇𝒽𝓈, (Tullio.expressionreduce)(+, 𝒜𝒸𝒸))
+#             end
+#             $(Expr(:quote, :(SArray{Tuple{length(𝒶𝓍i)}}($(Expr(:$, :(𝓇𝒽𝓈...)))))))
+#         end
+# end
+
     if isdefined(store.mod, :StaticArrays)
-        # This needs to write code for a @generated function.
-        in_out = vcat(inner, outer)
-        in_out_quote = map(QuoteNode, in_out)
-        out_size = map(i -> :(length($(Symbol(AXIS, i)))), outer)
 
-        val_ex = if isempty(inner) # no reduction
-            :(symreplace($ex5, $in_out_quote, $in_out))
-        else
-            # in_loops = recurseloops(:(push!(terms, $ex5)), inner)
-            # quote
-            #     terms = []
-            #     in_loops
+        in_axes = map(i -> Symbol(AXIS, i), inner)
+        out_axes = map(i -> Symbol(AXIS, i), outer)
+        in_tup = :(($(inner...),))
+        out_tup = :(($(outer...),))
+        in_sranges = map(ax -> :($getrange($ax)), in_axes)
+        out_sranges = map(ax -> :($getrange($ax)), out_axes)
+        in_iter = :(Iterators.product($(in_sranges...)))
+        out_iter = :(Iterators.product($(out_sranges...)))
+
+        all_ind = vcat(inner, outer)
+        dollar_right_1 = MacroTools_postwalk(store.right) do ex
+            ex in all_ind || return ex
+            Expr(:$, ex)
         end
+        dollar_right = Expr(:quote, dollar_right_1)
 
-        out_loops = recurseloops(:(push!($RHS, $val_ex)), outer)
+        # all_ind = :(($(vcat(inner, outer)...),))
+        # all_quoted = :(($(map(QuoteNode, vcat(inner, outer))...),))
+        out_size = map(i -> :(length($(Symbol(AXIS, i)))), outer)
+        out_splat = :($RHS...)
+        out_expr = Expr(:quote, :(SArray{Tuple{$(out_size...)}}($(Expr(:$, out_splat)))))
 
-@show store.right out_loops out_size
-
-        quote
+        stex = quote
             @generated function $act!($(args...)) where {$TYP}
                 $RHS = []
-                # for i in outer
-                #     terms = []
-                #     for j in inner
-                #         rhs = symreplace(right, in_out, vcat(inner, outer))
-                #         push!(terms, rhs)
-                #     end
-                #     push!(res, term)
-                # end
-                $out_loops
-                SArray{Tuple{$(out_size...)}}($(RHS...))
+                for $out_tup in $out_iter
+                    $ACC = []
+                    for $in_tup in $in_iter
+                        push!($ACC, $dollar_right)
+                    end
+                    push!($RHS, $expressionreduce($(store.redfun), $ACC))
+                end
+                $out_expr
             end
         end
+        # store.verbose==2 &&
+        @info "=====SA===== StaticArrays maker $note" verbosetidy(stex)
+        push!(store.outpre, stex)
 
     end
-=#
-end
 
+end
 
 recurseloops(ex, list::Vector) =
     if isempty(list)
@@ -1073,13 +1117,15 @@ recurseloops(ex, list::Vector) =
         return recurseloops(ex, list[2:end])
     end
 
-symreplace(expr, src, dst) = MacroTools_postwalk(expr) do ex
-        ex isa Symbol || return ex
-        i = findfirst(isequal(ex), src)
-        isnothing(i) ? ex : dst[i]
+expressionreduce(fun, list) = begin  # called in @generated maker for StaticArrays
+    ex = first(list)
+    for x in Iterators.drop(list,1)
+        ex = :($fun($ex, $x))
     end
+    ex
+end
 
-finalsplit(expr) = begin
+finalsplit(expr) = begin  # removes finaliser branch, to help LoopVectorization
     yes = false
     ex_1 = MacroTools_postwalk(expr) do ex
         yes |= isifelsefinal(ex)
