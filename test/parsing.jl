@@ -393,6 +393,11 @@ end
     @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
     @test [9,25,49,81,1,9] == @tullio E[i] := A[mod(2i+1, 1:10)]  i in 1:6
 
+    # pairconstraints
+    @tullio F[i] := A[mod(i+k)] * ones(3)[k]  (i in axes(A,1))
+    @test F[end] == 1 + 2^2 + 3^2
+    @tullio F[i] = A[clamp(i+k)] * ones(7)[k]
+
     # unable to infer range
     @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
     # can't use index mod(i) on LHS

@@ -363,7 +363,7 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, [])
-            isnothing(range_i) || push!(v, dollarstrip(range_i))
+            push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
@@ -588,6 +588,7 @@ function index_ranges(store)
 
     todo = Set(vcat(store.leftind, store.redind))
     done = Dict{Symbol,Any}()
+    remove_nothings(store)
 
     for (i,j,r_i,r_j) in store.pairconstraints
 
@@ -663,6 +664,16 @@ resolveintersect(i, store, done) = begin
     ax_i = Symbol(AXIS, i)
     push!(store.axisdefs, :( local $ax_i = $res ))
     done[i] = res
+end
+
+remove_nothings(store) = begin
+    filter!(store.pairconstraints) do tup
+        !isnothing(tup[3]) && !isnothing(tup[4])
+    end
+    for (i,v) in pairs(store.constraints)
+        filter!(!isnothing, v)
+        isempty(v) && delete!(dict, i)
+    end
 end
 
 #========== output array + eltype ==========#
@@ -840,7 +851,7 @@ function action_functions(store)
     ST = :($storage_type($(store.leftarray), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
     block = store.threads==false ? nothing :
-        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
     push!(store.outex, quote
         $threader($ACT!, $ST, $(store.leftarray),
@@ -1152,7 +1163,7 @@ function backward_definitions(store)
 
     ST = :($storage_type($(gradarrays...), $(store.arrays...)))
     block = store.threads==false ? nothing :
-        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
     ex_make = quote
 
