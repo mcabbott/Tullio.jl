@@ -97,7 +97,6 @@ using Requires
            N==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
     Tullio.promote_storage(::Type{A}, ::Type{B}) where {A <: AbstractRange{T}, B <: CuArray{S,M}} where {T,S,M} =
            M==1 ? CuArray{promote_type(T,S),1} : CuArray{promote_type(T,S)}
-end
 
     function Tullio.getonly(a::CuArray) # @allowscalar first(a)
         prev = GPUArrays.scalar_allowed[]
