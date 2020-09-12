@@ -374,6 +374,30 @@ using OffsetArrays
     @test_throws LoadError @eval @tullio C[i] = A[i⊗j] + A[i]
     @test_throws LoadError @eval @tullio C[i] = A[(i,j)] + A[i]
 
+    # magic shift
+    @test axes(@tullio Z[i+_] := A[2i+10]) === (Base.OneTo(5),)
+
+    @test_throws LoadError @eval @tullio Z[_+i] := A[2i+10] # wrong notation
+    @test_throws LoadError @eval @tullio Z[J[i]+_] := A[2i+10] # with scatter
+    @test_throws LoadError @eval @tullio Z[i+_] = A[2i+10] # in-place
+end
+
+@testset "modulo & clamped indices" begin
+
+    A = [i^2 for i in 1:10]
+    B = 1:5
+
+    @test vcat(B,B) == @tullio C[i] := B[mod(i)]  i in 1:10
+    @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
+
+    @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
+    @test [9,25,49,81,1,9] == @tullio E[i] := A[mod(2i+1, 1:10)]  i in 1:6
+
+    # unable to infer range
+    @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
+    # can't use index mod(i) on LHS
+    @test_throws LoadError @eval @tullio G[mod(i)] := A[i]
+
 end
 
 @testset "other reductions" begin

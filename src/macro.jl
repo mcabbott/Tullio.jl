@@ -301,6 +301,8 @@ function parse_input(expr, store)
     unique!(store.leftind)
     store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
+    any(==(:_), vcat(store.leftind, store.rightind)) && throw("can't use _ as an index name")
+
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
     if :newarray in store.flags && Zed in store.arrays
@@ -333,11 +335,14 @@ rightwalk(store) = ex -> begin
 
         # Third, save letter A, and what axes(A) says about indices:
         push!(store.arrays, arrayonly(A))
-        inds = primeindices(inds)
-        saveconstraints(A, inds, store, true)
+        inds3 = primeindices(inds)
+        saveconstraints(A, inds3, store, true)
+
+        # Fourth, replace mod(i) with mod(i, axes(A,3)) etc:
+        inds4 = modindices(A, inds3)
 
         # Re-assemble RHS with new A, and primes on indices taken care of.
-        return :( $A[$(inds...)] )
+        return :( $A[$(inds4...)] )
     end # A1[i][k] should be seen later, with corrected A
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -358,7 +363,7 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, i)
             ex isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, [])
-            push!(v, dollarstrip(range_i))
+            isnothing(range_i) || push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
@@ -418,6 +423,20 @@ primeindices(inds) = map(inds) do ex
     ex
 end
 
+modindices(A, inds) = map(enumerate(inds)) do (d,iraw)
+    MacroTools_postwalk(iraw) do ex
+        ex isa Expr && ex.head == :call || return ex
+        if ex.args[1] == :mod && length(ex.args) == 2
+            i = ex.args[2]
+            return :(mod($i, axes($A,$d)))
+        elseif ex.args[1] == :clamp && length(ex.args) == 2
+            i = ex.args[2]
+            return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
+        end
+        ex
+    end
+end
+
 dollarwalk(store) = ex -> begin
         @nospecialize ex
         ex isa Expr || return ex
@@ -455,6 +474,15 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
+
+    elseif i isa Expr && i.head == :call && i.args[1] == :+ &&
+            length(i.args)==3 && i.args[3] == :_ # magic un-shift A[i+_, j] := ...
+        i = primeindices(i.args)[2]
+        i isa Symbol || throw("index ($i + _) is too complicated, sorry")
+        push!(store.leftind, i)
+        deli = Symbol(DEL, i)
+        push!(store.scalars, deli) # calculating this must be done later
+        return :($i + $deli)
 
     elseif @capture_(i, J_[inds__]) # scatter operation, A[i,J[j,k]] := ...
         push!(store.nograd, J)
@@ -590,6 +618,15 @@ function index_ranges(store)
         else
             resolvestrict(i, store, done)
         end
+        deli = Symbol(DEL,i)
+        if deli in store.scalars # magic shift on LHS
+            axi, axi_del = Symbol(AXIS,i), Symbol(AXIS,i,DEL)
+            push!(store.axisdefs, :($deli = 1 - first($axi)),
+                :(local $axi_del = Base.OneTo(length($axi))))
+            # You can't compute deli inside Act! as doesn't always see full range of i.
+            # But if you make it a scalar argument, then it's an argument of Make, hence
+            push!(store.outpre, :(local $deli = 0)) # ... this awful hack.
+        end
     end
 
     append!(store.outex, store.axisdefs)
@@ -616,9 +653,13 @@ resolvestrict(i, store, done) = begin
 end
 
 resolveintersect(i, store, done) = begin
-    res = length(store.constraints[i])==1 ?
-        first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
+    res = if isempty(store.constraints[i])
+        throw("unable to infer range of index $i")
+    elseif length(store.constraints[i])==1
+        first(store.constraints[i])  # because intersect(1:3) isa Vector, wtf?
+    else
         :( intersect($(store.constraints[i]...)) )
+    end
     ax_i = Symbol(AXIS, i)
     push!(store.axisdefs, :( local $ax_i = $res ))
     done[i] = res
@@ -688,11 +729,14 @@ function output_array(store)
             push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
         end
 
-        # This now checks for OffsetArrays, and allows A[i,1] := ...
+        # This now checks for OffsetArrays, and allows A[i,1] := rhs. Pulls out scatterers.
         outaxes = map(store.leftraw) do i
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
             i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
+            # i isa Expr && @capture_(i, j_ + dj_) # not yet
+            i isa Expr && i.head == :call && length(i.args)==3 && i.args[1] == :+ &&
+                startswith(string(i.args[3]), string(DEL)) && return Symbol(AXIS, i.args[2], DEL)
             throw("can't use index $i on LHS for a new array")
         end
 

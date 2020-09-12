@@ -98,7 +98,9 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
         return (:($extremerange($A)),nothing)
     end
     ex.head == :call || throw("not sure what to do with $ex")
-    if length(ex.args) == 2
+    if ex.args[1] in (:mod, :clamp, :mod1)
+        return range_expr_walk(nothing, ex.args[2])
+    elseif length(ex.args) == 2
         op, a = ex.args
         if op == :+
             return range_expr_walk(r, a)
@@ -160,6 +162,49 @@ is_const(ex::Expr) = begin
     end
     false
 end
+
+"""
+    range_expr_walk(nothing, :(i+j))
+
+Special case for finding what indices appear inside `A[mod(i+j)]` etc,
+for which no ranges are inferred.
+"""
+range_expr_walk(::Nothing, s::Symbol) = nothing, s
+range_expr_walk(::Nothing, ex::Expr) =
+    if ex.head == :ref
+        return nothing, nothing
+    elseif ex.head == :call
+        if length(ex.args) == 2
+            op, a = ex.args
+            if op in (:+, :-)
+                return range_expr_walk(nothing, a)
+            end
+        elseif length(ex.args) == 3
+            op, a, b = ex.args
+            if op in (:+, :-)
+                is_const(a) && return range_expr_walk(nothing, b)
+                is_const(b) && return range_expr_walk(nothing, a)
+                range_a, i_a = range_expr_walk(nothing, a)
+                range_b, i_b = range_expr_walk(nothing, b)
+                return (range_a, range_b), (i_a, i_b)
+            elseif op == :*
+                is_const(a) && return range_expr_walk(nothing, b)
+                is_const(b) && return range_expr_walk(nothing, a)
+            elseif op == :÷
+                is_const(b) && return range_expr_walk(nothing, a)
+            end
+        elseif length(ex.args) > 3
+            op, a, b, c = ex.args[1:4]
+            ds = ex.args[5:end]
+            if op == :+
+                is_const(a) && return range_expr_walk(nothing, :(+($b, $c, $(ds...))))
+                is_const(b) && return range_expr_walk(nothing, :(+($a, $c, $(ds...))))
+                is_const(c) && return range_expr_walk(nothing, :(+($a, $b, $(ds...))))
+            end
+        end
+    else
+        throw("not sure what to do with $ex, in the end")
+    end
 
 """
     range_expr_walk(:(axes(A,1)), :(i=j)) -> :(axes(A, :i)), :j
