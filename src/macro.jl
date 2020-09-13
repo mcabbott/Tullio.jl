@@ -705,9 +705,9 @@ function output_array(store)
 
         simex = if :scalar in store.flags && :plusequals in store.flags
             # Deal with scalar += now, by writing into array, later read it out:
-            :( $(store.leftscalar):$(store.leftscalar) )
+            :( $OneBox($(store.leftscalar)) )
         elseif :scalar in store.flags # no longer writes into this, but still needs something!
-            :( zero($TYP):zero($TYP) )
+            :( $TypeBox($TYP) )
         elseif isempty(store.arrays)
             # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
