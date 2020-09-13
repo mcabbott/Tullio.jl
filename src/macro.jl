@@ -1120,7 +1120,7 @@ function backward_definitions(store)
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     input, acton = if :scalar in store.flags
-        :($dZ::$TYP), :($dZ:$dZ) # a hack to minimise changes to Act!, for now! ??
+        :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to Act!, for now! ??
     else
         :($dZ::AbstractArray{$TYP}), dZ
     end
