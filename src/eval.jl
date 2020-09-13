@@ -124,7 +124,9 @@ all_static(ranges...) = false
 @init @require StaticArrays = "90137ffa-7385-5640-81b9-e52037218182" begin
     using .StaticArrays: SOneTo
 
-    getrange(::Type{SOneTo{N}}) where {N} = 1:N
+    staticgetrange(::SOneTo{N}) where {N} = 1:N
+    staticgetrange(::Type{SOneTo{N}}) where {N} = 1:N
+
     Tullio.all_static(ranges::SOneTo...) = true
 
 end

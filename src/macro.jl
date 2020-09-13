@@ -804,6 +804,7 @@ function action_functions(store)
             args = ($(store.leftarray), $(store.arrays...), $(store.scalars...), $(axisleft...), $(axisred...))
             @warn "all ranges static" methods($ACT!) typeof(args) hasmethod($ACT!, typeof(args))
             $ACT!($(store.leftarray), $(store.arrays...), $(store.scalars...), $(axisleft...), $(axisred...))
+            # Base.invokelatest($ACT!, $(store.leftarray), $(store.arrays...), $(store.scalars...), $(axisleft...), $(axisred...))
         else
         $threader($ACT!, $ST, $(store.leftarray),
             tuple($(store.arrays...), $(store.scalars...),),
@@ -1062,14 +1063,68 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 #         end
 # end
 
+
+#=
+
+using Tullio, StaticArrays, MacroTools
+M = @SMatrix rand(3,4)
+
+@tullio A[i] := M[i,j]^2 grad=false
+
+# generates this code:
+
+stex = quote
+    @generated function 𝒜𝒸𝓉!(ℛ::AbstractArray{𝒯}, M, 𝒶𝓍i, 𝒶𝓍j) where 𝒯
+    # function 𝒜𝒸𝓉!(ℛ::AbstractArray{𝒯}, M, 𝒶𝓍i, 𝒶𝓍j) where 𝒯
+            𝓇𝒽𝓈 = []
+            for (i,) = Iterators.product((Tullio.staticgetrange)(𝒶𝓍i))
+                𝒜𝒸𝒸 = []
+                for (j,) = Iterators.product((Tullio.staticgetrange)(𝒶𝓍j))
+                    push!(𝒜𝒸𝒸, $(Expr(:quote, :(M[$(Expr(:$, :i)), $(Expr(:$, :j))] ^ 2))))
+                end
+                push!(𝓇𝒽𝓈, (Tullio.expressionreduce)(+, 𝒜𝒸𝒸))
+            end
+            ℛsize = tuple(length((Tullio.staticgetrange)(𝒶𝓍i)))
+            $(Expr(:quote, :(SArray{Tuple{$(Expr(:$, :(ℛsize...)))}}($(Expr(:$, :(𝓇𝒽𝓈...)))))))
+        end
+end
+
+eval(stex)
+
+𝒜𝒸𝓉!(M, M, axes(M)...)
+
+# :(SArray{Tuple{(3,)}}((+)((+)((+)(M[1, 1] ^ 2, M[1, 2] ^ 2), M[1, 3] ^ 2), M[1, 4] ^ 2), (+)((+)((+)(M[2, 1] ^ 2, M[2, 2] ^ 2), M[2, 3] ^ 2), M[2, 4] ^ 2), (+)((+)((+)(M[3, 1] ^ 2, M[3, 2] ^ 2), M[3, 3] ^ 2), M[3, 4] ^ 2)))
+
+@btime 𝒜𝒸𝓉!($M, $M, axes($M)...) # 3.643 ns (0 allocations: 0 bytes)
+
+@btime vec(sum($M .^ 2, dims=2)) # 34.448 ns (2 allocations: 64 bytes)
+@btime sum($M .^ 2, dims=2) # 14.076 ns (1 allocation: 32 bytes)
+
+# but directly calling the macro:
+
+ERROR: MethodError: no method matching #s2320#101(::Type{Float64}, ::Type{var"#𝒜𝒸𝓉!#102"}, ::Type{MArray{Tuple{3},Float64,1,3}}, ::Type{SArray{Tuple{3,4},Float64,2,12}}, ::Type{SOneTo{3}}, ::Type{SOneTo{4}})
+The applicable method may be too new: running in world age 28163, while current world is 28166.
+Closest candidates are:
+  #s2320#101(::Any, ::Any, ::Any, ::Any, ::Any, ::Any) at none:0 (method too new to be called from this world context.)
+Stacktrace:
+ [1] (::Core.GeneratedFunctionStub)(::Any, ::Vararg{Any,N} where N) at /Applications/Julia-1.5.app/Contents/Resources/julia/lib/julia/sys.dylib:?
+ [2] ℳ𝒶𝓀ℯ at /Users/me/.julia/dev/Tullio/src/macro.jl:806 [inlined]
+ [3] (::Tullio.Eval{var"#ℳ𝒶𝓀ℯ#103"{var"#𝒜𝒸𝓉!#102"},Nothing})(::SArray{Tuple{3,4},Float64,2,12}) at /Users/me/.julia/dev/Tullio/src/eval.jl:20
+ [4] top-level scope at /Users/me/.julia/dev/Tullio/src/macro.jl:829
+
+# https://github.com/JuliaLang/julia/issues/37553
+
+=#
+
+
     if isdefined(store.mod, :StaticArrays)
 
         in_axes = map(i -> Symbol(AXIS, i), inner)
         out_axes = map(i -> Symbol(AXIS, i), outer)
         in_tup = :(($(inner...),))
         out_tup = :(($(outer...),))
-        in_sranges = map(ax -> :($getrange($ax)), in_axes)
-        out_sranges = map(ax -> :($getrange($ax)), out_axes)
+        in_sranges = map(ax -> :($staticgetrange($ax)), in_axes)
+        out_sranges = map(ax -> :($staticgetrange($ax)), out_axes)
         in_iter = :(Iterators.product($(in_sranges...)))
         out_iter = :(Iterators.product($(out_sranges...)))
 
@@ -1080,14 +1135,17 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         end
         dollar_right = Expr(:quote, dollar_right_1)
 
-        # all_ind = :(($(vcat(inner, outer)...),))
-        # all_quoted = :(($(map(QuoteNode, vcat(inner, outer))...),))
-        out_size = map(i -> :(length($(Symbol(AXIS, i)))), outer)
+        out_sizes = map(i -> :(length($staticgetrange($(Symbol(AXIS, i))))), outer)
+        zed_tuple = :(tuple($(out_sizes...)))
+        zed_size = Symbol(ZED, :size)
+
+        zed_splat = :($zed_size...)
         out_splat = :($RHS...)
-        out_expr = Expr(:quote, :(SArray{Tuple{$(out_size...)}}($(Expr(:$, out_splat)))))
+        out_expr = Expr(:quote, :(SArray{Tuple{$(Expr(:$, zed_splat))}}($(Expr(:$, out_splat)))))
 
         stex = quote
-            @generated function $act!($(args...)) where {$TYP}
+
+            local @generated function $act!($(args...)) where {$TYP}
                 $RHS = []
                 for $out_tup in $out_iter
                     $ACC = []
@@ -1096,8 +1154,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     end
                     push!($RHS, $expressionreduce($(store.redfun), $ACC))
                 end
+                $zed_size = $zed_tuple
                 $out_expr
             end
+
         end
         # store.verbose==2 &&
         @info "=====SA===== StaticArrays maker $note" verbosetidy(stex)
