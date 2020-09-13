@@ -70,6 +70,12 @@ function extremerange(A)
     α:ω
 end
 
+# This gives the range of j implied by A[i, pad(j,3)]
+
+function padrange(r::AbstractUnitRange, lo::Integer, hi::Integer)
+    first(r)-lo : last(r)+hi
+end
+
 #========== functions used by the macro ==========#
 
 @nospecialize
@@ -98,8 +104,14 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
         return (:($extremerange($A)),nothing)
     end
     ex.head == :call || throw("not sure what to do with $ex")
-    if ex.args[1] in (:mod, :clamp, :mod1)
+    if ex.args[1] in (:mod, :clamp, :mod1) # these disable range inference
         return range_expr_walk(nothing, ex.args[2])
+    elseif ex.args[1] == :pad && length(ex.args) == 3
+        _, a, p = ex.args
+        return range_expr_walk(:($padrange($r, $p, $p)), a)
+    elseif ex.args[1] == :pad && length(ex.args) == 4
+        _, a, lo, hi = ex.args
+        return range_expr_walk(:($padrange($r, $lo, $hi)), a)
     elseif length(ex.args) == 2
         op, a = ex.args
         if op == :+
@@ -167,7 +179,8 @@ end
     range_expr_walk(nothing, :(i+j))
 
 Special case for finding what indices appear inside `A[mod(i+j)]` etc,
-for which no ranges are inferred.
+for which no ranges are inferred. Returns `(nothing, :i)` if one,
+or `((nothing, nothing), (:i, :j))` if two.
 """
 range_expr_walk(::Nothing, s::Symbol) = nothing, s
 range_expr_walk(::Nothing, ex::Expr) =
@@ -231,6 +244,7 @@ range_unwrap(ex::Expr) = begin
         return :($extremerange($A))
     end
     ex.head == :call || throw("don't know how to handle $ex")
+    # if ex.args[1] == :pad or :clamp or :mod --- find test cases.
     if length(ex.args) == 2
         op, a = ex.args
         if op == :-

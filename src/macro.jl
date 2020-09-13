@@ -432,6 +432,11 @@ modindices(A, inds) = map(enumerate(inds)) do (d,iraw)
         elseif ex.args[1] == :clamp && length(ex.args) == 2
             i = ex.args[2]
             return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
+        elseif ex.args[1] == :pad && length(ex.args) >= 3
+            # for now the only difference from clamp is range inference
+            @warn "padding is experimental!" ex maxlog=3
+            i = ex.args[2]
+            return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
         end
         ex
     end
