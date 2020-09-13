@@ -551,4 +551,9 @@ end
         @test_throws UndefVarError 𝒜𝒸𝓉! isa Function
     end
 
+    # https://github.com/mcabbott/Tullio.jl/issues/35
+    a = [1 2 3; 4 5 6];
+    b = [10,20,30];
+    @test sum(b) == @tullio s := b[a[1,i]]
+
 end

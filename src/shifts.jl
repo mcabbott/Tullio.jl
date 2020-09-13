@@ -70,6 +70,19 @@ function extremerange(A)
     α:ω
 end
 
+# This is for the bounds check on A[I[j],k] (not actually a runtime function):
+
+function extremeview(ex::Expr)
+    @assert ex.head == :ref
+    A = ex.args[1]
+    if any(is_const, ex.args[2:end])
+        ind = map(i -> is_const(i) ? i : (:), ex.args[2:end])
+        :(@view $A[$(ind...)])
+    else
+        A
+    end
+end
+
 #========== functions used by the macro ==========#
 
 @nospecialize
@@ -91,10 +104,10 @@ and the caller should check `issubset(min:max, axes(A,1))`.
 """
 function range_expr_walk(r::Expr, ex::Expr, con=[])
     ex.head == :kw && return range_expr_kw(r, ex)
-    if ex.head == :ref # case of M[I[j], k] with r=size(M,1)
+    if ex.head == :ref # case of M[I[j], k] with r=axes(M,1)
         A = ex.args[1]
-        push!(con, :(minimum($A) in $r && maximum($A) in $r || throw("not safe!")))
-        # return (r,nothing)
+        A = extremeview(ex)
+        push!(con, :(minimum($A) in $r && maximum($A) in $r || throw("not safe!"))) # not used??
         return (:($extremerange($A)),nothing)
     end
     ex.head == :call || throw("not sure what to do with $ex")
@@ -152,7 +165,7 @@ range_expr_walk(range::Expr, n::Integer) = range, nothing
 
 is_const(::Int) = true
 is_const(::Any) = false
-is_const(s::Symbol) = s === :(:) # for the purposes of saveconstraints setting :intersect
+is_const(s::Symbol) = s in [:(:), :begin, :end] # : for the purposes of saveconstraints setting :intersect
 is_const(ex::Expr) = begin
     ex.head == :$ && return true # what's returned by range_expr_walk will still contain $
     if ex.head == :call && ex.args[1] in (:+, :-, :*, :÷)
