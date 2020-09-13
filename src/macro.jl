@@ -363,8 +363,9 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
-        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
+        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints, I said.
             str = "extrema of index $ex must fit within $A1"
+            # @show range_i axis_i # @tullio C[i,k] := B[J[i]+1,k] verbose=2 grad=false # comes here, wrong check
             push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
         end
     end
