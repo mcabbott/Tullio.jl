@@ -182,6 +182,13 @@ end
     con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
     @test gradtest(con14, (3,3,9,9))
 
+    ## scalar -- one with :=, one without
+    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]
+    @test gradtest(sc1, (1,2,3))
+
+    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]
+    @test gradtest(sc2, (3,3))
+
 end
 
 if Tullio._GRAD[] != :Dual

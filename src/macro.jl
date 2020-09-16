@@ -44,7 +44,7 @@ function _tullio(exs...; mod=Main)
 
     if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
         res = try_tensor(ex, ranges, DotDict(;mod = mod, opts...,
-            arrays = Symbol[], indices = [], scalars = Symbol[]))
+            flags = Set{Symbol}(), arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end

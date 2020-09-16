@@ -11,6 +11,18 @@ function try_tensor(expr, ranges, store)
         fail = "TensorOperations not used, expected left := right etc"
     end
     if @capture_(expr.args[1], Z_[leftind__]) && all(a -> a isa Symbol, leftind)
+        if expr.head == :(:=)
+            push!(store.flags, :newarray)
+        end
+    elseif expr.args[1] isa Symbol # scalar output
+        push!(store.flags, :scalar)
+        Z, leftind = expr.args[1], nothing
+        if expr.head == :(:=)
+            push!(store.flags, :newarray)
+            expr.head = :(=) # mutate it as @tensor doesn't accept scalar :=
+        elseif expr.head == :(=)
+            push!(store.flags, :newarray)
+        end # for scalars, only += case isn't :newarray
     else
         fail = "TensorOperations not used, expected A[i,j,k] := ..."
     end
@@ -36,7 +48,8 @@ function try_tensor(expr, ranges, store)
     try
         tex = macroexpand(store.mod, :(TensorOperations.@tensor $expr))
 
-        if @capture_(expr, left_ := right_)
+        if :newarray in store.flags
+            left, right = expr.args
             #===== new array =====#
 
             MacroTools_postwalk(right) do ex
@@ -146,12 +159,12 @@ function tensor_grad(right, leftind, store)
         end
     )]
 
-    if isdefined(store.mod, :Zygote) # special case for FillArrays
+    if !isnothing(leftind) && isdefined(store.mod, :Zygote) # special case for FillArrays
         # backsteps_fill = fillarrayreplace(backsteps, dZ)
         # ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
         push!(outex, :(
             local $∇make($dZ::Zygote.Fill, $ZED, $(args...)) = $∇make(collect($dZ), $ZED, $(args...))
-            # Todo: make this work without collect!
+            # Todo: make this work without collect! Ideally it would write simpler @tensor expr.
             # local function $∇make($dZ::Zygote.Fill, $ZED, $(args...))
             #     $ex_value
             #     $(backsteps_fill...)
@@ -175,7 +188,11 @@ function replace_B_with_Δ(B, Bijk, right, leftind)
     out = MacroTools_postwalk(right) do x
         if @capture_(x, A_[ijk__]) && A==B && ijk == Bijk
             countB += 1
-            return :( conj($dZ[$(leftind...)]) )
+            if isnothing(leftind)
+                return :(conj($dZ)) # scalar case
+            else
+                return :( conj($dZ[$(leftind...)]) )
+            end
         else
             return x
         end
