@@ -430,13 +430,25 @@ end
     @tullio s *= float(A[i]) # works without specifying (*), is this a good idea?
     @test s == float(prod(A))^2
 
-    @test_throws LoadError @eval @tullio s += (*) A[i]
-    @test_throws LoadError @eval @tullio s *= (max) A[i]
+    @test_throws LoadError @eval @tullio s += (*) A[i] # should be *=
+    @test_throws LoadError @eval @tullio s *= (max) A[i] # should be ^=
 
     # scalar + threading
     L = randn(100 * Tullio.TILE[]);
     @tullio (max) m := L[i]
     @test m == maximum(L)
+
+    # ... with a weird init, result would be unpredictable, hence an error:
+    @test_throws String @tullio s2 := A[i]^2 init=2 # at runtime
+    @test sum(A.^2)+2 == @tullio s2 := A[i]^2 init=2 threads=false # is OK
+
+    # promotion of init & += cases:
+    B = rand(10)
+    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false
+    s3 = 3
+    @test sum(B.^2)+3 ≈ @tullio s3 += B[i]^2
+    s4 = 4im
+    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2
 
     # no reduction means no redfun, and no init:
     @test_throws LoadError @eval @tullio (max) A2[i] := A[i]^2
@@ -550,5 +562,10 @@ end
         @tullio tot = B[i, k] - B[i - 1, k]
         @test_throws UndefVarError 𝒜𝒸𝓉! isa Function
     end
+
+    # https://github.com/mcabbott/Tullio.jl/issues/36
+    # final type real, intermediate complex... not fixed yet!
+    xs = randn(1000)
+    @test_throws InexactError @tullio z[i] := exp(im * xs[i] - xs[j]) |> abs2
 
 end

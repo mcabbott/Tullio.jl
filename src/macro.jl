@@ -251,10 +251,10 @@ function parse_input(expr, store)
 
     # Left hand side:
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
-    elseif left isa Symbol # complete reduction, by writing into a new 1-el array
+    elseif left isa Symbol # complete reduction
         push!(store.flags, :newarray, :scalar)
         store.leftscalar = left # because store.leftarray will be the array
-        leftraw = [1,] # make a 1D array, not zero
+        leftraw = [1,] # the gradient still indexes a fake 1D array
         expr.head == :(+=) && push!(store.scalars, left)
     else
         throw("can't understand LHS, expected A[i,j,k], got $left")
@@ -662,7 +662,7 @@ function output_array(store)
         store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
     end
 
-    if :newarray in store.flags
+    if :newarray in store.flags # this includes scalar case!
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
@@ -670,6 +670,7 @@ function output_array(store)
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T1 = Symbol(TYP,1)
         T2 = Symbol(TYP,2)
+        T3 = Symbol(TYP,3)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
             local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
@@ -683,9 +684,16 @@ function output_array(store)
 
         # Init. usually depends on type, but sometimes widens type
         if store.initkeyword == TYP
-            push!(store.outex, :(local $TYP = $T2))
+            push!(store.outex, :(local $T3 = $T2))
         else
-            push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
+            push!(store.outex, :(local $T3 = Base.promote_type($T2, typeof($(store.init)))))
+        end
+
+        # Oh, also scalar += might widen type...
+        if :scalar in store.flags && :plusequals in store.flags
+            push!(store.outex, :(local $TYP = Base.promote_type($T3, typeof($(store.leftscalar)))))
+        else
+            push!(store.outex, :(local $TYP = $T3))
         end
 
         # This now checks for OffsetArrays, and allows A[i,1] := ...
@@ -706,20 +714,27 @@ function output_array(store)
         end
 
         simex = if :scalar in store.flags && :plusequals in store.flags
-            store.leftscalar
+            :( convert($TYP, $(store.leftscalar)) ) # here init is needed only if threading
         elseif :scalar in store.flags
-            store.init
+            :( convert($TYP, $(store.init)) )
         elseif isempty(store.arrays)
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
             # parent() is a trick to avoid a NamedDims bug
             :( similar(parent($(store.arrays[1])), $TYP, tuple($(outaxes...),)) )
         end
-        if isempty(store.leftnames)
+        if :scalar in store.flags
+            push!(store.outex, :( local $ZED = $simex ))
+        elseif isempty(store.leftnames)
             push!(store.outex, :( local $(store.leftarray) = $simex ))
         else
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
             push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
+        end
+
+        if :scalar in store.flags && store.threads != false && store.initkeyword != TYP
+            msg = "init=$(store.init) must be compatible with $(store.redfun), for possibly-threaded scalar reduction"
+            push!(store.outex, :($(store.redfun)($(store.init), $(store.init)) == $(store.init) || throw($msg)))
         end
     end
 
@@ -749,16 +764,12 @@ function action_functions(store)
     else
         :($ZED::AbstractArray{$TYP}), :($ZED[$(store.leftraw...)])
     end
-    # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
-    # But matrix op with += calls keep=true always, so need never call init at all,
-    # and type-widening to match init doesn't get called for in-place op anyway.
 
-    # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
-    # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
-
-    ex_init = if :plusequals in store.flags && !isempty(axisleft)
+    ex_init = if :plusequals in store.flags && !isempty(axisleft) # then always keep=true
         :( $ACC = $zed_one )
-    else # for non-numbers, similar() avoid ifelse to avoid undef errors:
+    elseif :scalar in store.flags && !(:plusequals in store.flags) # then always keep=false
+        :( $ACC = $(store.init) )
+    else # for non-numbers, similar() may leave undef, so avoid ifelse here
         :( $ACC = isnothing($KEEP) ? $(store.init) : $zed_one )
     end
 
@@ -802,11 +813,9 @@ function action_functions(store)
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     if :scalar in store.flags
-        # Here store.leftarray in fact is a scalar... why is it called that?
-        @assert isempty(axisleft) # ???
         ST = :($storage_type($(store.arrays...)))
         push!(store.outex, :(
-            $thread_scalar($ACT!, $ST, $(store.leftarray),
+            $thread_scalar($ACT!, $ST, $ZED,
                 tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisred...),), $(store.redfun), $block, $keep)
         ))
