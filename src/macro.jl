@@ -593,8 +593,10 @@ function index_ranges(store)
     append!(store.outex, store.axisdefs)
 
     if store.verbose > 0
-        lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
-        push!(store.outex, :(@info "left index ranges" $(lex...)))
+        if !isempty(store.leftind)
+            lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
+            push!(store.outex, :(@info "left index ranges" $(lex...)))
+        end
         if !isempty(store.redind)
             rex = map(i -> Expr(:(=), i, done[i]), store.redind)
             push!(store.outex, :(@info "reduction index ranges" $(rex...)))
@@ -704,12 +706,10 @@ function output_array(store)
         end
 
         simex = if :scalar in store.flags && :plusequals in store.flags
-            # Deal with scalar += now, by writing into array, later read it out:
-            :( $OneBox($(store.leftscalar)) )
-        elseif :scalar in store.flags # no longer writes into this, but still needs something!
-            :( $TypeBox($TYP) )
+            store.leftscalar
+        elseif :scalar in store.flags
+            store.init
         elseif isempty(store.arrays)
-            # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
             # parent() is a trick to avoid a NamedDims bug
@@ -744,6 +744,11 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
+    zed_arg, zed_one = if :scalar in store.flags
+        :($ZED::$TYP), ZED
+    else
+        :($ZED::AbstractArray{$TYP}), :($ZED[$(store.leftraw...)])
+    end
     # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
     # But matrix op with += calls keep=true always, so need never call init at all,
     # and type-widening to match init doesn't get called for in-place op anyway.
@@ -751,11 +756,10 @@ function action_functions(store)
     # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
     # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
 
-    # ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
     ex_init = if :plusequals in store.flags && !isempty(axisleft)
-        :( $ACC = $ZED[$(store.leftraw...)] )
+        :( $ACC = $zed_one )
     else # for non-numbers, similar() avoid ifelse to avoid undef errors:
-        :( $ACC = isnothing($KEEP) ? $(store.init) : $ZED[$(store.leftraw...)] )
+        :( $ACC = isnothing($KEEP) ? $(store.init) : $zed_one )
     end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
@@ -776,11 +780,11 @@ function action_functions(store)
 
     if isempty(store.redind)
         make_many_actors(ACT!,
-            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            vcat(zed_arg, store.arrays, store.scalars, axislist),
             nothing, store.leftind, nothing, Symbol[], ex_nored, nothing, store)
     else
         make_many_actors(ACT!,
-            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            vcat(zed_arg, store.arrays, store.scalars, axislist),
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
@@ -793,19 +797,21 @@ function action_functions(store)
 
     #===== action! =====#
 
-    ST = :($storage_type($(store.leftarray), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
     block = store.threads==false ? nothing :
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     if :scalar in store.flags
+        # Here store.leftarray in fact is a scalar... why is it called that?
         @assert isempty(axisleft) # ???
+        ST = :($storage_type($(store.arrays...)))
         push!(store.outex, :(
             $thread_scalar($ACT!, $ST, $(store.leftarray),
                 tuple($(store.arrays...), $(store.scalars...),),
                 tuple($(axisred...),), $(store.redfun), $block, $keep)
         ))
     else
+        ST = :($storage_type($(store.leftarray), $(store.arrays...)))
         push!(store.outex, :(
             $threader($ACT!, $ST, $(store.leftarray),
                 tuple($(store.arrays...), $(store.scalars...),),
@@ -1120,7 +1126,7 @@ function backward_definitions(store)
         store.threads==true ? (BLOCK[] ÷ store.cost) :
         store.threads
     input, acton = if :scalar in store.flags
-        :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to Act!, for now! ??
+        :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to ∇Act!, for now??
     else
         :($dZ::AbstractArray{$TYP}), dZ
     end

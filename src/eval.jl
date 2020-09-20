@@ -23,11 +23,9 @@ end
 
 """
     OneBox(val)
-    TypeBox(T)
 
-Trivial 1-element vectors, used for scalar redutcions,
-to pass the eltype to `$ACT!(AT, ::AbstractArray{$TYP}, ...)`,
-and the initial element for scalar `+=`.
+Trivial 1-element vector, used for scalar redutcions,
+to pass the eltype to `∇$ACT!(AT, 𝛥A, ::AbstractArray{$TYP}, ...)`
 """
 struct OneBox{T} <: AbstractVector{T}
     val::T
@@ -35,16 +33,16 @@ end
 Base.size(::OneBox) = (1,)
 Base.getindex(o::OneBox, i::Integer...) = o.val
 
-struct TypeBox{T} <: AbstractVector{T}
-    TypeBox(::Type{T}) where {T} = new{T}()
-    TypeBox(x) = new{typeof(x)}()
-end
-Base.size(::TypeBox) = (1,)
-Base.getindex(o::TypeBox, i::Integer...) = zero(eltype(o))
-Base.print_matrix(io::IO, o::TypeBox) =
-    hasmethod(zero, Tuple{eltype(o)}) ?
-        Base.print_matrix(io, Array(o)) :
-        print(io, " zero() not defined for this type")
+# struct TypeBox{T} <: AbstractVector{T}
+#     TypeBox(::Type{T}) where {T} = new{T}()
+#     TypeBox(x) = new{typeof(x)}()
+# end
+# Base.size(::TypeBox) = (1,)
+# Base.getindex(o::TypeBox, i::Integer...) = (@error "getindex(TypeBox)"; zero(eltype(o)))
+# Base.print_matrix(io::IO, o::TypeBox) =
+#     hasmethod(zero, Tuple{eltype(o)}) ?
+#         Base.print_matrix(io, Array(o)) :
+#         print(io, " zero() not defined for this type")
 
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:

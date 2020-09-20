@@ -215,18 +215,18 @@ colour!(zeros(Int, 11,9), 2)
 #========== scalar case ==========#
 
 """
-    thread_scalar(f,T, Z, (A,B), (1:5,1:6), +, block=100, keep=nothing)
+    thread_scalar(f,T, z, (A,B), (1:5,1:6), +, block=100, keep=nothing)
 
 Just like `threader`, but doesn't take any safe indices `Is`.
-And `f` doesn't actually mutate anything, it returns the value.
-`Z` is a trivial array which serves mostly to propagate an eltype.
+And `f` doesn't actually mutate anything, it returns the value...
+and `z` is now a scalar, the `init` value for the reduction.
 """
-@inline function thread_scalar(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, J0s::Tuple, redfun, block, keep=nothing)::eltype(T) where {F <: Function, T}
+@inline function thread_scalar(fun!::F, ::Type{T}, z::RT, As::Tuple, J0s::Tuple, redfun, block, keep=nothing)::RT where {F <: Function, T, RT}
     if isnothing(block) # then threading is disabled
-        return fun!(T, Z, As..., J0s..., keep)
+        return fun!(T, z, As..., J0s..., keep)
     elseif !all(r -> r isa AbstractUnitRange, J0s)
         # don't thread ranges like 10:-1:1, and disable @avx too
-        return fun!(Array, Z, As..., J0s..., keep)
+        return fun!(Array, z, As..., J0s..., keep)
     end
 
     Js = map(UnitRange, J0s)
@@ -234,22 +234,22 @@ And `f` doesn't actually mutate anything, it returns the value.
     threads = min(Threads.nthreads(), cld(Jelements, block), Jelements)
 
     if threads < 2
-        return fun!(T, Z, As..., Js..., keep)
+        return fun!(T, z, As..., Js..., keep)
     else
-        return scalar_halves(fun!, T, Z, As, Js, redfun, threads, keep)
+        return scalar_halves(fun!, T, z, As, Js, redfun, threads, keep)
     end
 end
 
-function scalar_halves(fun!::F, ::Type{T}, Z::AbstractArray, As::Tuple, Js::Tuple, redfun, threads, keep=nothing)::eltype(T) where {F <: Function, T}
+function scalar_halves(fun!::F, ::Type{T}, z::RT, As::Tuple, Js::Tuple, redfun, threads, keep=nothing)::RT where {F <: Function, T, RT}
     if threads < 1
-        return fun!(T, Z, As..., Js..., keep)
+        return fun!(T, z, As..., Js..., keep)
     else
         J1s, J2s = cleave(Js)
-        S1 = first(Z) # scope
+        S1 = z # scope
         task = Threads.@spawn begin
-            S1 = scalar_halves(fun!, T, Z, As, J1s, redfun, threads÷2, nothing)
+            S1 = scalar_halves(fun!, T, z, As, J1s, redfun, threads÷2, nothing)
         end
-        S2 = scalar_halves(fun!, T, Z, As, J2s, redfun, threads÷2, keep)
+        S2 = scalar_halves(fun!, T, z, As, J2s, redfun, threads÷2, keep)
         wait(task)
         return redfun(S1, S2)
     end
