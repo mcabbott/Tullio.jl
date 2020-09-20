@@ -33,17 +33,6 @@ end
 Base.size(::OneBox) = (1,)
 Base.getindex(o::OneBox, i::Integer...) = o.val
 
-# struct TypeBox{T} <: AbstractVector{T}
-#     TypeBox(::Type{T}) where {T} = new{T}()
-#     TypeBox(x) = new{typeof(x)}()
-# end
-# Base.size(::TypeBox) = (1,)
-# Base.getindex(o::TypeBox, i::Integer...) = (@error "getindex(TypeBox)"; zero(eltype(o)))
-# Base.print_matrix(io::IO, o::TypeBox) =
-#     hasmethod(zero, Tuple{eltype(o)}) ?
-#         Base.print_matrix(io, Array(o)) :
-#         print(io, " zero() not defined for this type")
-
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:
 
@@ -54,19 +43,6 @@ using Requires
 @init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
 
 @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
-
-#=
-@init @requite Yota = "cd998857-8626-517d-b929-70ad188a48f0" begin
-    using .Yota
-
-#     for (n,A) in enumerate(store.arrays)
-#         push!(evalex, quote
-#             Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  getindex($∇make(dy, $(store.arrays...), $(store.scalars...)), $n)
-#         end)
-#     end
-
-end
-=#
 
 #========== vectorised gradients ==========#
 
@@ -115,9 +91,6 @@ using Requires
         fun!(T, As..., Is..., Js...,)
 
     # Tullio.thread_scalar ... ought to work? Was never fast.
-
-    # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
-
 end
 
 #========== storage unwrapper ==========#
