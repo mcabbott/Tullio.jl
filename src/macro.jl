@@ -1287,4 +1287,32 @@ fillarrayreplace(rhs, dZ) = MacroTools_postwalk(rhs) do @nospecialize ex
         return Symbol(dZ, :_value)
     end
 
+#===== gradients for StaticArrays =====#
+
+"""
+    make_static_gradient_actor(A, args, [:i,], terms, [:k,], store)
+
+This makes one function `∇act!A` which returns a StaticArray graient `∇A[i]`,
+summing over `k`. This expects `$(AXIS)i` and `$(AXIS)k` to be `SOneTo` ranges.
+
+`terms` is a vector of pairs of expressions `[:(A[i]) => :(...), ]`.
+"""
+function make_static_gradient_actors(A::Symbol, args, stuff...)
+#=
+    quote
+        @generated function ∇act!A(args...)
+            out_pieces = [Any[] for ij in Iterators.product(out_ind)]
+            for ij in Iterators.product(out_ind)
+                for klm in Iterators.product(sum_ind)
+                    piece = dollarise(rhs)
+                    push!(out_pieces[ij], piece)
+                end
+            end
+            out_summed = map(expr_reduce, out_pieces)
+            SArray(out_summed...)
+        end
+    end
+=#
+end
+
 #========== the end ==========#

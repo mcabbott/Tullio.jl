@@ -31,6 +31,7 @@ function insert_symbolic_gradient(axislist, store)
     end
 
     inbody, prebody = [], []
+    sbodies = Dict(arrayonly(dtt[2]) => [] for dtt in targets) # per variable, for StaticArrays
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
         deltar = if store.finaliser == :identity
@@ -42,6 +43,8 @@ function insert_symbolic_gradient(axislist, store)
         end
         if store.redfun == :+
             push!(inbody, :($dt = $dt + conj($deltar)))
+            tA = arrayonly(t)
+            push!(sbodies[tA], t => :(conj($deltar)))
         # elseif store.redfun == :*
         #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
         #     push!(prebody, :($dt = conj($deltar) * $ACC))
@@ -67,6 +70,7 @@ function insert_symbolic_gradient(axislist, store)
             )
     end
 
+    # By default, one ∇act! fills in all mutable gradients
     make_many_actors(∇act!,
         vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist),
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
@@ -80,6 +84,27 @@ function insert_symbolic_gradient(axislist, store)
         make_many_actors(∇act!,
             vcat(gradarrays, :($dZ::Zygote.Fill{$TYP}), ZED, store.arrays, store.scalars, axislist),
             ex_value, out_ind, ex_pre2, in_ind, ex_body2, ex_post, store, "(gradient method for FillArrays)")
+    end
+
+    # But for StaticArrays, we need to do something else...
+    if store.redfun == :+
+        for tA in keys(sbodies)
+
+# @show tA sbodies[tA]
+
+# @tullio res[i] := B[i]/B[j]
+# sbodies[tA] = Any[
+#     :(B[i]) => :(conj(conj(𝛥ℛ[i]) * inv(B[j]))),
+#     :(B[j]) => :(conj(conj(𝛥ℛ[i]) * (-(B[i]) * inv(B[j]) * inv(B[j])))),
+#     ]
+# You take this, and you run the same loops within the generated function,
+# mutating a dB containing terms of elements, which all get splatted into final function.
+
+            make_static_gradient_actor(t,
+                vcat(gradarrays, :($dZ::AbstractArray{$TYP}), ZED, store.arrays, store.scalars, axislist), # same arguments as ordinary ∇act!
+                nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, "(symbolic gradient for $t)")
+
+        end
     end
 
 end
