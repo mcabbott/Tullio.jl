@@ -37,10 +37,14 @@ using Tullio, Test, LinearAlgebra
     @tullio S′ = A[i]/2 # here = is equivalent
     @test S ≈ S′ ≈ sum(A)/2
 
+    # almost scalar
     @tullio Z[] := A[i] + A[j]
     @test Z isa Array{Int,0}
     @tullio Z′[1,1] := A[i] + A[j]
     @test size(Z′) == (1,1)
+    @tullio Z′′[_] := A[i] + A[j]
+    @test size(Z′′) == (1,)
+    @test Z[] == Z′[1,1] == Z′′[1] == sum(A .+ A')
 
     # scalar update
     @tullio S += A[i]/2
@@ -463,7 +467,7 @@ end
     @tullio B[i,j] := A[i] + A[k] // A[j]
 
     @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
-    @test B2 ≈ mapslices(norm, B + B', dims=1)
+    @test B2 ≈ mapslices(norm, B .+ B', dims=1)
 
     # trivial use, scalar output -- now forbidden
     @test_throws LoadError @eval @tullio n2 = A[i]^2 |> sqrt
@@ -471,20 +475,20 @@ end
     # trivial use, no reduction -- now forbidden
     @test_throws LoadError @eval @tullio A2[i] := A[i]^2 |> sqrt
     @test_throws LoadError @eval @tullio (*) A2[i] := A[i]^2 |> sqrt
-#=
+
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
-    @tullio n2 = C[i]^2 |> sqrt
-    @test n2 ≈ norm(C,2)
+    @tullio n2[_] := C[i]^2 |> sqrt
+    @test n2[1] ≈ norm(C,2)
 
     D = rand(1000, 1000) # > Tullio.TILE[]
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 
     # functions with underscores
-    @tullio n2′ = A[i]^2 |> (_)^0.5
-    @test n2′ ≈ norm(A,2)
-=#
+    @tullio n2′[] := A[i]^2 |> (_)^0.5
+    @test n2′[] ≈ norm(A,2)
+
     @tullio (max) E[i] := float(B[i,j]) |> atan(_, A[i]) # i is not reduced over
     @test E ≈ vec(atan.(maximum(B, dims=2), A))
 
