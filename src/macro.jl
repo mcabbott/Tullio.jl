@@ -361,8 +361,9 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
-        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
+        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints, I said.
             str = "extrema of index $ex must fit within $A1"
+            # @show range_i axis_i # @tullio C[i,k] := B[J[i]+1,k] verbose=2 grad=false # comes here, wrong check
             push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
         end
     end
@@ -998,8 +999,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
+            # const_args = map(args) do a
+            #     a isa Symbol || return a  # this skips output ZED::AbstractArray{TYP}
+            #     a == store.leftarray && return a  # case A[i] = A[i]^2 / B[i,j]
+            #     :(@Const($a))
+            # end
             kex1 = quote
-
+                # @Const removed, see https://github.com/mcabbott/Tullio.jl/pull/32
+                # KernelAbstractions.@kernel function $kernel($(const_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
@@ -1016,8 +1023,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                        KernelAbstractions.wait($ACC)
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CUDADevice()))
+                        KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
                 end
