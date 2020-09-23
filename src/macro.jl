@@ -44,7 +44,7 @@ function _tullio(exs...; mod=Main)
 
     if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
         res = try_tensor(ex, ranges, DotDict(;mod = mod, opts...,
-            arrays = Symbol[], indices = [], scalars = Symbol[]))
+            flags = Set{Symbol}(), arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end
@@ -251,10 +251,10 @@ function parse_input(expr, store)
 
     # Left hand side:
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
-    elseif left isa Symbol # complete reduction, by writing into a new 1-el array
+    elseif left isa Symbol # complete reduction
         push!(store.flags, :newarray, :scalar)
         store.leftscalar = left # because store.leftarray will be the array
-        leftraw = [1,] # make a 1D array, not zero
+        leftraw = [1,] # the gradient still indexes a fake 1D array
         expr.head == :(+=) && push!(store.scalars, left)
     else
         throw("can't understand LHS, expected A[i,j,k], got $left")
@@ -287,9 +287,7 @@ function parse_input(expr, store)
             store.right = MacroTools_postwalk(dollarwalk(store), right2.args[3])
         end
         if :scalar in store.flags
-            # scalar threaded reduction won't work with nontrivial finalisers
-            store.verbose>0 && store.threads==true && @warn "threading is currently disabled for scalar reduction with finaliser"
-            store.threads = false
+            throw("can't use a finaliser $(right2.args[1]) with scalar output")
         end
     else
         store.right = MacroTools_postwalk(dollarwalk(store), right2)
@@ -368,8 +366,9 @@ saveconstraints(A, inds, store, right=true) = begin
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
             push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
-        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints
+        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints, I said.
             str = "extrema of index $ex must fit within $A1"
+            # @show range_i axis_i # @tullio C[i,k] := B[J[i]+1,k] verbose=2 grad=false # comes here, wrong check
             push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
         end
     end
@@ -638,8 +637,10 @@ function index_ranges(store)
     append!(store.outex, store.axisdefs)
 
     if store.verbose > 0
-        lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
-        push!(store.outex, :(@info "left index ranges" $(lex...)))
+        if !isempty(store.leftind)
+            lex = map(i -> Expr(:(=), i, done[i]), store.leftind)
+            push!(store.outex, :(@info "left index ranges" $(lex...)))
+        end
         if !isempty(store.redind)
             rex = map(i -> Expr(:(=), i, done[i]), store.redind)
             push!(store.outex, :(@info "reduction index ranges" $(rex...)))
@@ -719,7 +720,7 @@ function output_array(store)
         store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
     end
 
-    if :newarray in store.flags
+    if :newarray in store.flags # this includes scalar case!
 
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
 
@@ -727,6 +728,7 @@ function output_array(store)
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
         T1 = Symbol(TYP,1)
         T2 = Symbol(TYP,2)
+        T3 = Symbol(TYP,3)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
             local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
@@ -740,9 +742,16 @@ function output_array(store)
 
         # Init. usually depends on type, but sometimes widens type
         if store.initkeyword == TYP
-            push!(store.outex, :(local $TYP = $T2))
+            push!(store.outex, :(local $T3 = $T2))
         else
-            push!(store.outex, :(local $TYP = Base.promote_type($T2, typeof($(store.init)))))
+            push!(store.outex, :(local $T3 = Base.promote_type($T2, typeof($(store.init)))))
+        end
+
+        # Oh, also scalar += might widen type...
+        if :scalar in store.flags && :plusequals in store.flags
+            push!(store.outex, :(local $TYP = Base.promote_type($T3, typeof($(store.leftscalar)))))
+        else
+            push!(store.outex, :(local $TYP = $T3))
         end
 
         # This now checks for OffsetArrays, and allows A[i,1] := rhs. Pulls out scatterers.
@@ -765,23 +774,28 @@ function output_array(store)
             end
         end
 
-        simex = if isempty(store.arrays)
-            # :( zeros($TYP, tuple($(outaxes...))) ) # Array{T} doesn't accept ranges... but zero() doesn't accept things like  @tullio [i,j] := (i,j)  i ∈ 2:3, j ∈ 4:5
+        simex = if :scalar in store.flags && :plusequals in store.flags
+            :( convert($TYP, $(store.leftscalar)) ) # here init is needed only if threading
+        elseif :scalar in store.flags
+            :( convert($TYP, $(store.init)) )
+        elseif isempty(store.arrays)
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
             # parent() is a trick to avoid a NamedDims bug
             :( similar(parent($(store.arrays[1])), $TYP, tuple($(outaxes...),)) )
         end
-        if isempty(store.leftnames)
+        if :scalar in store.flags
+            push!(store.outex, :( local $ZED = $simex ))
+        elseif isempty(store.leftnames)
             push!(store.outex, :( local $(store.leftarray) = $simex ))
         else
             nex = :(tuple($(QuoteNode.(store.leftnames)...)))
             push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
 
-        # Deal with scalar += now: write into array, later read it out:
-        if :scalar in store.flags && :plusequals in store.flags
-            push!(store.outex, :($setonly!($(store.leftarray), $(store.leftscalar))))
+        if :scalar in store.flags && store.threads != false && store.initkeyword != TYP
+            msg = "init=$(store.init) must be compatible with $(store.redfun), for possibly-threaded scalar reduction"
+            push!(store.outex, :($(store.redfun)($(store.init), $(store.init)) == $(store.init) || throw($msg)))
         end
     end
 
@@ -806,23 +820,25 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    # Matmul with := or = calls keep=nothing on first go, keep=true when tiling reduction index.
-    # But matrix op with += calls keep=true always, so need never call init at all,
-    # and type-widening to match init doesn't get called for in-place op anyway.
+    zed_arg, zed_one = if :scalar in store.flags
+        :($ZED::$TYP), ZED
+    else
+        :($ZED::AbstractArray{$TYP}), :($ZED[$(store.leftraw...)])
+    end
 
-    # Scalar += needs both keep=nothing and keep=true, as thread_scalar() can't do threading without init.
-    # But should it be called a better way? "length(Is) == 0 && length(Z) == 1 && eltype(Z) <: Number" now.
-
-    # ex_init = :( $ACC = ifelse(isnothing($KEEP), $(store.init), $ZED[$(store.leftraw...)]) )
-    ex_init = if :plusequals in store.flags && !isempty(axisleft)
-        :( $ACC = $ZED[$(store.leftraw...)] )
-    else # for non-numbers, similar() avoid ifelse to avoid undef errors:
-        :( $ACC = isnothing($KEEP) ? $(store.init) : $ZED[$(store.leftraw...)] )
+    ex_init = if :plusequals in store.flags && !isempty(axisleft) # then always keep=true
+        :( $ACC = $zed_one )
+    elseif :scalar in store.flags && !(:plusequals in store.flags) # then always keep=false
+        :( $ACC = $(store.init) )
+    else # for non-numbers, similar() may leave undef, so avoid ifelse here
+        :( $ACC = isnothing($KEEP) ? $(store.init) : $zed_one )
     end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    ex_write = if store.finaliser == :identity
+    ex_write = if :scalar in store.flags # then we return the value instead, ZED is immutable
+        :( $ACC )
+    elseif store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
     else # this branch is moved outside @avx by finalsplit(expr), below.
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
@@ -836,11 +852,11 @@ function action_functions(store)
 
     if isempty(store.redind)
         make_many_actors(ACT!,
-            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            vcat(zed_arg, store.arrays, store.scalars, axislist),
             nothing, store.leftind, nothing, Symbol[], ex_nored, nothing, store)
     else
         make_many_actors(ACT!,
-            vcat(:($ZED::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
+            vcat(zed_arg, store.arrays, store.scalars, axislist),
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
@@ -853,17 +869,26 @@ function action_functions(store)
 
     #===== action! =====#
 
-    ST = :($storage_type($(store.leftarray), $(store.arrays...)))
     keep = (:plusequals in store.flags) ? :true : :nothing
     block = store.threads==false ? nothing :
         store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
-    push!(store.outex, quote
-        $threader($ACT!, $ST, $(store.leftarray),
-            tuple($(store.arrays...), $(store.scalars...),),
-            tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep)
-        $(store.leftarray)
-    end)
+    if :scalar in store.flags
+        ST = :($storage_type($(store.arrays...)))
+        push!(store.outex, :(
+            $thread_scalar($ACT!, $ST, $ZED,
+                tuple($(store.arrays...), $(store.scalars...),),
+                tuple($(axisred...),), $(store.redfun), $block, $keep)
+        ))
+    else
+        ST = :($storage_type($(store.leftarray), $(store.arrays...)))
+        push!(store.outex, :(
+            $threader($ACT!, $ST, $(store.leftarray),
+                tuple($(store.arrays...), $(store.scalars...),),
+                tuple($(axisleft...),), tuple($(axisred...),), $(store.redfun), $block, $keep);
+            $(store.leftarray)
+        ))
+    end
     store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
     if :newarray in store.flags
@@ -892,8 +917,8 @@ function action_functions(store)
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
         elseif :scalar in store.flags
-             push!(store.outex, :($(store.leftscalar) = $getonly($ex)))
-             return :($(store.leftscalar) = $getonly($ex))
+             push!(store.outex, :($(store.leftscalar) = $ex))
+             return :($(store.leftscalar) = $ex)
         else # case of [i,j] := ... with no name given
             # push!(store.outex, ex)
             return ex
@@ -1034,8 +1059,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
                 sizes = [:(one(Int))]    # iterate over 1:1
             end
+            # const_args = map(args) do a
+            #     a isa Symbol || return a  # this skips output ZED::AbstractArray{TYP}
+            #     a == store.leftarray && return a  # case A[i] = A[i]^2 / B[i,j]
+            #     :(@Const($a))
+            # end
             kex1 = quote
-
+                # @Const removed, see https://github.com/mcabbott/Tullio.jl/pull/32
+                # KernelAbstractions.@kernel function $kernel($(const_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(outer...),) = @index(Global, NTuple)
                     ($ex1; $ex3; $ex4; $ex6)
@@ -1052,8 +1083,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                        KernelAbstractions.wait($ACC)
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CUDADevice()))
+                        KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
                 end
@@ -1170,13 +1201,18 @@ function backward_definitions(store)
     block = store.threads==false ? nothing :
         store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
+    input, acton = if :scalar in store.flags
+        :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to ∇Act!, for now??
+    else
+        :($dZ::AbstractArray{$TYP}), dZ
+    end
     ex_make = quote
 
-        local function $∇make($dZ::AbstractArray{$TYP}, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
+        local function $∇make($input, $ZED, $(store.arrays...), $(store.scalars...), ) where {$TYP}
             $(defineempties...)
             $(store.axisdefs...)
             $∇threader($∇act!, $ST,
-                tuple($(gradarrays...), $dZ, $ZED, $(store.arrays...), $(store.scalars...),),
+                tuple($(gradarrays...), $acton, $ZED, $(store.arrays...), $(store.scalars...),),
                 tuple($(axisshared...),), tuple($(axisnonshared...), ), $block)
             return ($(returns...),)
         end

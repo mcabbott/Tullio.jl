@@ -72,7 +72,7 @@ function insert_symbolic_gradient(axislist, store)
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         nothing, out_ind, ex_pre, in_ind, ex_body, ex_post, store, "(symbolic gradient)")
 
-    if isdefined(store.mod, :Zygote) # special case for FillArrays
+    if isdefined(store.mod, :Zygote) && !(:scalar in store.flags) # special case for FillArrays
         ex_body2 = fillarrayreplace(ex_body, dZ)
         ex_pre2 = fillarrayreplace(ex_pre, dZ)
         ex_value = :($(Symbol(dZ, :_value)) = $dZ.value) # @avx likes this outside the loop

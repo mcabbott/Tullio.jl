@@ -51,14 +51,15 @@ Because it sees assignment being made, it does not attempt to sum over `a,b`, an
 (Although in fact `mod(x+a) == mod(x+a, axes(mat,1))` is safe.)
 It will also not be able to take a symbolic derivative, but dual numbers will work fine.
 
-Pipe operators `|>` and `<|` indicate functions to be performed *outside* the sum, for example:
+Pipe operators `|>` or `<|` indicate functions to be performed *outside* the sum, for example:
 
 ```julia
 @tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1))) 
 ```
 
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
-and notices when it is unable to use the packages mentioned above.
+and notices when it is unable to use the packages mentioned above. 
+And `verbose=2` will print everything.
 
 <details><summary><b>Notation</b></summary>
 
@@ -85,7 +86,7 @@ using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 
-# Finalisers <| or |> are applied after sum:
+# Finalisers <| or |> are applied after sum (the two are equivalent):
 @tullio N2[j] := sqrt <| M[i,j]^2     # N2 ≈ map(norm, eachcol(M)) 
 @tullio n3[_] := A[i]^3  |> (_)^(1/3) # n3[1] ≈ norm(A,3), with _ anon. func.
 
@@ -117,7 +118,7 @@ bmm_rev(A, B) = @tullio C[i,k,b] := A[i,j,b] * B[b,k,j]  # (sum over j)
 A = randn(20,30,500); B = randn(500,40,30);
 bmm_rev(A, B) ≈ NNlib.batched_mul(A, permutedims(B, (3,2,1))) # true
 
-@btime bmm_rev($A, $B); # 317.526 μs μs, same speed as un-permuted bmm
+@btime bmm_rev($A, $B); # 317.526 μs, same speed as un-permuted bmm
 @btime NNlib.batched_mul($A, permutedims($B, (3,2,1))); # 1.478 ms, with MKL
 
 # Complete reduction, without first materialising X .* log.(Y')
@@ -207,7 +208,7 @@ The default setting is:
 * `init=0.0` gives the initial value for reductions. For `+`, `*`, `min`, `min`, `&`, `|` it has sensible defaults, for other reductions uses zero.
 
 Implicit:
-* Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the inersection of possible ranges.
+* Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the intersection of possible ranges.
 * Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
 * The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` & `Zygote`. These packages need not be loaded when the macro is run.
@@ -232,7 +233,7 @@ Back-end friends & relatives:
 
 * [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) and [PaddedMatrices.jl](https://github.com/chriselrod/PaddedMatrices.jl) build on that.
 
-* [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl) and [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) generate GPU-compatable kernels.
+* [GPUifyLoops.jl](https://github.com/vchuravy/GPUifyLoops.jl) and [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) generate GPU-compatible kernels.
 
 * [ThreadsX.jl](https://github.com/tkf/ThreadsX.jl) does threaded reductions, and much else.
 
@@ -240,7 +241,7 @@ Back-end friends & relatives:
 
 Front-end near-lookalikes:
 
-* [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. See [tests/einsum.jl](https://github.com/mcabbott/Tullio.jl/blob/master/test/einsum.jl) where `using Tullio: @einsum` is an almost-seamless replaceement.
+* [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. See [tests/einsum.jl](https://github.com/mcabbott/Tullio.jl/blob/master/test/einsum.jl) where `using Tullio: @einsum` is an almost-seamless replacement.
 
 * [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations.
 

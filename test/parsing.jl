@@ -37,10 +37,14 @@ using Tullio, Test, LinearAlgebra
     @tullio S′ = A[i]/2 # here = is equivalent
     @test S ≈ S′ ≈ sum(A)/2
 
+    # almost scalar
     @tullio Z[] := A[i] + A[j]
     @test Z isa Array{Int,0}
     @tullio Z′[1,1] := A[i] + A[j]
     @test size(Z′) == (1,1)
+    @tullio Z′′[_] := A[i] + A[j]
+    @test size(Z′′) == (1,)
+    @test Z[] == Z′[1,1] == Z′′[1] == sum(A .+ A')
 
     # scalar update
     @tullio S += A[i]/2
@@ -415,7 +419,7 @@ end
     @test minimum(A) == @tullio (min) m := float(A[i]) # fails with @avx
 
     @test true == @tullio (&) p := A[i] > 0
-    @test true === @tullio (&) p := A[i] > 0 # sum([true]) isa Int
+    @test true === @tullio (&) p := A[i] > 0
     @test true == @tullio (|) q := A[i] > 50
 
     # in-place
@@ -459,13 +463,25 @@ end
     @tullio s *= float(A[i]) # works without specifying (*), is this a good idea?
     @test s == float(prod(A))^2
 
-    @test_throws LoadError @eval @tullio s += (*) A[i]
-    @test_throws LoadError @eval @tullio s *= (max) A[i]
+    @test_throws LoadError @eval @tullio s += (*) A[i] # should be *=
+    @test_throws LoadError @eval @tullio s *= (max) A[i] # should be ^=
 
     # scalar + threading
     L = randn(100 * Tullio.TILE[]);
     @tullio (max) m := L[i]
     @test m == maximum(L)
+
+    # ... with a weird init, result would be unpredictable, hence an error:
+    @test_throws String @tullio s2 := A[i]^2 init=2 # at runtime
+    @test sum(A.^2)+2 == @tullio s2 := A[i]^2 init=2 threads=false # is OK
+
+    # promotion of init & += cases:
+    B = rand(10)
+    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false
+    s3 = 3
+    @test sum(B.^2)+3 ≈ @tullio s3 += B[i]^2
+    s4 = 4im
+    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2
 
     # no reduction means no redfun, and no init:
     @test_throws LoadError @eval @tullio (max) A2[i] := A[i]^2
@@ -476,15 +492,14 @@ end
 @testset "finalisers" begin
 
     A = [i^2 for i in 1:10]
-    @tullio n2 = A[i]^2 |> sqrt
-    @test n2 ≈ norm(A,2)
-    @tullio n3 := cbrt <| A[i]^3
-    @test n3 ≈ norm(A,3)
 
     @tullio B[i,j] := A[i] + A[k] // A[j]
 
     @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
-    @test B2 ≈ mapslices(norm, B + B', dims=1)
+    @test B2 ≈ mapslices(norm, B .+ B', dims=1)
+
+    # trivial use, scalar output -- now forbidden
+    @test_throws LoadError @eval @tullio n2 = A[i]^2 |> sqrt
 
     # trivial use, no reduction -- now forbidden
     @test_throws LoadError @eval @tullio A2[i] := A[i]^2 |> sqrt
@@ -492,16 +507,16 @@ end
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
-    @tullio n2 = C[i]^2 |> sqrt
-    @test n2 ≈ norm(C,2)
+    @tullio n2[_] := C[i]^2 |> sqrt
+    @test n2[1] ≈ norm(C,2)
 
     D = rand(1000, 1000) # > Tullio.TILE[]
     @tullio D2[_,j] := D[i,j]^2 |> sqrt
     @test D2 ≈ mapslices(norm, D, dims=1)
 
     # functions with underscores
-    @tullio n2′ = A[i]^2 |> (_)^0.5
-    @test n2′ ≈ norm(A,2)
+    @tullio n2′[] := A[i]^2 |> (_)^0.5
+    @test n2′[] ≈ norm(A,2)
 
     @tullio (max) E[i] := float(B[i,j]) |> atan(_, A[i]) # i is not reduced over
     @test E ≈ vec(atan.(maximum(B, dims=2), A))
@@ -511,6 +526,7 @@ end
     @test G ≈ vec(atan.(sum(B, dims=2), B[:,j]))
 
     @test_throws LoadError @eval @tullio F[i] := B[i,j] |> (_ / A[j]) # wrong index
+    C = randn(10^6)
     @test_throws String @tullio F[i] := B[i,j] |> (_ / C[i]) # wrong length
 
 end
@@ -579,5 +595,15 @@ end
         @tullio tot = B[i, k] - B[i - 1, k]
         @test_throws UndefVarError 𝒜𝒸𝓉! isa Function
     end
+
+    # https://github.com/mcabbott/Tullio.jl/issues/35
+    a = [1 2 3; 4 5 6];
+    b = [10,20,30];
+    @test sum(b) == @tullio s := b[a[1,i]]
+
+    # https://github.com/mcabbott/Tullio.jl/issues/36
+    # final type real, intermediate complex... not fixed yet!
+    xs = randn(1000)
+    @test_throws InexactError @tullio z[i] := exp(im * xs[i] - xs[j]) |> abs2
 
 end

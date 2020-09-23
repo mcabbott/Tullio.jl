@@ -19,6 +19,19 @@ end
 
 (ev::Eval)(args...) = ev.fwd(args...)
 
+#========== scalar struct ==========#
+
+"""
+    OneBox(val)
+
+Trivial 1-element vector, used for scalar redutcions,
+to pass the eltype to `∇$ACT!(AT, 𝛥A, ::AbstractArray{$TYP}, ...)`
+"""
+struct OneBox{T} <: AbstractVector{T}
+    val::T
+end
+Base.size(::OneBox) = (1,)
+Base.getindex(o::OneBox, i::Integer...) = o.val
 
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:
@@ -30,19 +43,6 @@ using Requires
 @init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
 
 @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
-
-#=
-@init @requite Yota = "cd998857-8626-517d-b929-70ad188a48f0" begin
-    using .Yota
-
-#     for (n,A) in enumerate(store.arrays)
-#         push!(evalex, quote
-#             Yota.@diffrule  $make($(store.arrays...), $(store.scalars...))  $A  getindex($∇make(dy, $(store.arrays...), $(store.scalars...)), $n)
-#         end)
-#     end
-
-end
-=#
 
 #========== vectorised gradients ==========#
 
@@ -76,9 +76,6 @@ end
 
 #========== CuArrays ==========#
 
-@inline getonly(a::AbstractArray) = first(a) # just avoid first(::CuArray)
-@inline setonly!(a::AbstractArray, val) = setindex!(a, val, 1)
-
 using Requires
 
 @init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
@@ -93,23 +90,7 @@ using Requires
         As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
         fun!(T, As..., Is..., Js...,)
 
-    function Tullio.getonly(a::CuArray) # @allowscalar first(a)
-        prev = GPUArrays.scalar_allowed[]
-        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
-        res = first(a)
-        GPUArrays.scalar_allowed[] = prev
-        res
-    end
-    function Tullio.setonly!(a::CuArray, val) # @allowscalar a[1] = val
-        prev = GPUArrays.scalar_allowed[]
-        GPUArrays.scalar_allowed[] = GPUArrays.ScalarAllowed
-        res = setindex!(a, val, 1)
-        GPUArrays.scalar_allowed[] = prev
-        res
-    end
-
-    # Base.extrema(a::CuArray{<:Integer}) = minimum(a), maximum(a)
-
+    # Tullio.thread_scalar ... ought to work? Was never fast.
 end
 
 #========== storage unwrapper ==========#

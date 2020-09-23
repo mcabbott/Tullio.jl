@@ -35,7 +35,7 @@ function insert_forward_gradient(axislist, store)
         # vcat(gradarrays, gradscalars, :($dZ::AbstractArray{$TYP}), store.arrays, store.scalars, axislist),
         :(($(defineepsilons...);)), store.sharedind, nothing, nonshared, ex_iter, nothing, store, "(gradient using ForwardDiff)")
 
-    if isdefined(store.mod, :Zygote)
+    if isdefined(store.mod, :Zygote) && !(:scalar in store.flags)
         ex_iter2 = fillarrayreplace(ex_iter, dZ)
         ex_value = :($(Symbol(dZ, :_value)) = $dZ.value)
 
