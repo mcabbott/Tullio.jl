@@ -455,9 +455,9 @@ padmodclamp(A, inds, store) = begin
             cond = :($cond & $c2)
         end
         if store.padkeyword == TYP # default
-            return :(ifelse($cond, @inbounds($Aex), zero(eltype($A))))
+            return :($cond ? $Aex : zero(eltype($A)))
         else
-            return :(ifelse($cond, @inbounds($Aex), convert(eltype($A), $(store.padkeyword))))
+            return :($cond ? $Aex : convert(eltype($A), $(store.padkeyword)))
         end
     end
 end
