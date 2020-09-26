@@ -73,9 +73,10 @@ function _tullio(exs...; mod=Main)
         cost = 1,
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axes(A,2)), :(axes(B,1))] etc.
+        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
-        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
+        # splitind = Dict{Symbol,Expr}(), # indices inside pad(i,3) etc.
         axisdefs = Expr[],
     # Expressions:
         outpre = Expr[],  # preliminary steps
@@ -121,6 +122,7 @@ function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
         :init => TYP, # this means "auto"
+        :pad => TYP,
         :verbose => _VERBOSE[],
         :fastmath => _FASTMATH[],
         :threads => _THREADS[],
@@ -138,9 +140,11 @@ function parse_options(exs...)
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
 
-        # Init keyword
+        # Init & pad keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
             opts[:init] = ex.args[2]
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :pad
+            opts[:pad] = ex.args[2]
 
         # Nograd keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
@@ -184,6 +188,7 @@ function parse_options(exs...)
     end
     (redfun=opts[:redfun],
         initkeyword=opts[:init], # surely there is a tidier way...
+        padkeyword=opts[:pad],
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -336,11 +341,9 @@ rightwalk(store) = ex -> begin
         inds3 = primeindices(inds)
         saveconstraints(A, inds3, store, true)
 
-        # Fourth, replace mod(i) with mod(i, axes(A,3)) etc:
-        inds4 = modindices(A, inds3)
-
-        # Re-assemble RHS with new A, and primes on indices taken care of.
-        return :( $A[$(inds4...)] )
+        # Fourth, replace mod(i) with mod(i, axes(A,3)) etc,
+        # and re-assemble with new A etc:
+        return padmodclamp(A, inds3, store)
     end # A1[i][k] should be seen later, with corrected A
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -422,24 +425,46 @@ primeindices(inds) = map(inds) do ex
     ex
 end
 
-modindices(A, inds) = map(enumerate(inds)) do (d,iraw)
-    MacroTools_postwalk(iraw) do ex
+padmodclamp(A, inds, store) = begin
+    nopadif = []
+    inds4 = map(enumerate(inds)) do (d,ex)
         ex isa Expr && ex.head == :call || return ex
         if ex.args[1] == :mod && length(ex.args) == 2
             i = ex.args[2]
+            # splitsave(i, :(axes($A,$d)), store)
             return :(mod($i, axes($A,$d)))
         elseif ex.args[1] == :clamp && length(ex.args) == 2
             i = ex.args[2]
+            # splitsave(i, :(axes($A,$d)), store)
             return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
         elseif ex.args[1] == :pad && length(ex.args) >= 3
-            # for now the only difference from clamp is range inference
-            @warn "padding is experimental!" ex maxlog=3
+            @warn "padding is experimental!" maxlog=3
             i = ex.args[2]
-            return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
+            # splitsave(i, :(axes($A,$d)), store)
+            all(==(0), ex.args[3:end]) || push!(nopadif, :($i in axes($A,$d)))
+            return i
         end
         ex
     end
+    Aex = :($A[$(inds4...)])
+    if isempty(nopadif)
+        return Aex
+    else
+        cond = first(nopadif)
+        for c2 in nopadif[2:end]
+            cond = :($cond & $c2)
+        end
+        if store.padkeyword == TYP # default
+            return :(ifelse($cond, @inbounds($Aex), zero(eltype($A))))
+        else
+            return :(ifelse($cond, @inbounds($Aex), convert(eltype($A), $(store.padkeyword))))
+        end
+    end
 end
+
+# splitsave(i::Symbol, ex::Expr, store) = store.splitind[i] = ex
+# splitsave(i::Expr, ex::Expr, store) = store.splitind[AXIS] = ex
+# to do this properly, maybe you need to run the whole range inference again?
 
 dollarwalk(store) = ex -> begin
         @nospecialize ex
@@ -769,7 +794,7 @@ function output_array(store)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
                 i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
-                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
+                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module. Otherwise write `A[i+_] := ...` to remove offset")))
                 return :(Base.OneTo($ax))
             end
         end
