@@ -65,7 +65,7 @@ And `verbose=2` will print everything.
 <details><summary><b>Notation</b></summary>
 
 ```julia
-using Pkg; pkg"add Tullio" # now registered
+using Pkg; Pkg.add("Tullio") # now registered
 using Tullio
 A = [abs2(i - 11) for i in 1:21]
 
