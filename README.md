@@ -9,7 +9,7 @@
 Tullio is a very flexible einsum macro. It understands many array operations written in index notation, for example:
 
 ```julia
-@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]     # sum over i,j, and create M
+@tullio M[x+_,y+_,c] := N[x+i, y+j,c] * K[i,j] # sum over i,j, and create M
 
 @tullio S[x] = P[x,y] * log(Q[x,y] / R[y])     # sum over y, and write into S
 
@@ -77,10 +77,15 @@ A = [abs2(i - 11) for i in 1:21]
 
 using OffsetArrays # Convolve a filter:
 K = OffsetArray([1,-1,2,-1,1], -2:2)
-@tullio C[i] := A[i+j] * K[j]  # j ∈ -2:2 implies i ∈ 3:19
+@tullio C[i] := A[i+j] * K[j]    # j ∈ -2:2 implies i ∈ 3:19
 
 # Index by the values in K
 @tullio D[i,j] := A[2K[j]+i] ÷ K[j] # extrema(K)==(-1,2) implies i ∈ 3:17
+
+# Wrapped & padded:
+@tullio M[i,j] := A[mod(i+j)]  (j in 1:15, i in 1:15)   # wraps around, mod(i+j, axes(A,1))
+@tullio M[i,j] := A[clamp(i+j)]  (j in 1:15, i in 1:15) # instead repeats "100"
+@tullio M[i+_,j] := A[pad(i+j, 3)]  (j in 1:15)         # fills with zeros
 
 using FFTW # Functions of the indices are OK:
 S = [0,1,0,0, 0,0,0,0]
