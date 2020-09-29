@@ -393,12 +393,11 @@ end
 
     @test vcat(B,B) == @tullio C[i] := B[mod(i)]  i in 1:10
     @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
-
     @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
-    @test [9,25,49,81,1,9] == @tullio E[i] := A[mod(2i+1, 1:10)]  i in 1:6
 
     @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]
     @test vcat(zeros(2), A, zeros(3)) == @tullio D[i+_] := A[pad(i,2,3)]
+    @test vcat(A, zeros(10)) == @tullio E[i] := A[pad(i)]  i in 1:20
 
     # pairconstraints
     @tullio F[i] := A[mod(i+k)] * ones(3)[k]  (i in axes(A,1))
@@ -411,10 +410,11 @@ end
 
     # unable to infer range
     @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
+    @test_throws LoadError @eval @tullio F[i] := A[pad(2i)]
     # can't use index mod(i) on LHS
     @test_throws LoadError @eval @tullio G[mod(i)] := A[i]
     # eltype of pad doesn't fit
-    @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im
+    @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im # ?? fails for other reasons without OffsetArrays, "no method matching similar(::Array{Int64,1}, ::Type{Int64}, ::Tuple{UnitRange{Int64}})"
 
 end
 

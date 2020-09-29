@@ -68,9 +68,6 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             @test issubset(sort(f.(eval(rex))), r)
         end
 
-        @test range_expr_walk(:($r .+ 0), :(mod(i))) == (nothing, :i)
-        @test range_expr_walk(:($r .+ 0), :(clamp(2i+1))) == (nothing, :i)
-
         rex, _ = range_expr_walk(:($r .+ 0), :(pad(i,2)))
         @test extrema(eval(rex)) == (first(r)-2, last(r)+2)
         rex, _ = range_expr_walk(:($r .+ 0), :(pad(i+1,2,5)))

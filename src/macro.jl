@@ -76,8 +76,8 @@ function _tullio(exs...; mod=Main)
         pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
-        # splitind = Dict{Symbol,Expr}(), # indices inside pad(i,3) etc.
         axisdefs = Expr[],
+        padmodclamp = false,
     # Expressions:
         outpre = Expr[],  # preliminary steps
         outex = Expr[],   # the rest!
@@ -343,7 +343,7 @@ rightwalk(store) = ex -> begin
 
         # Fourth, replace mod(i) with mod(i, axes(A,3)) etc,
         # and re-assemble with new A etc:
-        return padmodclamp(A, inds3, store)
+        return padmodclamp_assemble(A, inds3, store)
     end # A1[i][k] should be seen later, with corrected A
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -359,10 +359,19 @@ saveconstraints(A, inds, store, right=true) = begin
         is_const(ex) && return
         containsany(ex, store.notfree) && return
         axis_i = length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d))
-        range_i, i = range_expr_walk(axis_i, ex)
-        if i isa Symbol
+        ex_i, axis_i = padmodclamp_ind(ex, axis_i) # this may pad the axis, or may make it nothing
+        range_i, i = range_expr_walk(axis_i, ex_i)
+        if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
+            if i isa Symbol
+                push!(is, i)
+                ex_i isa Symbol || push!(store.shiftedind, i)
+            elseif i isa Tuple
+                push!(is, filter(!isnothing, collect(i))...)
+                push!(store.shiftedind, filter(!isnothing, collect(i))...)
+            end
+        elseif i isa Symbol
             push!(is, i)
-            ex isa Symbol || push!(store.shiftedind, i)
+            ex_i isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, [])
             push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
@@ -425,23 +434,39 @@ primeindices(inds) = map(inds) do ex
     ex
 end
 
-padmodclamp(A, inds, store) = begin
+padmodclamp_ind(i, ax_i) = i, ax_i
+padmodclamp_ind(ex::Expr, ax_i) =
+    if ex.head == :call && ex.args[1] in [:mod, :clamp, :pad] && length(ex.args) == 2
+        return ex.args[2], nothing # nothing means that range inference is discarded
+
+    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 3
+        _, a, p = ex.args
+        return ex.args[2], :($padrange($ax_i, $p, $p)) # padrange() is in shifts.jl
+    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 3
+        _, a, lo, hi = ex.args
+        return ex.args[2], :($padrange($ax_i, $lo, $hi))
+    else
+        return ex, ax_i
+    end
+
+padmodclamp_assemble(A, inds, store) = begin
     nopadif = []
     inds4 = map(enumerate(inds)) do (d,ex)
         ex isa Expr && ex.head == :call || return ex
         if ex.args[1] == :mod && length(ex.args) == 2
             i = ex.args[2]
-            # splitsave(i, :(axes($A,$d)), store)
+            store.padmodclamp = true
             return :(mod($i, axes($A,$d)))
         elseif ex.args[1] == :clamp && length(ex.args) == 2
             i = ex.args[2]
-            # splitsave(i, :(axes($A,$d)), store)
+            store.padmodclamp = true
             return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
-        elseif ex.args[1] == :pad && length(ex.args) >= 3
-            @warn "padding is experimental!" maxlog=3
+        elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
-            # splitsave(i, :(axes($A,$d)), store)
-            all(==(0), ex.args[3:end]) || push!(nopadif, :($i in axes($A,$d)))
+            store.padmodclamp = true
+            if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
+                push!(nopadif, :($i in axes($A,$d)))
+            end
             return i
         end
         ex
@@ -461,10 +486,6 @@ padmodclamp(A, inds, store) = begin
         end
     end
 end
-
-# splitsave(i::Symbol, ex::Expr, store) = store.splitind[i] = ex
-# splitsave(i::Expr, ex::Expr, store) = store.splitind[AXIS] = ex
-# to do this properly, maybe you need to run the whole range inference again?
 
 dollarwalk(store) = ex -> begin
         @nospecialize ex
@@ -617,7 +638,6 @@ function index_ranges(store)
 
     todo = Set(vcat(store.leftind, store.redind))
     done = Dict{Symbol,Any}()
-    remove_nothings(store)
 
     for (i,j,r_i,r_j) in store.pairconstraints
 
@@ -697,15 +717,6 @@ resolveintersect(i, store, done) = begin
     done[i] = res
 end
 
-remove_nothings(store) = begin
-    filter!(store.pairconstraints) do tup
-        !isnothing(tup[3]) && !isnothing(tup[4])
-    end
-    for (i,v) in pairs(store.constraints)
-        filter!(!isnothing, v)
-        isempty(v) && delete!(dict, i)
-    end
-end
 
 #========== output array + eltype ==========#
 
