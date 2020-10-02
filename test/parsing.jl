@@ -378,6 +378,56 @@ using OffsetArrays
     @test_throws LoadError @eval @tullio C[i] = A[i⊗j] + A[i]
     @test_throws LoadError @eval @tullio C[i] = A[(i,j)] + A[i]
 
+    # magic shift
+    @test axes(@tullio Z[i+_] := A[2i+10]) === (Base.OneTo(5),)
+
+    @test_throws LoadError @eval @tullio Z[_+i] := A[2i+10] # wrong notation
+    @test_throws LoadError @eval @tullio Z[J[i]+_] := A[2i+10] # with scatter
+    @test_throws LoadError @eval @tullio Z[i+_] = A[2i+10] # in-place
+end
+
+@testset "modulo, clamped & padded" begin
+
+    A = [i^2 for i in 1:10]
+    B = 1:5
+
+    @test vcat(B,B) == @tullio C[i] := B[mod(i)]  i in 1:10
+    @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
+    @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
+
+    @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]
+    @test vcat(zeros(2), A, zeros(3)) == @tullio D[i+_] := A[pad(i,2,3)]
+    @test vcat(A, zeros(10)) == @tullio E[i] := A[pad(i)]  i in 1:20
+
+    # pairconstraints
+    @tullio F[i] := A[mod(i+k)] * ones(3)[k]  (i in axes(A,1))
+    @test F[end] == 1 + 2^2 + 3^2
+    @tullio F[i] = A[clamp(i+k)] * ones(7)[k]
+
+    @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100
+    @test axes(G,1) == -4:11
+    @test G[-4] == G[11] == 300
+
+    # matrix
+    M = rand(Int8, 3,4)
+    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1
+    @test H == [trues(2,10); trues(3,3) M trues(3,3); trues(2,10)]
+
+    # pad keyword
+    @tullio J[i,i] := sqrt(A[i])  pad=-1
+    @test J[3,4] == -1
+    @test diag(J) == 1:10
+
+    # unable to infer range
+    @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
+    @test_throws LoadError @eval @tullio F[i] := A[pad(2i)]
+    # can't use index mod(i) on LHS
+    @test_throws LoadError @eval @tullio G[mod(i)] := A[i]
+    # not sure what to do with clamp(i), sorry
+    @test_throws LoadError @eval @tullio F[i] := A[clamp(i)+1]
+    # eltype of pad doesn't fit
+    @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im
+    @test_throws InexactError @tullio J[i,i] := A[i]  pad=im
 end
 
 @testset "other reductions" begin

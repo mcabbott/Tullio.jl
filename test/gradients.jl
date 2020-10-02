@@ -280,6 +280,15 @@ if Tullio._GRAD[] != :Dual
 
     end
 
+    @testset "mod, clamp, pad" begin
+        fmod(x) = @tullio y[i] := x[mod(i)]  i in 1:5
+        fclamp(x) = @tullio y[i] := x[clamp(i)]  i in 1:5
+        fpad(x) = @tullio y[i] := x[pad(i-2,2)]
+        @test _gradient(sum∘fmod, ones(3))[1] == [2,2,1]
+        @test _gradient(sum∘fclamp, ones(3))[1] == [1,1,3]
+        @test _gradient(sum∘fpad, ones(3))[1] == [1,1,1]
+    end
+
     @testset "finalisers" begin
 
         norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt

@@ -70,7 +70,17 @@ function extremerange(A)
     α:ω
 end
 
-# This is for the bounds check on A[I[j],k] (not actually a runtime function):
+# This gives the range of j implied by A[i, pad(j,3)]
+
+function padrange(r::AbstractUnitRange, lo::Integer, hi::Integer)
+    first(r)-lo : last(r)+hi
+end
+
+#========== functions used by the macro ==========#
+
+@nospecialize
+
+# This is for the bounds check on A[I[j],k]:
 
 function extremeview(ex::Expr)
     @assert ex.head == :ref
@@ -82,10 +92,6 @@ function extremeview(ex::Expr)
         A
     end
 end
-
-#========== functions used by the macro ==========#
-
-@nospecialize
 
 """
     range_expr_walk(:(axes(A,1)), :(2i+1)) -> range, :i
@@ -102,7 +108,7 @@ and a tuple of symbols. The range for `:j` contains `:$(AXIS)i` and v-v.
 If the expression is from `A[I[j]]` then it returns `(min:max, nothing)`,
 and the caller should check `issubset(min:max, axes(A,1))`.
 """
-function range_expr_walk(r::Expr, ex::Expr, con=[])
+function range_expr_walk(r, ex::Expr, con=[])
     ex.head == :kw && return range_expr_kw(r, ex)
     if ex.head == :ref # case of M[I[j], k] with r=axes(M,1)
         A = ex.args[1]
@@ -111,7 +117,13 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
         return (:($extremerange($A)),nothing)
     end
     ex.head == :call || throw("not sure what to do with $ex")
-    if length(ex.args) == 2
+    if ex.args[1] == :pad && length(ex.args) == 3
+        _, a, p = ex.args
+        return range_expr_walk(:($padrange($r, $p, $p)), a)
+    elseif ex.args[1] == :pad && length(ex.args) == 4
+        _, a, lo, hi = ex.args
+        return range_expr_walk(:($padrange($r, $lo, $hi)), a)
+    elseif length(ex.args) == 2
         op, a = ex.args
         if op == :+
             return range_expr_walk(r, a)
@@ -160,8 +172,8 @@ function range_expr_walk(r::Expr, ex::Expr, con=[])
     throw("not sure what to do with $ex, sorry")
 end
 
-range_expr_walk(range::Expr, s::Symbol) = range, s
-range_expr_walk(range::Expr, n::Integer) = range, nothing
+range_expr_walk(range, s::Symbol) = range, s
+range_expr_walk(range, n::Integer) = range, nothing
 
 is_const(::Int) = true
 is_const(::Any) = false
@@ -199,6 +211,7 @@ range_unwrap(ex::Expr) = begin
         return :($extremerange($A))
     end
     ex.head == :call || throw("don't know how to handle $ex")
+    # if ex.args[1] == :pad or :clamp or :mod --- find test cases.
     if length(ex.args) == 2
         op, a = ex.args
         if op == :-

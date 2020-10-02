@@ -73,10 +73,11 @@ function _tullio(exs...; mod=Main)
         cost = 1,
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axes(A,2)), :(axes(B,1))] etc.
+        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
-        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         axisdefs = Expr[],
+        padmodclamp = false,
     # Expressions:
         outpre = Expr[],  # preliminary steps
         outex = Expr[],   # the rest!
@@ -121,6 +122,7 @@ function parse_options(exs...)
     opts = Dict{Symbol,Any}(
         :redfun => :+,
         :init => TYP, # this means "auto"
+        :pad => TYP,
         :verbose => _VERBOSE[],
         :fastmath => _FASTMATH[],
         :threads => _THREADS[],
@@ -138,9 +140,11 @@ function parse_options(exs...)
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
 
-        # Init keyword
+        # Init & pad keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
             opts[:init] = ex.args[2]
+        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :pad
+            opts[:pad] = ex.args[2]
 
         # Nograd keyword
         elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
@@ -184,6 +188,7 @@ function parse_options(exs...)
     end
     (redfun=opts[:redfun],
         initkeyword=opts[:init], # surely there is a tidier way...
+        padkeyword=opts[:pad],
         verbose=opts[:verbose],
         fastmath=opts[:fastmath],
         threads=opts[:threads],
@@ -299,6 +304,8 @@ function parse_input(expr, store)
     unique!(store.leftind)
     store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
+    any(==(:_), vcat(store.leftind, store.rightind)) && throw("can't use _ as an index name")
+
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
     if :newarray in store.flags && Zed in store.arrays
@@ -331,11 +338,11 @@ rightwalk(store) = ex -> begin
 
         # Third, save letter A, and what axes(A) says about indices:
         push!(store.arrays, arrayonly(A))
-        inds = primeindices(inds)
-        saveconstraints(A, inds, store, true)
+        inds3 = primeindices(inds)
+        saveconstraints(A, inds3, store, true)
 
-        # Re-assemble RHS with new A, and primes on indices taken care of.
-        return :( $A[$(inds...)] )
+        # Finally, re-assemble with new A etc:
+        return :($A[$(inds3...)])
     end # A1[i][k] should be seen later, with corrected A
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -351,10 +358,19 @@ saveconstraints(A, inds, store, right=true) = begin
         is_const(ex) && return
         containsany(ex, store.notfree) && return
         axis_i = length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d))
-        range_i, i = range_expr_walk(axis_i, ex)
-        if i isa Symbol
+        ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
+        range_i, i = range_expr_walk(axis_i, ex_i)
+        if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
+            if i isa Symbol
+                push!(is, i)
+                ex_i isa Symbol || push!(store.shiftedind, i)
+            elseif i isa Tuple
+                push!(is, filter(!isnothing, collect(i))...)
+                push!(store.shiftedind, filter(!isnothing, collect(i))...)
+            end
+        elseif i isa Symbol
             push!(is, i)
-            ex isa Symbol || push!(store.shiftedind, i)
+            ex_i isa Symbol || push!(store.shiftedind, i)
             v = get!(store.constraints, i, [])
             push!(v, dollarstrip(range_i))
         elseif i isa Tuple # from things like A[i+j]
@@ -417,6 +433,80 @@ primeindices(inds) = map(inds) do ex
     ex
 end
 
+# This function is for range inference
+padmodclamp_ind(i, ax_i, store) = i, ax_i
+padmodclamp_ind(ex::Expr, ax_i, store) =
+    if ex.head == :call && ex.args[1] in [:mod, :clamp, :pad] && length(ex.args) == 2
+        store.padmodclamp = true
+        return ex.args[2], nothing # nothing means that range inference is discarded
+
+    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 3
+        store.padmodclamp = true
+        _, a, p = ex.args
+        return ex.args[2], :($padrange($ax_i, $p, $p)) # padrange() is in shifts.jl
+    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 4
+        store.padmodclamp = true
+        _, a, lo, hi = ex.args
+        return ex.args[2], :($padrange($ax_i, $lo, $hi))
+    else
+        return ex, ax_i
+    end
+
+padmodclamp_replace(s, store, inside=false) = s
+padmodclamp_replace(ex::Expr, store, inside=false) =
+    if ex.head == :(=) && @capture_(ex.args[1], A_[inds__])
+        # This tricky case is 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
+        Aex, fun = padmodclamp_pair(A, inds, store)
+        right = if fun != identity
+            padmodclamp_replace(ex.args[2], store, true)
+        else
+            padmodclamp_replace(ex.args[2], store, inside)
+        end
+        return fun(:($Aex = $right))
+    elseif @capture_(ex, A_[inds__])
+        Aex, fun = padmodclamp_pair(A, inds, store)
+        return inside ? Aex : fun(Aex)
+    else
+        args = map(x -> padmodclamp_replace(x, store, inside), ex.args)
+        Expr(ex.head, args...)
+    end
+
+padmodclamp_pair(A, inds, store) = begin
+    nopadif = []
+    inds4 = map(enumerate(inds)) do (d,ex)
+        ex isa Expr && ex.head == :call || return ex
+        if ex.args[1] == :mod && length(ex.args) == 2
+            i = ex.args[2]
+            return :(mod($i, axes($A,$d)))
+        elseif ex.args[1] == :clamp && length(ex.args) == 2
+            i = ex.args[2]
+            return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
+        elseif ex.args[1] == :pad && length(ex.args) >= 2
+            i = ex.args[2]
+            if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
+                push!(nopadif, :($i in axes($A,$d)))
+            end
+            return i
+        end
+        ex
+    end
+    Aex = :($A[$(inds4...)])
+    fun = if isempty(nopadif)
+        identity
+    else
+        cond = first(nopadif)
+        for c2 in nopadif[2:end]
+            cond = :($cond & $c2)
+        end
+        if store.padkeyword == TYP # default
+            ex -> :($cond ? $ex : zero(eltype($A)))
+        else
+            ex -> :($cond ? $ex : convert(eltype($A), $(store.padkeyword)))
+        end
+    end
+    Aex, fun # fun(Aex), but also fun(Aex = ...)
+end
+
 dollarwalk(store) = ex -> begin
         @nospecialize ex
         ex isa Expr || return ex
@@ -454,6 +544,15 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
+
+    elseif i isa Expr && i.head == :call && i.args[1] == :+ &&
+            length(i.args)==3 && i.args[3] == :_ # magic un-shift A[i+_, j] := ...
+        i = primeindices(i.args)[2]
+        i isa Symbol || throw("index ($i + _) is too complicated, sorry")
+        push!(store.leftind, i)
+        deli = Symbol(DEL, i)
+        push!(store.scalars, deli) # calculating this must be done later
+        return :($i + $deli)
 
     elseif @capture_(i, J_[inds__]) # scatter operation, A[i,J[j,k]] := ...
         push!(store.nograd, J)
@@ -589,6 +688,15 @@ function index_ranges(store)
         else
             resolvestrict(i, store, done)
         end
+        deli = Symbol(DEL,i)
+        if deli in store.scalars # magic shift on LHS
+            axi, axi_del = Symbol(AXIS,i), Symbol(AXIS,i,DEL)
+            push!(store.axisdefs, :($deli = 1 - first($axi)),
+                :(local $axi_del = Base.OneTo(length($axi))))
+            # You can't compute deli inside Act! as doesn't always see full range of i.
+            # But if you make it a scalar argument, then it's an argument of Make, hence
+            push!(store.outpre, :(local $deli = 0)) # ... this awful hack.
+        end
     end
 
     append!(store.outex, store.axisdefs)
@@ -617,13 +725,18 @@ resolvestrict(i, store, done) = begin
 end
 
 resolveintersect(i, store, done) = begin
-    res = length(store.constraints[i])==1 ?
-        first(store.constraints[i]) : # because intersect(1:3) isa Vector, wtf?
+    res = if isempty(store.constraints[i])
+        throw("unable to infer range of index $i")
+    elseif length(store.constraints[i])==1
+        first(store.constraints[i])  # because intersect(1:3) isa Vector, wtf?
+    else
         :( intersect($(store.constraints[i]...)) )
+    end
     ax_i = Symbol(AXIS, i)
     push!(store.axisdefs, :( local $ax_i = $res ))
     done[i] = res
 end
+
 
 #========== output array + eltype ==========#
 
@@ -665,7 +778,8 @@ function output_array(store)
 
     if :newarray in store.flags # this includes scalar case!
 
-        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
+        ex_right = padmodclamp_replace(:($(store.finaliser)($(store.right))), store)
+        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $ex_right))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
@@ -697,11 +811,13 @@ function output_array(store)
             push!(store.outex, :(local $TYP = $T3))
         end
 
-        # This now checks for OffsetArrays, and allows A[i,1] := ...
+        # This now checks for OffsetArrays, and allows A[i,1] := rhs. Pulls out scatterers.
         outaxes = map(store.leftraw) do i
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
             i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
+            i isa Expr && i.head == :call && length(i.args)==3 && i.args[1] == :+ &&
+                startswith(string(i.args[3]), string(DEL)) && return Symbol(AXIS, i.args[2], DEL)
             throw("can't use index $i on LHS for a new array")
         end
 
@@ -709,8 +825,8 @@ function output_array(store)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
                 i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
-                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module")))
-                return :(Base.OneTo($ax))
+                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module. Otherwise write `A[i+_] := ...` to remove offset")))
+                return :(Base.OneTo($ax)) # This doesn't apply to offsets caused by pad(i+j,3), sadly?
             end
         end
 
@@ -739,8 +855,13 @@ function output_array(store)
         end
     end
 
-    if :zero in store.flags
-        push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
+    if :zero in store.flags # allow pad=NaN to control this too
+        # push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
+        if store.padkeyword == TYP # default
+            push!(store.outex, :($(store.leftarray) .= zero(eltype($(store.leftarray)))))
+        else
+            push!(store.outex, :($(store.leftarray) .= $(store.padkeyword)))
+        end
     end
 
     ex_pre = quote $(store.outpre...) end # before act! gets pushed into store.outpre
@@ -811,7 +932,7 @@ function action_functions(store)
 
     keep = (:plusequals in store.flags) ? :true : :nothing
     block = store.threads==false ? nothing :
-        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
     if :scalar in store.flags
         ST = :($storage_type($(store.arrays...)))
@@ -896,6 +1017,10 @@ end
 ```
 """
 function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex5, ex6, store, note="")
+
+    if store.padmodclamp
+        ex5 = padmodclamp_replace(ex5, store)
+    end
 
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
@@ -1139,7 +1264,7 @@ function backward_definitions(store)
 
     ST = :($storage_type($(gradarrays...), $(store.arrays...)))
     block = store.threads==false ? nothing :
-        store.threads==true ? (BLOCK[] ÷ store.cost) :
+        store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
     input, acton = if :scalar in store.flags
         :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to ∇Act!, for now??
