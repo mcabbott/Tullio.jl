@@ -406,16 +406,22 @@ end
 
     @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100
     @test axes(G,1) == -4:11
-    @test G[begin] == G[end] == 300
+    @test G[-4] == G[11] == 300
+
+    # matrix
+    M = rand(Int8, 3,4)
+    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1
+    @test H == [trues(2,10); trues(3,3) M trues(3,3); trues(2,10)]
 
     # unable to infer range
     @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
     @test_throws LoadError @eval @tullio F[i] := A[pad(2i)]
     # can't use index mod(i) on LHS
     @test_throws LoadError @eval @tullio G[mod(i)] := A[i]
+    # not sure what to do with clamp(i), sorry
+    @test_throws LoadError @eval @tullio F[i] := A[clamp(i)+1]
     # eltype of pad doesn't fit
-    @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im # ?? fails for other reasons without OffsetArrays, "no method matching similar(::Array{Int64,1}, ::Type{Int64}, ::Tuple{UnitRange{Int64}})"
-
+    @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im
 end
 
 @testset "other reductions" begin

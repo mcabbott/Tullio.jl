@@ -341,9 +341,8 @@ rightwalk(store) = ex -> begin
         inds3 = primeindices(inds)
         saveconstraints(A, inds3, store, true)
 
-        # Fourth, replace mod(i) with mod(i, axes(A,3)) etc,
-        # and re-assemble with new A etc:
-        return padmodclamp_assemble(A, inds3, store)
+        # Finally, re-assemble with new A etc:
+        return :($A[$(inds3...)])
     end # A1[i][k] should be seen later, with corrected A
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
@@ -359,7 +358,7 @@ saveconstraints(A, inds, store, right=true) = begin
         is_const(ex) && return
         containsany(ex, store.notfree) && return
         axis_i = length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d))
-        ex_i, axis_i = padmodclamp_ind(ex, axis_i) # this may pad the axis, or may make it nothing
+        ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
         range_i, i = range_expr_walk(axis_i, ex_i)
         if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
             if i isa Symbol
@@ -434,36 +433,56 @@ primeindices(inds) = map(inds) do ex
     ex
 end
 
-padmodclamp_ind(i, ax_i) = i, ax_i
-padmodclamp_ind(ex::Expr, ax_i) =
+# This function is for range inference
+padmodclamp_ind(i, ax_i, store) = i, ax_i
+padmodclamp_ind(ex::Expr, ax_i, store) =
     if ex.head == :call && ex.args[1] in [:mod, :clamp, :pad] && length(ex.args) == 2
+        store.padmodclamp = true
         return ex.args[2], nothing # nothing means that range inference is discarded
 
     elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 3
+        store.padmodclamp = true
         _, a, p = ex.args
         return ex.args[2], :($padrange($ax_i, $p, $p)) # padrange() is in shifts.jl
-    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 3
+    elseif ex.head == :call && ex.args[1] == :pad && length(ex.args) == 4
+        store.padmodclamp = true
         _, a, lo, hi = ex.args
         return ex.args[2], :($padrange($ax_i, $lo, $hi))
     else
         return ex, ax_i
     end
 
-padmodclamp_assemble(A, inds, store) = begin
+padmodclamp_replace(s, store, inside=false) = s
+padmodclamp_replace(ex::Expr, store, inside=false) =
+    if ex.head == :(=) && @capture_(ex.args[1], A_[inds__])
+        # This tricky case is 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
+        Aex, fun = padmodclamp_pair(A, inds, store)
+        right = if fun != identity
+            padmodclamp_replace(ex.args[2], store, true)
+        else
+            padmodclamp_replace(ex.args[2], store, inside)
+        end
+        return fun(:($Aex = $right))
+    elseif @capture_(ex, A_[inds__])
+        Aex, fun = padmodclamp_pair(A, inds, store)
+        return inside ? Aex : fun(Aex)
+    else
+        args = map(x -> padmodclamp_replace(x, store, inside), ex.args)
+        Expr(ex.head, args...)
+    end
+
+padmodclamp_pair(A, inds, store) = begin
     nopadif = []
     inds4 = map(enumerate(inds)) do (d,ex)
         ex isa Expr && ex.head == :call || return ex
         if ex.args[1] == :mod && length(ex.args) == 2
             i = ex.args[2]
-            store.padmodclamp = true
             return :(mod($i, axes($A,$d)))
         elseif ex.args[1] == :clamp && length(ex.args) == 2
             i = ex.args[2]
-            store.padmodclamp = true
             return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
-            store.padmodclamp = true
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
                 push!(nopadif, :($i in axes($A,$d)))
             end
@@ -472,19 +491,20 @@ padmodclamp_assemble(A, inds, store) = begin
         ex
     end
     Aex = :($A[$(inds4...)])
-    if isempty(nopadif)
-        return Aex
+    fun = if isempty(nopadif)
+        identity
     else
         cond = first(nopadif)
         for c2 in nopadif[2:end]
             cond = :($cond & $c2)
         end
         if store.padkeyword == TYP # default
-            return :($cond ? $Aex : zero(eltype($A)))
+            ex -> :($cond ? $ex : zero(eltype($A)))
         else
-            return :($cond ? $Aex : convert(eltype($A), $(store.padkeyword)))
+            ex -> :($cond ? $ex : convert(eltype($A), $(store.padkeyword)))
         end
     end
+    Aex, fun # fun(Aex), but also fun(Aex = ...)
 end
 
 dollarwalk(store) = ex -> begin
@@ -758,7 +778,8 @@ function output_array(store)
 
     if :newarray in store.flags # this includes scalar case!
 
-        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $(store.finaliser)($(store.right)) ))
+        ex_right = padmodclamp_replace(:($(store.finaliser)($(store.right))), store)
+        push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $ex_right))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
         allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
@@ -992,6 +1013,10 @@ end
 ```
 """
 function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex5, ex6, store, note="")
+
+    if store.padmodclamp
+        ex5 = padmodclamp_replace(ex5, store)
+    end
 
     ex4 = recurseloops(ex5, inner)
     ex2 = recurseloops(:($ex3; $ex4; $ex6), outer)
