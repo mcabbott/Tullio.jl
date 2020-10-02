@@ -413,6 +413,11 @@ end
     @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1
     @test H == [trues(2,10); trues(3,3) M trues(3,3); trues(2,10)]
 
+    # pad keyword
+    @tullio J[i,i] := sqrt(A[i])  pad=-1
+    @test J[3,4] == -1
+    @test diag(J) == 1:10
+
     # unable to infer range
     @test_throws LoadError @eval @tullio F[i] := A[mod(i+1)]
     @test_throws LoadError @eval @tullio F[i] := A[pad(2i)]
@@ -422,6 +427,7 @@ end
     @test_throws LoadError @eval @tullio F[i] := A[clamp(i)+1]
     # eltype of pad doesn't fit
     @test_throws InexactError @tullio H[i] := A[pad(i,3)]  pad=im
+    @test_throws InexactError @tullio J[i,i] := A[i]  pad=im
 end
 
 @testset "other reductions" begin

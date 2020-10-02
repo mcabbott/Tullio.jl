@@ -816,7 +816,6 @@ function output_array(store)
             i isa Integer && i==1 && return :(Base.OneTo(1))
             i isa Symbol && return Symbol(AXIS, i)
             i isa Expr && @capture_(i, J_[inds__]) && return Symbol(AXIS, string("≪", i, "≫"))
-            # i isa Expr && @capture_(i, j_ + dj_) # not yet
             i isa Expr && i.head == :call && length(i.args)==3 && i.args[1] == :+ &&
                 startswith(string(i.args[3]), string(DEL)) && return Symbol(AXIS, i.args[2], DEL)
             throw("can't use index $i on LHS for a new array")
@@ -827,7 +826,7 @@ function output_array(store)
                 ax == :(Base.OneTo(1)) && return ax
                 i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
                 push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module. Otherwise write `A[i+_] := ...` to remove offset")))
-                return :(Base.OneTo($ax))
+                return :(Base.OneTo($ax)) # This doesn't apply to offsets caused by pad(i+j,3), sadly?
             end
         end
 
@@ -856,8 +855,13 @@ function output_array(store)
         end
     end
 
-    if :zero in store.flags
-        push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
+    if :zero in store.flags # allow pad=NaN to control this too
+        # push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
+        if store.padkeyword == TYP # default
+            push!(store.outex, :($(store.leftarray) .= zero(eltype($(store.leftarray)))))
+        else
+            push!(store.outex, :($(store.leftarray) .= $(store.padkeyword)))
+        end
     end
 
     ex_pre = quote $(store.outpre...) end # before act! gets pushed into store.outpre
