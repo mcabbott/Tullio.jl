@@ -9,7 +9,7 @@
 Tullio is a very flexible einsum macro. It understands many array operations written in index notation, for example:
 
 ```julia
-@tullio M[x+_,y+_,c] := N[x+i, y+j,c] * K[i,j] # sum over i,j, and create M
+@tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]     # sum over i,j, and create M
 
 @tullio S[x] = P[x,y] * log(Q[x,y] / R[y])     # sum over y, and write into S
 
@@ -226,6 +226,7 @@ Extras:
 * `A[i] := B[i, $col] - C[i, 2]` is how you fix one index to a constant (to prevent `col` being summed over).
 * `A[i] := $d * B[i]` is the preferred way to include other constants. Note that no gradient is calculated for `d`. 
 * Within indexing, `A[mod(i), clamp(j)]` both maps `i` & `j` to lie within `axes(A)`, and disables inference of their ranges from `A`.
+* Similarly, `A[pad(i,3)]` extends the range of `i`, inserting zeros outside of `A`. Instead of zero, `pad=NaN` uses this value as padding. The implementation of this (and `mod`, `clamp`) is not very fast at present.
 * On the left, when making a new array, an underscore like `A[i+_] :=` inserts whatever shift is needed to make `A` one-based.
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
 
