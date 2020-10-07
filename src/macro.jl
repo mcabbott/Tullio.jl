@@ -136,32 +136,32 @@ function parse_options(exs...)
     ranges = Tuple[]
     for ex in exs
         # Actual options:
-        if ex isa Expr && ex.head == :(=) && haskey(OPTS, ex.args[1])
+        if isexpr(ex, :(=)) && haskey(OPTS, ex.args[1])
             checklegal(ex.args[1], ex.args[2])
             opts[ex.args[1]] = ex.args[2]
 
         # Init & pad keyword
-        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :init
+        elseif isexpr(ex, :(=)) && ex.args[1] == :init
             opts[:init] = ex.args[2]
-        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :pad
+        elseif isexpr(ex, :(=)) && ex.args[1] == :pad
             opts[:pad] = ex.args[2]
 
         # Nograd keyword
-        elseif ex isa Expr && ex.head == :(=) && ex.args[1] == :nograd
+        elseif isexpr(ex, :(=)) && ex.args[1] == :nograd
             if ex.args[2] isa Symbol
                 push!(nograd, ex.args[2])
-            elseif ex.args[2] isa Expr && ex.args[2].head == :tuple
+            elseif isexpr(ex.args[2], :tuple)
                 append!(nograd, ex.args[2].args)
             else
                 throw("this accepts nograd=A or nograd=(A,B,C)")
             end
 
         # Ranges specified outside:
-        elseif ex isa Expr && ex.head == :call && ex.args[1] in [:in, :∈]
+        elseif isexpr(ex, :call) && ex.args[1] in [:in, :∈]
             push!(ranges, (ex.args[2], ex.args[3]))
-        elseif ex isa Expr && ex.head == :tuple && ex.args[1] isa Expr && ex.args[1].args[1] in [:in, :∈]
+        elseif isexpr(ex, :tuple) && isexpr(ex.args[1], :call) && ex.args[1].args[1] in [:in, :∈]
             for el in ex.args
-                el isa Expr && el.head == :call && el.args[1] in [:in, :∈] || throw("expected (i ∈ 1:3) but got $el")
+                isexpr(el, :call) && el.args[1] in [:in, :∈] || throw("expected (i ∈ 1:3) but got $el")
                 push!(ranges, (el.args[2], el.args[3]))
             end
 
@@ -283,7 +283,7 @@ function parse_input(expr, store)
     detectunsafe(right, store.unsaferight, store)
     right2 = MacroTools_postwalk(rightwalk(store), right)
 
-    if right2 isa Expr && right2.head == :call && right2.args[1] in (:|>, :<|)
+    if isexpr(right2, :call) && right2.args[1] in (:|>, :<|)
         if right2.args[1] == :|>
             store.finaliser = makefinaliser(right2.args[3], store)
             store.right = MacroTools_postwalk(dollarwalk(store), right2.args[2])
@@ -316,16 +316,16 @@ end
 rightwalk(store) = ex -> begin
         @nospecialize ex
         # First, this will detect any assignment before it is used:
-        if ex isa Expr && ex.head == :(=)
+        if isexpr(ex, :(=))
             if ex.args[1] isa Symbol
                 push!(store.notfree, ex.args[1])
-            elseif ex.args[1] isa Expr && ex.args[1].head == :tuple
+            elseif isexpr(ex.args[1], :tuple)
                 for i in ex.args[1].args
                     i isa Symbol && push!(store.notfree, i)
                 end
             end
         end
-        ex isa Expr && ex.head == :return && throw("can't use return inside body")
+        isexpr(ex, :return) && throw("can't use return inside body")
 
         # Second, alter indexing expr. to pull out functions of arrays:
         @capture_(ex, A_[inds__]) || return ex
@@ -428,7 +428,7 @@ containsany(ex, list) = begin
 end
 
 primeindices(inds) = map(inds) do ex
-    ex isa Expr && ex.head == Symbol("'") &&
+    isexpr(ex, Symbol("'")) &&
         return Symbol(ex.args[1], "′") # normalise i''
     ex
 end
@@ -474,7 +474,7 @@ padmodclamp_replace(ex::Expr, store, inside=false) =
 padmodclamp_pair(A, inds, store) = begin
     nopadif = []
     inds4 = map(enumerate(inds)) do (d,ex)
-        ex isa Expr && ex.head == :call || return ex
+        isexpr(ex, :call) || return ex
         if ex.args[1] == :mod && length(ex.args) == 2
             i = ex.args[2]
             return :(mod($i, axes($A,$d)))
@@ -508,11 +508,9 @@ padmodclamp_pair(A, inds, store) = begin
 end
 
 dollarwalk(store) = ex -> begin
-        @nospecialize ex
-        ex isa Expr || return ex
-        if ex.head == :call
+        if isexpr(ex, :call)
             callcost(ex.args[1], store) # cost model for threading
-        elseif ex.head == :$ # interpolation of $c things:
+        elseif isexpr(ex, :$) # interpolation of $c things:
             ex.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
             push!(store.scalars, ex.args[1])
             return ex.args[1]
@@ -520,14 +518,14 @@ dollarwalk(store) = ex -> begin
         ex
     end
 
-dollarstrip(expr) = MacroTools_postwalk(expr) do @nospecialize ex
-        ex isa Expr && ex.head == :$ && return ex.args[1]
+dollarstrip(expr) = MacroTools_postwalk(expr) do ex
+        isexpr(ex, :$) && return ex.args[1]
         ex
     end
 
 tidyleftraw(leftraw, store) = begin
     step1 = map(leftraw) do i
-        if i isa Expr && i.head == :kw && :newarray in store.flags # then NamedDims wrapper is put on later
+        if isexpr(i, :kw) && :newarray in store.flags # then NamedDims wrapper is put on later
                 push!(store.leftnames, i.args[1])
                 return i.args[2]
         elseif i === :_ # underscores on left denote trivial dimensions
@@ -539,13 +537,13 @@ tidyleftraw(leftraw, store) = begin
 end
 
 finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
-    if i isa Expr && i.head == :$
+    if isexpr(i, :$)
         :newarray in store.flags && throw("can't fix indices on LHS when making a new array")
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
 
-    elseif i isa Expr && i.head == :call && i.args[1] == :+ &&
+    elseif isexpr(i, :call) && i.args[1] == :+ &&
             length(i.args)==3 && i.args[3] == :_ # magic un-shift A[i+_, j] := ...
         i = primeindices(i.args)[2]
         i isa Symbol || throw("index ($i + _) is too complicated, sorry")
@@ -614,12 +612,12 @@ end
 
 function parse_ranges(ranges, store) # now runs after parse_input
     for (i,r) in ranges
-        if i isa Expr && i.head == Symbol("'") # catch primes!
+        if isexpr(i, Symbol("'")) # catch primes!
             i = Symbol(i.args[1], "′")
         end
         push!(store.rightind, i)
         v = get!(store.constraints, i, [])
-        if r isa Expr && r.head == :call && r.args[1] == :(:) && length(r.args) == 3
+        if isexpr(r, :call) && r.args[1] == :(:) && length(r.args) == 3
             # for a literal range, write OneTo(10) or 0:9 directly into constraints
             if r.args[2] == 1 && r.args[3] isa Integer
                 push!(v, :(Base.OneTo($(r.args[3]))))
@@ -630,7 +628,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
             end
         end
         # for axes(A,2) where A is already available, just save it
-        if r isa Expr && r.head == :call && r.args[1] in (:axes, :eachindex) && r.args[2] in store.arrays
+        if isexpr(r, :call) && r.args[1] in (:axes, :eachindex) && r.args[2] in store.arrays
             push!(v, r)
             continue
         end
@@ -1208,8 +1206,7 @@ finalsplit(expr) = begin
 end
 
 # This matches ex == :(isnothing(💀) ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
-isifelsefinal(ex) = ex isa Expr && ex.head == :if && length(ex.args) == 3 &&
-        ex.args[1] isa Expr && ex.args[1].head == :call &&
+isifelsefinal(ex) = isexpr(ex, :if, 3) && isexpr(ex.args[1], :call) &&
         ex.args[1].args[1] == :isnothing && ex.args[1].args[2] == FINAL
 
 

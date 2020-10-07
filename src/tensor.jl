@@ -6,7 +6,7 @@
 function try_tensor(expr, ranges, store)
 
     fail = nothing
-    if expr isa Expr && expr.head in [:(:=), :(=), :(+=)]
+    if isexpr(expr, [:(:=), :(=), :(+=)])
     else
         fail = "TensorOperations not used, expected left := right etc"
     end
@@ -96,7 +96,7 @@ function try_tensor(expr, ranges, store)
         # @tensor may return "throw(TensorOperations.IndexError("non-matching indices ..."
         for line in outex
             MacroTools_postwalk(line) do ex
-                ex isa Expr && ex.head==:call && ex.args[1] == :throw && error(string(ex.args[2]))
+                isexpr(ex, :call) && ex.args[1] == :throw && error(string(ex.args[2]))
                 ex
             end
         end

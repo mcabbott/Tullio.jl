@@ -192,16 +192,18 @@ const MacroTools_postwalk = postwalk
 
 #========== prettify ==========#
 
+using Base.Meta: isexpr
+
 verbosetidy(expr) = MacroTools_postwalk(expr) do ex
-        if ex isa Expr && ex.head == :block
+        if isexpr(ex, :block)
             args = filter(x -> !(x isa LineNumberNode || x == nothing), ex.args)
-            if length(args) == 1 && args[1] isa Expr && args[1].head == :block
+            if length(args) == 1 && Meta.isexpr(args[1], :block)
                 # disallow block(block(stuff))
                 args[1]
             else
                 Expr(ex.head, args...)
             end
-        elseif ex isa Expr && ex.head == :macrocall && length(ex.args) >= 2
+        elseif isexpr(ex, :macrocall) && length(ex.args) >= 2
             # line number after macro name can't be dropped, but can be nothing:
             Expr(ex.head, ex.args[1], nothing, filter(x -> !(x isa LineNumberNode), ex.args[3:end])...)
         else
