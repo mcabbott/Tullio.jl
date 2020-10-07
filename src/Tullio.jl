@@ -24,4 +24,6 @@ include("shifts.jl")
 
 include("threads.jl")
 
+include("precompile.jl")
+
 end # module
