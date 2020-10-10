@@ -627,4 +627,12 @@ end
     xs = randn(1000)
     @test_throws InexactError @tullio z[i] := exp(im * xs[i] - xs[j]) |> abs2
 
+    # https://github.com/mcabbott/Tullio.jl/issues/43
+    P = rand(2,2,3); Diff = rand(3,3); n=4
+    @test axes(
+        @tullio dP[x,y,z] := Diff[a+2, b+2] * Diff[c+2, d+2] *
+            P[mod(x+a+c), mod(y+b+d), z] * P[mod(x+a),mod(y+b),z] (a in -1:1,
+            b in -1:1, c in -1:1, d in -1:1, z in 1:3, x in 1:n, y in 1:n)
+        ) == (1:4, 1:4, 1:3)
+
 end

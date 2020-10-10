@@ -168,6 +168,9 @@ function range_expr_walk(r, ex::Expr, con=[])
             is_const(b) && return range_expr_walk(:($r .- $b), :(+($a, $c, $(ds...))))
             is_const(c) && return range_expr_walk(:($r .- $c), :(+($a, $b, $(ds...))))
         end
+        if isnothing(r) # hack for issue 43, mod(x+y+z)
+            return nothing, map(a -> range_expr_walk(r, a)[2], ex.args[2:end])
+        end
     end
     throw("not sure what to do with $ex, sorry")
 end
