@@ -168,9 +168,6 @@ function range_expr_walk(r, ex::Expr, con=[])
             is_const(b) && return range_expr_walk(:($r .- $b), :(+($a, $c, $(ds...))))
             is_const(c) && return range_expr_walk(:($r .- $c), :(+($a, $b, $(ds...))))
         end
-        if isnothing(r) # hack for issue 43, mod(x+y+z)
-            return nothing, map(a -> range_expr_walk(r, a)[2], ex.args[2:end])
-        end
     end
     throw("not sure what to do with $ex, sorry")
 end
@@ -236,6 +233,34 @@ range_unwrap(ex::Expr) = begin
         end
     end
     throw("don't know how to handle $ex, sorry")
+end
+
+"""
+    range_expr_walk(nothing, :(i+2)) -> nothing, :j
+
+Special case used for `A[mod(i+2)]` etc.
+"""
+range_expr_walk(r::Nothing, s::Symbol) = r, s
+range_expr_walk(r::Nothing, n::Integer) = r, nothing
+function range_expr_walk(r::Nothing, ex::Expr)
+    is_const(ex) && return r, nothing
+    ex.head == :ref && return r, nothing
+    ex.head == :call || throw("not sure what to do with $ex")
+    # if ex.args[1] in [:+, :-, :*, :÷]
+        syms = []
+        for x in ex.args[2:end]
+            _, i = range_expr_walk(r, x)
+            i isa Tuple && push!(syms, i...)
+            i isa Symbol && push!(syms, i)
+        end
+        if isempty(syms)
+            return r, nothing
+        elseif length(syms) == 1
+            return r, syms[1]
+        else
+            return r, Tuple(syms)
+        end
+    # end
 end
 
 @specialize
