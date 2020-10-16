@@ -43,15 +43,15 @@ function _tullio(exs...; mod=Main)
     end
 
     if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(;mod = mod, opts...,
-            flags = Set{Symbol}(), arrays = Symbol[], indices = [], scalars = Symbol[]))
+        res = try_tensor(ex, ranges, DotDict(; mod = mod, opts...,
+            newarray = false, scalar = false,
+            arrays = Symbol[], indices = [], scalars = Symbol[]))
         if res != nothing # then forward & backward both handled by try_tensor
             return Expr(:block, res...) |> esc
         end
     end
 
     store = DotDict(; mod = mod, opts...,
-        flags = Set{Symbol}(), # set while parsing input
     # Reduction
         redind = Symbol[],
         init = nothing,
@@ -61,6 +61,10 @@ function _tullio(exs...; mod=Main)
         leftarray = nothing,
         leftscalar = nothing, # only defined for scalar reduction
         leftnames = Symbol[],  # for NamedDims
+        zero = false,
+        scalar = false,
+        newarray = false,
+        plusequals = false,
     # Whole RHS, without finaliser, plus things extracted:
         right = nothing,
         finaliser = nothing,
@@ -73,7 +77,7 @@ function _tullio(exs...; mod=Main)
         cost = 1,
     # Index ranges: first save all known constraints
         constraints = Dict{Symbol,Vector}(), # :k => [:(axes(A,2)), :(axes(B,1))] etc.
-        pairconstraints = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
+        constraintpairs = Tuple[], # (:i, :j, entangled range_i, range_j) from A[i+j] etc.
         notfree = Symbol[], # indices assigned values i = clamp(j, 1,3) within RHS
         shiftedind = Symbol[],
         axisdefs = Expr[],
@@ -232,13 +236,13 @@ function parse_input(expr, store)
 
     # Equals sign & friends:
     if @capture_(expr, left_ := right_ )
-        push!(store.flags, :newarray)
+        store.newarray = true
     elseif @capture_(expr, left_ = right_ )
     elseif @capture_(expr, left_ += right_ )
-        push!(store.flags, :plusequals)
+        store.plusequals = true
         store.redfun == :+ || throw("can't use += with reduction $(store.redfun)")
     elseif @capture_(expr, left_ *= right_ )
-        push!(store.flags, :plusequals) # slightly abusing the name of the flag!
+        store.plusequals = true # slightly abusing the name of the flag!
         if store.redfun == :+ # default, then we change it?
             store.verbose>0 && @info "inferring reduction by *, because of lhs *= rhs"
             store.redfun = :*
@@ -249,7 +253,7 @@ function parse_input(expr, store)
     elseif @capture_(expr, left_ ^= right_ )
         store.redfun == :+ && throw("can't use ^= with reduction +, please use +=")
         store.redfun == :* && throw("can't use ^= with reduction *, please use *=")
-        push!(store.flags, :plusequals)
+        store.plusequals = true
     else
         throw("can't understand input, expected A[] := B[] (or with =, or +=, *=, ^=) got $expr")
     end
@@ -257,9 +261,10 @@ function parse_input(expr, store)
     # Left hand side:
     if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
     elseif left isa Symbol # complete reduction
-        push!(store.flags, :newarray, :scalar)
+        store.newarray = true
+        store.scalar = true
         store.leftscalar = left # because store.leftarray will be the array
-        leftraw = [1,] # the gradient still indexes a fake 1D array
+        leftraw = Any[1,] # the gradient still indexes a fake 1D array
         expr.head == :(+=) && push!(store.scalars, left)
     else
         throw("can't understand LHS, expected A[i,j,k], got $left")
@@ -267,14 +272,15 @@ function parse_input(expr, store)
     leftraw2 = tidyleftraw(leftraw, store)
     store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(:newarray in store.flags) && throw("can't write into an array whose name isn't given!")
+    isnothing(Z) && !(store.newarray) && throw("can't write into an array whose name isn't given!")
     Zed = isnothing(Z) ? ZED : Z
     store.leftarray = Zed
 
     store.leftraw = finishleftraw(leftraw2, store)
-    if :newarray in store.flags
-        !allunique(store.leftind) && push!(store.flags, :zero) # making diagonals, etc.
-    else
+    if store.newarray && !allunique(store.leftind)
+        store.zero = true # making diagonals, etc.
+    end
+    if !(store.newarray)
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
         detectunsafe(left, store.unsafeleft, store)
     end
@@ -291,7 +297,7 @@ function parse_input(expr, store)
             store.finaliser = makefinaliser(right2.args[2], store)
             store.right = MacroTools_postwalk(dollarwalk(store), right2.args[3])
         end
-        if :scalar in store.flags
+        if store.scalar
             throw("can't use a finaliser $(right2.args[1]) with scalar output")
         end
     else
@@ -308,7 +314,7 @@ function parse_input(expr, store)
 
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
-    if :newarray in store.flags && Zed in store.arrays
+    if store.newarray && Zed in store.arrays
         throw("can't create a new array $Zed when this also appears on the right")
     end
 end
@@ -376,8 +382,8 @@ saveconstraints(A, inds, store, right=true) = begin
         elseif i isa Tuple # from things like A[i+j]
             push!(is, filter(!isnothing, collect(i))...) # collect for Julia ⩽ 1.3
             push!(store.shiftedind, filter(!isnothing, collect(i))...)
-            push!(store.pairconstraints, (i..., dollarstrip.(range_i)...))
-        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.pairconstraints, I said.
+            push!(store.constraintpairs, (i..., dollarstrip.(range_i)...))
+        elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.constraintpairs, I said.
             str = "extrema of index $ex must fit within $A1"
             # @show range_i axis_i # @tullio C[i,k] := B[J[i]+1,k] verbose=2 grad=false # comes here, wrong check
             push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
@@ -525,7 +531,7 @@ dollarstrip(expr) = MacroTools_postwalk(expr) do ex
 
 tidyleftraw(leftraw, store) = begin
     step1 = map(leftraw) do i
-        if isexpr(i, :kw) && :newarray in store.flags # then NamedDims wrapper is put on later
+        if isexpr(i, :kw) && store.newarray # then NamedDims wrapper is put on later
                 push!(store.leftnames, i.args[1])
                 return i.args[2]
         elseif i === :_ # underscores on left denote trivial dimensions
@@ -538,7 +544,7 @@ end
 
 finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     if isexpr(i, :$)
-        :newarray in store.flags && throw("can't fix indices on LHS when making a new array")
+        store.newarray && throw("can't fix indices on LHS when making a new array")
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
@@ -559,12 +565,12 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
         append!(store.leftind, inds2) # but j,k aren't to be summed
 
         ex = :($J[$(tidyleftraw(inds, store)...)])
-        if :newarray in store.flags
+        if store.newarray
             ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
             push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
-            push!(store.flags, :zero)
-        elseif !(:plusequals in store.flags) # A[i,J[j,k]] += ... doesn't zero
-            push!(store.flags, :zero)
+            store.zero = true
+        elseif !(store.plusequals) # A[i,J[j,k]] += ... doesn't zero
+            store.zero = true
         end
 
         return ex # has primes dealt with
@@ -657,7 +663,7 @@ function index_ranges(store)
     todo = Set(vcat(store.leftind, store.redind))
     done = Dict{Symbol,Any}()
 
-    for (i,j,r_i,r_j) in store.pairconstraints
+    for (i,j,r_i,r_j) in store.constraintpairs
 
         if isnothing(i) # case of A[j + I[k]]
             v = get!(store.constraints, j, [])
@@ -764,17 +770,17 @@ function output_array(store)
     end
 
     # And some not-compltely-unrelated errors:
-    if isempty(store.redind) && !(:plusequals in store.flags)
+    if isempty(store.redind) && !(store.plusequals)
         store.redfun == :+ || throw("nothing to reduce over using $(store.redfun)")
         store.finaliser == :identity || throw("can't apply finaliser without a reduction")
     end
     if isempty(store.redind)
         store.initkeyword == TYP || throw("nothing to reduce over, so won't use init = $(store.initkeyword)")
-    elseif :plusequals in store.flags && !(:scalar in store.flags)
+    elseif store.plusequals && !(store.scalar)
         store.initkeyword == TYP || throw("in-place update will not use init = $(store.initkeyword)")
     end
 
-    if :newarray in store.flags # this includes scalar case!
+    if store.newarray # this includes scalar case!
 
         ex_right = padmodclamp_replace(:($(store.finaliser)($(store.right))), store)
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $ex_right))
@@ -803,7 +809,7 @@ function output_array(store)
         end
 
         # Oh, also scalar += might widen type...
-        if :scalar in store.flags && :plusequals in store.flags
+        if store.scalar && store.plusequals
             push!(store.outex, :(local $TYP = Base.promote_type($T3, typeof($(store.leftscalar)))))
         else
             push!(store.outex, :(local $TYP = $T3))
@@ -828,9 +834,9 @@ function output_array(store)
             end
         end
 
-        simex = if :scalar in store.flags && :plusequals in store.flags
+        simex = if store.scalar && store.plusequals
             :( convert($TYP, $(store.leftscalar)) ) # here init is needed only if threading
-        elseif :scalar in store.flags
+        elseif store.scalar
             :( convert($TYP, $(store.init)) )
         elseif isempty(store.arrays)
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
@@ -838,7 +844,7 @@ function output_array(store)
             # parent() is a trick to avoid a NamedDims bug
             :( similar(parent($(store.arrays[1])), $TYP, tuple($(outaxes...),)) )
         end
-        if :scalar in store.flags
+        if store.scalar
             push!(store.outex, :( local $ZED = $simex ))
         elseif isempty(store.leftnames)
             push!(store.outex, :( local $(store.leftarray) = $simex ))
@@ -847,13 +853,13 @@ function output_array(store)
             push!(store.outex, :( local $(store.leftarray) = NamedDims.NamedDimsArray($simex, $nex) ))
         end
 
-        if :scalar in store.flags && store.threads != false && store.initkeyword != TYP
+        if store.scalar && store.threads != false && store.initkeyword != TYP
             msg = "init=$(store.init) must be compatible with $(store.redfun), for possibly-threaded scalar reduction"
             push!(store.outex, :($(store.redfun)($(store.init), $(store.init)) == $(store.init) || throw($msg)))
         end
     end
 
-    if :zero in store.flags # allow pad=NaN to control this too
+    if store.zero # allow pad=NaN to control this too
         # push!(store.outex, :( $(store.leftarray) .= false )) # zero($TYP) won't work in-place
         if store.padkeyword == TYP # default
             push!(store.outex, :($(store.leftarray) .= zero(eltype($(store.leftarray)))))
@@ -879,15 +885,15 @@ function action_functions(store)
 
     #===== constructing loops =====#
 
-    zed_arg, zed_one = if :scalar in store.flags
+    zed_arg, zed_one = if store.scalar
         :($ZED::$TYP), ZED
     else
         :($ZED::AbstractArray{$TYP}), :($ZED[$(store.leftraw...)])
     end
 
-    ex_init = if :plusequals in store.flags && !isempty(axisleft) # then always keep=true
+    ex_init = if store.plusequals && !isempty(axisleft) # then always keep=true
         :( $ACC = $zed_one )
-    elseif :scalar in store.flags && !(:plusequals in store.flags) # then always keep=false
+    elseif store.scalar && !(store.plusequals) # then always keep=false
         :( $ACC = $(store.init) )
     else # for non-numbers, similar() may leave undef, so avoid ifelse here
         :( $ACC = isnothing($KEEP) ? $(store.init) : $zed_one )
@@ -895,7 +901,7 @@ function action_functions(store)
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
 
-    ex_write = if :scalar in store.flags # then we return the value instead, ZED is immutable
+    ex_write = if store.scalar # then we return the value instead, ZED is immutable
         :( $ACC )
     elseif store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
@@ -903,7 +909,7 @@ function action_functions(store)
         :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
     end
 
-    ex_nored = if :plusequals in store.flags # implies keep=true directly, and final=true since no J indices in threader.
+    ex_nored = if store.plusequals # implies keep=true directly, and final=true since no J indices in threader.
         :( $ZED[$(store.leftraw...)] =  $(store.finaliser)($(store.redfun)($ZED[$(store.leftraw...)] ,$(store.right))) )
     else # using finaliser without reduction, and without +=, is now an error.
         :( $ZED[$(store.leftraw...)] = $(store.right) )
@@ -919,7 +925,7 @@ function action_functions(store)
             nothing, store.leftind, ex_init, store.redind, ex_iter, ex_write, store)
     end
 
-    ∇make = if :newarray in store.flags
+    ∇make = if store.newarray
         # make_many_actors and backward_definitions both push into store.outpre
         backward_definitions(store)
     else
@@ -928,11 +934,11 @@ function action_functions(store)
 
     #===== action! =====#
 
-    keep = (:plusequals in store.flags) ? :true : :nothing
+    keep = store.plusequals ? :true : :nothing
     block = store.threads==false ? nothing :
         store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
-    if :scalar in store.flags
+    if store.scalar
         ST = :($storage_type($(store.arrays...)))
         push!(store.outex, :(
             $thread_scalar($ACT!, $ST, $ZED,
@@ -950,7 +956,7 @@ function action_functions(store)
     end
     store.verbose>0 && block != nothing && @info "threading threshold (from cost = $(store.cost))" block
 
-    if :newarray in store.flags
+    if store.newarray
         # then slurp up outex to make a function:
         ex_make = quote
             local @inline function $MAKE($(store.arrays...), $(store.scalars...), )
@@ -975,7 +981,7 @@ function action_functions(store)
         if store.leftarray != ZED
             push!(store.outex, :($(store.leftarray) = $ex ))
             return :($(store.leftarray) = $ex )
-        elseif :scalar in store.flags
+        elseif store.scalar
              push!(store.outex, :($(store.leftscalar) = $ex))
              return :($(store.leftscalar) = $ex)
         else # case of [i,j] := ... with no name given
@@ -1263,7 +1269,7 @@ function backward_definitions(store)
     block = store.threads==false ? nothing :
         store.threads==true ? cld(BLOCK[], store.cost) :
         store.threads
-    input, acton = if :scalar in store.flags
+    input, acton = if store.scalar
         :($dZ::$TYP), :( $OneBox($dZ) ) # a hack to minimise changes to ∇Act!, for now??
     else
         :($dZ::AbstractArray{$TYP}), dZ

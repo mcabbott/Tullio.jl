@@ -12,16 +12,16 @@ function try_tensor(expr, ranges, store)
     end
     if @capture_(expr.args[1], Z_[leftind__]) && all(a -> a isa Symbol, leftind)
         if expr.head == :(:=)
-            push!(store.flags, :newarray)
+            store.newarray = true
         end
     elseif expr.args[1] isa Symbol # scalar output
-        push!(store.flags, :scalar)
+        store.scalar = true # not used?
         Z, leftind = expr.args[1], nothing
         if expr.head == :(:=)
-            push!(store.flags, :newarray)
+            store.newarray = true
             expr.head = :(=) # mutate it as @tensor doesn't accept scalar :=
         elseif expr.head == :(=)
-            push!(store.flags, :newarray)
+            store.newarray = true
         end # for scalars, only += case isn't :newarray
     else
         fail = "TensorOperations not used, expected A[i,j,k] := ..."
@@ -48,7 +48,7 @@ function try_tensor(expr, ranges, store)
     try
         tex = macroexpand(store.mod, :(TensorOperations.@tensor $expr))
 
-        if :newarray in store.flags
+        if store.newarray
             left, right = expr.args
             #===== new array =====#
 
