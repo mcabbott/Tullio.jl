@@ -1,0 +1,11 @@
+[deps]
+ArrayMeta = "ff776444-5e7a-51eb-9a1c-dda7296cec34"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Einsum = "b7d42ee7-0b51-5a75-98ca-779d3107e4c0"
+FastTranspose = "c672cb4e-dd10-4a00-b22f-8edf27ea5534"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
+MKL_jll = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
+StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
