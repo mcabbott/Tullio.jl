@@ -649,4 +649,7 @@ end
     xt = [(a=1, b=rand(3)), (a=1, b=rand(2))] # version with field access
     @test_throws String @tullio y[i,j] := xt[i].b[j]
 
+    @tullio a[j] = $(x[n])[j+0]  j in 1:3 # interpolation of an expression
+    @test a == vcat(x[n],1) # requires postwalk -> prewalk
+
 end

@@ -287,7 +287,7 @@ function parse_input(expr, store)
 
     # Right hand side
     detectunsafe(right, store.unsaferight, store)
-    right2 = MacroTools_postwalk(rightwalk(store), right)
+    right2 = MacroTools_prewalk(rightwalk(store), right)
 
     if isexpr(right2, :call) && right2.args[1] in (:|>, :<|)
         if right2.args[1] == :|>
@@ -338,7 +338,7 @@ rightwalk(store) = ex -> begin
 
         if isnothing(arrayonly(A))
             Anew = Symbol(string("≪", A, "≫"))
-            push!(store.outpre, :(local $Anew = $A))
+            push!(store.outpre, :(local $Anew = $(dollarstrip(A))))
             A = Anew
         end
 
@@ -349,7 +349,7 @@ rightwalk(store) = ex -> begin
 
         # Finally, re-assemble with new A etc:
         return :($A[$(inds3...)])
-    end # A1[i][k] should be seen later, with corrected A
+    end
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
 arrayonly(A::Expr) =
