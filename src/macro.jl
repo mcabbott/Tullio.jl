@@ -363,7 +363,7 @@ saveconstraints(A, inds, store, right=true) = begin
     foreach(enumerate(inds)) do (d,ex)
         is_const(ex) && return
         containsany(ex, store.notfree) && return
-        axis_i = length(inds)==1 ? :(eachindex($A1)) : :(axes($A1,$d))
+        axis_i = length(inds)==1 ? :($eachindex($A1)) : :($axes($A1,$d))
         ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
         range_i, i = range_expr_walk(axis_i, ex_i)
         if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
@@ -386,7 +386,7 @@ saveconstraints(A, inds, store, right=true) = begin
         elseif isnothing(i) # from A[J[k]], but A[J[k]+i] goes via store.constraintpairs, I said.
             str = "extrema of index $ex must fit within $A1"
             # @show range_i axis_i # @tullio C[i,k] := B[J[i]+1,k] verbose=2 grad=false # comes here, wrong check
-            push!(store.outpre, :(issubset($range_i, $axis_i) || throw($str)))
+            push!(store.outpre, :($issubset($range_i, $axis_i) || $throw($str)))
         end
     end
     if right
@@ -405,10 +405,10 @@ saveconstraints(A, inds, store, right=true) = begin
     n = length(inds)
     if n==1
         str = "expected a 1-array $A1, or a tuple"
-        push!(store.outpre, :( $A1 isa Tuple || ndims($A1) == 1 || throw($str) ))
+        push!(store.outpre, :( $A1 isa Tuple || $ndims($A1) == 1 || $throw($str) ))
     else
         str = "expected a $n-array $A1" # already arrayfirst(A)
-        push!(store.outpre, :( ndims($A1) == $n || throw($str) ))
+        push!(store.outpre, :( $ndims($A1) == $n || $throw($str) ))
     end
 end
 
@@ -416,11 +416,11 @@ arrayfirst(A::Symbol, store) = A  # this is for axes(A,d), axes(first(B),d), etc
 arrayfirst(A::Expr, store) =
     if (@capture_(A, Binds_.field_) && @capture_(Binds, B_[inds__]))
         str = "elements $A must be of uniform size"
-        push!(store.outpre, :( all($ZED -> axes($ZED.$field) == axes(first($B).$field), $B) || throw($str) ))
-        return :( first($B).$field )
+        push!(store.outpre, :( $all($ZED -> $axes($ZED.$field) == $axes($first($B).$field), $B) || throw($str) ))
+        return :( $first($B).$field )
     elseif @capture_(A, B_[inds__])
         str = "elements $A must be of uniform size"
-        push!(store.outpre, :( all($AXIS -> axes($AXIS) == axes(first($B)), $B) || throw($str) ))
+        push!(store.outpre, :( $all($AXIS -> $axes($AXIS) == $axes($first($B)), $B) || $throw($str) ))
         return :( first($B) )
     elseif @capture_(A, B_.field_)
         return A
@@ -487,14 +487,14 @@ padmodclamp_pair(A, inds, store) = begin
         isexpr(ex, :call) || return ex
         if ex.args[1] == :mod && length(ex.args) == 2
             i = ex.args[2]
-            return :(mod($i, axes($A,$d)))
+            return :($mod($i, $axes($A,$d)))
         elseif ex.args[1] == :clamp && length(ex.args) == 2
             i = ex.args[2]
-            return :(clamp($i, first(axes($A,$d)), last(axes($A,$d))))
+            return :($clamp($i, $first($axes($A,$d)), $last($axes($A,$d))))
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
-                push!(nopadif, :($i in axes($A,$d)))
+                push!(nopadif, :($i ∈ $axes($A,$d)))
             end
             return i
         end
@@ -509,9 +509,9 @@ padmodclamp_pair(A, inds, store) = begin
             cond = :($cond & $c2)
         end
         if store.padkeyword == TYP # default
-            ex -> :($cond ? $ex : zero(eltype($A)))
+            ex -> :($cond ? $ex : $zero($eltype($A)))
         else
-            ex -> :($cond ? $ex : convert(eltype($A), $(store.padkeyword)))
+            ex -> :($cond ? $ex : $convert($eltype($A), $(store.padkeyword)))
         end
     end
     Aex, fun # fun(Aex), but also fun(Aex = ...)
@@ -648,7 +648,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
             push!(v, r)
         else
             s = Symbol(string("≪", r, "≫"))
-            push!(store.outpre, :($s = $r))
+            push!(store.outpre, :(local $s = $r))
             str = "expected a range for ($i in $r), got "
             push!(store.outpre, :($s isa AbstractRange || throw($str * string($r))))
             push!(store.scalars, s)
@@ -699,8 +699,8 @@ function index_ranges(store)
         deli = Symbol(DEL,i)
         if deli in store.scalars # magic shift on LHS
             axi, axi_del = Symbol(AXIS,i), Symbol(AXIS,i,DEL)
-            push!(store.axisdefs, :($deli = 1 - first($axi)),
-                :(local $axi_del = Base.OneTo(length($axi))))
+            push!(store.axisdefs, :($deli = 1 - $first($axi)),
+                :(local $axi_del = Base.OneTo($length($axi))))
             # You can't compute deli inside Act! as doesn't always see full range of i.
             # But if you make it a scalar argument, then it's an argument of Make, hence
             push!(store.outpre, :(local $deli = 0)) # ... this awful hack.
@@ -728,7 +728,7 @@ resolvestrict(i, store, done) = begin
     done[i] = res
     for alt in store.constraints[i][2:end] # in which case it shouldn't be a Set
         str = "range of index $i must agree"
-        push!(store.axisdefs, :( $alt == $res || throw($str) ))
+        push!(store.axisdefs, :( $alt == $res || $throw($str) ))
     end
 end
 
@@ -752,15 +752,15 @@ function output_array(store)
 
     # Initialisation needs to be worked out somewhere...
     if store.initkeyword == TYP # then auto
-        store.init = store.redfun == :+ ? :(zero($TYP)) :
-                    store.redfun == :* ? :(one($TYP)) :
-                    store.redfun == :max ? :(typemin($TYP)) :
-                    store.redfun == :min ? :(typemax($TYP)) :
+        store.init = store.redfun == :+ ? :($zero($TYP)) :
+                    store.redfun == :* ? :($one($TYP)) :
+                    store.redfun == :max ? :($typemin($TYP)) :
+                    store.redfun == :min ? :($typemax($TYP)) :
                     store.redfun == :& ? :(true) :
                     store.redfun == :| ? :(false) :
                     begin
                         store.verbose>0 && @warn "guessing init=zero(T) for unknown reduction $(store.redfun)"
-                        :(zero($TYP))
+                        :($zero($TYP))
                     end
     else
         if store.initkeyword isa Number
@@ -790,18 +790,18 @@ function output_array(store)
         push!(store.outex, :( local $RHS($(store.arrays...), $(store.rightind...)) = $ex_right))
 
         # Try inference first, usually fine, and avoids scalar evaluation on GPU
-        allfirst = map(i -> :(first($(Symbol(AXIS, i)))), store.rightind)
+        allfirst = map(i -> :($first($(Symbol(AXIS, i)))), store.rightind)
         T1 = Symbol(TYP,1)
         T2 = Symbol(TYP,2)
         T3 = Symbol(TYP,3)
         warn = store.verbose>0 ? :(@warn "unable to infer eltype from RHS") : nothing
         push!(store.outex, quote
-            local $T1 = Core.Compiler.return_type($RHS, typeof(($(store.arrays...), $(allfirst...))))
+            local $T1 = Core.Compiler.return_type($RHS, $typeof(($(store.arrays...), $(allfirst...))))
             local $T2 = if Base.isconcretetype($T1)
                 $T1
             else
                 $warn
-                typeof($RHS($(store.arrays...), $(allfirst...)))
+                $typeof($RHS($(store.arrays...), $(allfirst...)))
             end
         end)
 
@@ -809,12 +809,12 @@ function output_array(store)
         if store.initkeyword == TYP
             push!(store.outex, :(local $T3 = $T2))
         else
-            push!(store.outex, :(local $T3 = Base.promote_type($T2, typeof($(store.init)))))
+            push!(store.outex, :(local $T3 = Base.promote_type($T2, $typeof($(store.init)))))
         end
 
         # Oh, also scalar += might widen type...
         if store.scalar && store.plusequals
-            push!(store.outex, :(local $TYP = Base.promote_type($T3, typeof($(store.leftscalar)))))
+            push!(store.outex, :(local $TYP = Base.promote_type($T3, $typeof($(store.leftscalar)))))
         else
             push!(store.outex, :(local $TYP = $T3))
         end
@@ -833,7 +833,7 @@ function output_array(store)
             outaxes = map(store.leftraw, outaxes) do i, ax
                 ax == :(Base.OneTo(1)) && return ax
                 i in store.shiftedind || @capture_(i, J_[inds__]) || return ax
-                push!(store.outex, :( first($ax) == 1 || throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module. Otherwise write `A[i+_] := ...` to remove offset")))
+                push!(store.outex, :( $first($ax) == 1 || $throw("to allow indices not starting at 1, OffsetArrays must be visible in the caller's module. Otherwise write `A[i+_] := ...` to remove offset")))
                 return :(Base.OneTo($ax)) # This doesn't apply to offsets caused by pad(i+j,3), sadly?
             end
         end
@@ -859,7 +859,7 @@ function output_array(store)
 
         if store.scalar && store.threads != false && store.initkeyword != TYP
             msg = "init=$(store.init) must be compatible with $(store.redfun), for possibly-threaded scalar reduction"
-            push!(store.outex, :($(store.redfun)($(store.init), $(store.init)) == $(store.init) || throw($msg)))
+            push!(store.outex, :($(store.redfun)($(store.init), $(store.init)) == $(store.init) || $throw($msg)))
         end
     end
 
@@ -1124,7 +1124,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
 
         kernel = gensym(:🇨🇺)
-        asserts = map(ax -> :( first($ax)==1 || throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
+        asserts = map(ax -> :( $first($ax)==1 || $throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
         try
             if isempty(outer)

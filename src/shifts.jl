@@ -193,7 +193,7 @@ Special case for keyword indexing, `A[i=j, k=j+2]` comes here.
 """
 function range_expr_kw(r::Expr, ex::Expr)
     @assert ex.head == :kw
-    @assert r.head == :call && r.args[1] == :axes
+    # @assert r.head == :call && r.args[1] == :axes
     r.args[3] = QuoteNode(ex.args[1])
     range_expr_walk(r, ex.args[2])
 end

@@ -46,7 +46,7 @@ function insert_symbolic_gradient(axislist, store)
         #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
         #     push!(prebody, :($dt = conj($deltar) * $ACC))
         elseif store.redfun in [:min, :max]
-            push!(inbody, :($dt += ifelse($maxflag, $deltar, zero($TYP))))
+            push!(inbody, :($dt += $ifelse($maxflag, $deltar, $zero($TYP))))
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody

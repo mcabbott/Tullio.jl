@@ -61,7 +61,7 @@ function try_tensor(expr, ranges, store)
                     push!(store.indices, ijk)
                     n = length(ijk)
                     str = "expected a $n-array $A1"
-                    push!(outex, :( ndims($A1) == $n || error($str) ))
+                    push!(outex, :( $ndims($A1) == $n || $error($str) ))
                 elseif ex.head == :call && ex.args[1] == :*
                     foreach(ex.args[2:end]) do a
                         a isa Symbol && push!(store.scalars, a)
