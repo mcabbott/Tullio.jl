@@ -640,4 +640,13 @@ end
     # unable to infer range of index z
     @test_throws LoadError @eval @tullio out[x,y] := Diff[mod(x+(y+2z)),x] * Diff[x,y]
 
+    # https://discourse.julialang.org/t/unexpected-tullio-behavior/49371/6
+    x = [rand(3), rand(2)]
+    @test_throws String @tullio y[i,j] := x[i][j]
+    n = 1; a = ones(4) # should now throw "elements x[\$n] must be of uniform size"
+    @test_throws String @tullio a[j] = x[$n][j+0]  j in 1:3
+
+    xt = [(a=1, b=rand(3)), (a=1, b=rand(2))] # version with field access
+    @test_throws String @tullio y[i,j] := xt[i].b[j]
+
 end

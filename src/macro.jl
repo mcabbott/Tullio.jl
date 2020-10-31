@@ -358,7 +358,7 @@ arrayonly(A::Expr) =
     end # returns nothing from :(f(A)), signal to pull function out.
 
 saveconstraints(A, inds, store, right=true) = begin
-    A1 = arrayfirst(A)
+    A1 = arrayfirst(A, store)
     is = Symbol[]
     foreach(enumerate(inds)) do (d,ex)
         is_const(ex) && return
@@ -412,11 +412,15 @@ saveconstraints(A, inds, store, right=true) = begin
     end
 end
 
-arrayfirst(A::Symbol) = A  # this is for axes(A,d), axes(first(B),d), etc.
-arrayfirst(A::Expr) =
+arrayfirst(A::Symbol, store) = A  # this is for axes(A,d), axes(first(B),d), etc.
+arrayfirst(A::Expr, store) =
     if (@capture_(A, Binds_.field_) && @capture_(Binds, B_[inds__]))
+        str = "elements $A must be of uniform size"
+        push!(store.outpre, :( all($ZED -> axes($ZED.$field) == axes(first($B).$field), $B) || throw($str) ))
         return :( first($B).$field )
     elseif @capture_(A, B_[inds__])
+        str = "elements $A must be of uniform size"
+        push!(store.outpre, :( all($AXIS -> axes($AXIS) == axes(first($B)), $B) || throw($str) ))
         return :( first($B) )
     elseif @capture_(A, B_.field_)
         return A
