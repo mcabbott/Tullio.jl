@@ -64,7 +64,7 @@ And `verbose=2` will print everything.
 <details><summary><b>Notation</b></summary>
 
 ```julia
-using Pkg; Pkg.add("Tullio") # now registered
+using Pkg; Pkg.add("Tullio")
 using Tullio
 A = [abs2(i - 11) for i in 1:21]
 
@@ -112,7 +112,15 @@ using NamedDims, AxisKeys # Dimension names, plus pretty printing:
 ```
 
 </details>
-<details><summary><b>Threads & SIMD</b></summary>
+<details><summary><b>Fast & slow</b></summary>
+
+When used with LoopVectorization, on straightforward matrix multiplication of real numbers, 
+`@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer. 
+Here's a speed comparison on mine: [v2.5](https://github.com/mcabbott/Tullio.jl/blob/master/benchmarks/02/matmul-0.2.5-Float64-1.5.0.png).
+
+This is a useful diagnostic, but isn't really the goal. Two things `@tullio` is often
+very fast at are weird tensor contractions (for which you'd need `permutedims`),
+and broadcast-reductions (where it can avoid large allocations). For example:
 
 ```julia
 using Tullio, LoopVectorization, NNlib, BenchmarkTools
@@ -132,6 +140,31 @@ sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
 X = rand(1000,1000);
 @btime sum_opp($X)                    #   499.814 μs (173 allocations: 14.20 KiB)
 @btime sum($X .* log.(transpose($X))) # 8.759 ms (2 allocations: 7.63 MiB)
+```
+
+Complex numbers aren't handled by LoopVectorization, so will be much slower.
+Repeated multiplication is also very slow, because it doesn't know there's a better
+algorithm. It just makes 4 loops here instead of multiplying sequentially, 
+`30^4` instead of `2 * 30^3` operations:
+
+```julia
+M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
+@btime $M1 * $M2 * $M3;                                   #  3.525 μs
+@btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
+```
+
+At present indices using `pad`, `clamp` or `mod` are also slow. These result in extra 
+checks or operations at every iteration, not just around the edges:
+
+```julia
+conv1(x,k) = @tullio y[i+_, j+_] := x[i+a, j+b] + k[a,b]
+conv2(x,k) = @tullio y[i+_, j+_] := x[2i+a, 2j+b] + k[a,b] avx=false
+conv3(x,k) = @tullio y[i+_, j+_] := x[pad(i+a,3), pad(j+b,3)] + k[a,b] avx=false
+
+x100 = rand(100,100); k7 = randn(7,7);
+@btime conv1($x100, $k7); #  20.968 μs
+@btime conv2($x100, $k7); #  156.768 μs
+@btime conv3($x100, $k7); #  301.124 μs
 ```
 
 </details>
