@@ -1119,13 +1119,20 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     #===== KernelAbstractions =====#
 
-    axouter = map(i -> Symbol(AXIS, i), outer)
+    unsafe = if act! == ACT!
+        store.unsafeleft
+    else # working on ∇act!
+        store.unsaferight
+    end
+    safeouter = setdiff(outer, unsafe)
 
     if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
-
         kernel = gensym(:🇨🇺)
+        axouter = map(i -> Symbol(AXIS, i), safeouter)
         asserts = map(ax -> :( $first($ax)==1 || $throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
+
+        kernelbody = recurseloops(:($ex1; $ex3; $ex4; $ex6), unsafe)
         try
             if isempty(outer)
                 store.verbose>0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
@@ -1141,8 +1148,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 # @Const removed, see https://github.com/mcabbott/Tullio.jl/pull/32
                 # KernelAbstractions.@kernel function $kernel($(const_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
-                    ($(outer...),) = @index(Global, NTuple)
-                    ($ex1; $ex3; $ex4; $ex6)
+                    ($(safeouter...),) = @index(Global, NTuple)
+                    $kernelbody
                 end
 
             end
