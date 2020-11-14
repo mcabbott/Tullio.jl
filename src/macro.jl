@@ -752,15 +752,15 @@ function output_array(store)
 
     # Initialisation needs to be worked out somewhere...
     if store.initkeyword == TYP # then auto
-        store.init = store.redfun == :+ ? :($zero($TYP)) :
-                    store.redfun == :* ? :($one($TYP)) :
-                    store.redfun == :max ? :($typemin($TYP)) :
-                    store.redfun == :min ? :($typemax($TYP)) :
+        store.init = store.redfun == :+ ? :(zero($TYP)) :
+                    store.redfun == :* ? :(one($TYP)) :
+                    store.redfun == :max ? :(typemin($TYP)) :
+                    store.redfun == :min ? :(typemax($TYP)) :
                     store.redfun == :& ? :(true) :
                     store.redfun == :| ? :(false) :
                     begin
                         store.verbose>0 && @warn "guessing init=zero(T) for unknown reduction $(store.redfun)"
-                        :($zero($TYP))
+                        :(zero($TYP))
                     end
     else
         if store.initkeyword isa Number
