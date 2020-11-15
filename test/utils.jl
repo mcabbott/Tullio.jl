@@ -54,6 +54,7 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             # ÷
             (i -> i÷2, :(i÷2)),
             (i -> 1+i÷3, :(1+i÷3)),
+            (i -> 1+(i-1)÷3, :(1+(i-1)÷3)),
             # triple...
             (i -> i+1+2, :(i+1+2)),
             (i -> 1+2+i, :(1+2+i)),
@@ -74,6 +75,7 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
         @test extrema(eval(rex)) == (first(r)-1-2, last(r)-1+5)
 
         @test range_expr_walk(:($r .+ 0), :(i+j))[2] == (:i, :j) # weak test!
+        @test range_expr_walk(:($r .+ 0), :(2i+(j-1)÷3))[2] == (:i, :j) # weak test!
 
         # range adjusting functions
         @test minusrange(r) == divrange(r, -1)

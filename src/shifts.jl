@@ -61,6 +61,28 @@ issubset(addranges(1:10, 1:3) .- 1, 1:10)
 issubset(addranges(1:10, 1:3) .- 3, 1:10)
 =#
 
+# # This is to get range of j in A[j÷2], from axes(A,1):
+
+function mulrange(r::AbstractUnitRange, f::Integer)
+    first(r)*f : last(r)*f
+end
+
+function dotdiv(r::AbstractUnitRange, f::Integer)
+    first(r)÷f : last(r)÷f
+end
+
+#=
+mulrange(1:10, 2) .÷ 2 |> unique
+mulrange(0:10, 2) .÷ 2 |> unique
+mulrange(1:11, 2) .÷ 2 |> unique
+
+mulrange(1:10, 3) .÷ 3 |> unique
+mulrange(-10:-1, 3) .÷ 3 |> unique
+mulrange(-11:-1, 3) .÷ 3 |> unique
+mulrange(-11:-2, 3) .÷ 3 |> unique
+mulrange(-12:-3, 3) .÷ 3 |> unique
+=#
+
 # This is for A[I[j]] (where this range must be a subset of axes(A,1))
 # and for A[I[j]+k] (where it enters into the calculation of k's range).
 
@@ -156,7 +178,7 @@ function range_expr_walk(r, ex::Expr, con=[])
             is_const(a) && return range_expr_walk(:($divrange($r, $a)), b)
             is_const(b) && return range_expr_walk(:($divrange($r, $b)), a)
         elseif op == :÷
-            is_const(b) && return range_expr_walk(:($r .* $b), a)
+            is_const(b) && return range_expr_walk(:($mulrange($r, $b)), a)
         elseif op == :/
             throw("not sure what to do with $ex, perhaps you wanted ÷")
         end
@@ -230,6 +252,8 @@ range_unwrap(ex::Expr) = begin
         elseif op == :-
             is_const(a) && return :($a .- $(range_unwrap(b)))
             is_const(b) && return :($(range_unwrap(a)) .- $b)
+        elseif op == :÷
+            is_const(b) && return :($dotdiv($(range_unwrap(a)), $b))
         end
     end
     throw("don't know how to handle $ex, sorry")
