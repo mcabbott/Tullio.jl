@@ -657,4 +657,12 @@ end
     @tullio a[j] = $(x[n])[j+0]  j in 1:3 # interpolation of an expression
     @test a == vcat(x[n],1) # requires postwalk -> prewalk
 
+    # https://github.com/mcabbott/Tullio.jl/issues/46
+    @test 1:4 == let s = [1,2,3,4], ndims=maximum(s), axes=size, eachindex=lastindex
+       @tullio x[i] := s[i]
+    end
+    @test_broken [3,7] == let s = [1 2;3 4], zero=one # left because of #50
+       @tullio x[i] := s[i,j]
+    end
+
 end
