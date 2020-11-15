@@ -1132,13 +1132,14 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         asserts = map(ax -> :( $first($ax)==1 || $throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
 
-        kernelbody = recurseloops(:($ex1; $ex3; $ex4; $ex6), unsafe)
+        if isempty(safeouter)
+            store.verbose>0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
+            safeouter = [Symbol(EPS, 1)] # fake index name, only appears in @index
+            sizes = [:(one(Int))]    # iterate over 1:1
+        end
+
+        kernelbody = recurseloops(:($ex3; $ex4; $ex6), unsafe)
         try
-            if isempty(outer)
-                store.verbose>0 && @warn "using KernelAbstractions with no outer indices, this will be slow"
-                outer = [Symbol(EPS, 1)] # fake index name, only appears in @index
-                sizes = [:(one(Int))]    # iterate over 1:1
-            end
             # const_args = map(args) do a
             #     a isa Symbol || return a  # this skips output ZED::AbstractArray{TYP}
             #     a == store.leftarray && return a  # case A[i] = A[i]^2 / B[i,j]
@@ -1149,6 +1150,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 # KernelAbstractions.@kernel function $kernel($(const_args...), @Const($KEEP), @Const($FINAL)) where {$TYP}
                 KernelAbstractions.@kernel function $kernel($(args...), $KEEP, $FINAL) where {$TYP}
                     ($(safeouter...),) = @index(Global, NTuple)
+                    $ex1  # This seems dodgy, shouldn't ex1 be outside?
                     $kernelbody
                 end
 
