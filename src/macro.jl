@@ -900,7 +900,7 @@ function action_functions(store)
     elseif store.scalar && !(store.plusequals) # then always keep=false
         :( $ACC = $(store.init) )
     else # for non-numbers, similar() may leave undef, so avoid ifelse here
-        :( $ACC = isnothing($KEEP) ? $(store.init) : $zed_one )
+        :( $ACC = $KEEP===nothing ? $(store.init) : $zed_one )
     end
 
     ex_iter = :( $ACC = $(store.redfun)($ACC, $(store.right) ) )
@@ -910,7 +910,7 @@ function action_functions(store)
     elseif store.finaliser == :identity
         :( $ZED[$(store.leftraw...)] = $ACC )
     else # this branch is moved outside @avx by finalsplit(expr), below.
-        :( $ZED[$(store.leftraw...)] = isnothing($FINAL) ? $ACC : $(store.finaliser)($ACC) )
+        :( $ZED[$(store.leftraw...)] = $FINAL===nothing ? $ACC : $(store.finaliser)($ACC) )
     end
 
     ex_nored = if store.plusequals # implies keep=true directly, and final=true since no J indices in threader.
@@ -1099,7 +1099,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $expre
                         $info1
                         $check1
-                        if isnothing($FINAL)
+                        if $FINAL === nothing
                             LoopVectorization.@avx unroll=$unroll $exloop
                         else
                             LoopVectorization.@avx unroll=$unroll $exloopfinal
@@ -1224,9 +1224,10 @@ finalsplit(expr) = begin
     end
 end
 
-# This matches ex == :(isnothing(💀) ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
+# This matches ex = :(isnothing(💀) ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
+# and ex = :(💀===nothing ? 𝒜𝒸𝒸 : tanh(𝒜𝒸𝒸))
 isifelsefinal(ex) = isexpr(ex, :if, 3) && isexpr(ex.args[1], :call) &&
-        ex.args[1].args[1] == :isnothing && ex.args[1].args[2] == FINAL
+        ex.args[1].args[1] in (:isnothing, :(===)) && ex.args[1].args[2] == FINAL
 
 
 #===== define gradient hooks =====#
