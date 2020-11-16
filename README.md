@@ -144,8 +144,9 @@ X = rand(1000,1000);
 ```
 
 Complex numbers aren't handled by LoopVectorization, so will be much slower.
-Repeated multiplication is also very slow, because it doesn't know there's a better
-algorithm. It just makes 4 loops here instead of multiplying sequentially, 
+
+Chained multiplication is also very slow, because it doesn't know there's a better
+algorithm. Here it just makes 4 loops, instead of multiplying sequentially, 
 `30^4` instead of `2 * 30^3` operations:
 
 ```julia
@@ -158,14 +159,20 @@ At present indices using `pad`, `clamp` or `mod` are also slow. These result in 
 checks or operations at every iteration, not just around the edges:
 
 ```julia
-conv1(x,k) = @tullio y[i+_, j+_] := x[i+a, j+b] + k[a,b]
-conv2(x,k) = @tullio y[i+_, j+_] := x[2i+a, 2j+b] + k[a,b] avx=false
-conv3(x,k) = @tullio y[i+_, j+_] := x[pad(i+a,3), pad(j+b,3)] + k[a,b] avx=false
+conv1(x,k) = @tullio y[i+_, j+_] := x[i+a, j+b] * k[a,b]
+conv2(x,k) = @tullio y[i+_, j+_] := x[2i-a, 2j-b] * k[a,b]
+conv3(x,k) = @tullio y[i+_, j+_] := x[pad(i-a,3), pad(j-b,3)] * k[a,b]
 
 x100 = rand(100,100); k7 = randn(7,7);
-@btime conv1($x100, $k7); #  20.968 μs
-@btime conv2($x100, $k7); #  156.768 μs
-@btime conv3($x100, $k7); #  301.124 μs
+@btime conv1($x100, $k7); #  15.690 μs
+@btime conv2($x100, $k7); #  37.835 μs
+@btime conv3($x100, $k7); # 283.634 μs
+
+using Flux
+x104 = reshape(x100,(100,100,1,1)); k74 = reshape(k7,(7,7,1,1)); 
+conv1(x100, k7) ≈ @btime CrossCor($k74, false)($x104)       # 586.694 μs
+conv2(x100, k7) ≈ @btime Conv($k74, false, stride=2)($x104) # 901.573 μs
+conv3(x100, k7) ≈ @btime Conv($k74, false, pad=3)($x104)    # 932.658 μs
 ```
 
 </details>
