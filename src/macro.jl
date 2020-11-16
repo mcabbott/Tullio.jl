@@ -573,8 +573,6 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
             ax_i = Symbol(AXIS, string("≪", ex, "≫")) # fake index name, to which to attach a size?
             push!(store.axisdefs, :(local $ax_i = $extremerange($J)))
             store.zero = true
-        elseif !(store.plusequals) # A[i,J[j,k]] += ... doesn't zero
-            store.zero = true
         end
 
         return ex # has primes dealt with

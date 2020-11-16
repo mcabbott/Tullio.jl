@@ -204,6 +204,7 @@ end
     @tullio W[i, j, i, n] := B[n, j]  i in 1:2
     @test size(W) == (2,3,2,3)
     @test W[1,2,1,3] == B[3,2]
+    @test W[1,1,2,2] == 0
 
     W2 = zero(W);
     @tullio W2[i, j, m, n] = (i == m) * B[n, j]
@@ -211,21 +212,22 @@ end
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
 
-    # zero off-diagonal? not now, but maybe it should?
+    # zero off-diagonal? no.
     @tullio D[i,i] = A[i]
+    @test D[1,3] != 0
 
     # scatter operation
     D = similar(A, 10, 10) .= 999
     inds = [2,3,5,2]
     @tullio D[inds[i],j] = A[j]
     @test D[2,:] == A
-    @test D[4,4] == 0 # zeroed before writing.
+    @test D[4,4] != 0 # not zeroed before writing.
 
     @tullio D[inds[i],j] += A[j]
     @test D[2,:] == 3 .* A # was not re-zeroed for +=
 
     kinds = [1,2,13,4]
-    @test_throws String @tullio D[kinds[i],j] = A[j]
+    @test_throws String @tullio D[kinds[i],j] = A[j] # BoundsError needs to know which array
 
     # assignment: no loop over j
     B = zero(A);
