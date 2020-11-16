@@ -282,7 +282,7 @@ function parse_input(expr, store)
     end
     if !(store.newarray)
         saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-        detectunsafe(left, store.unsafeleft, store)
+        store.plusequals && detectunsafe(left, store.unsafeleft, store) # A[J[k]] += is unsafe, A[J[k]] = is not.
     end
 
     # Right hand side
