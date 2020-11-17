@@ -20,8 +20,10 @@ using ForwardDiff, FillArrays
 
     @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2)) == Vector{ForwardDiff.Dual{Nothing,Float64,1}}
     @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2,3)) == Array{ForwardDiff.Dual{Nothing,Float64,1}}
-    @test storage_type(rand(2), FillArrays.Fill(1.0, 2,2)) == AbstractArray{Float64,N} where N
-    @test storage_type(rand(2), FillArrays.Fill(true, 2,2)) == AbstractArray
+
+    # special case, but is this a good idea?
+    @test storage_type(rand(2), FillArrays.Fill(1.0, 2,2)) == Vector{Float64}
+    @test storage_type(rand(2), FillArrays.Fill(true, 2,2)) == Vector{Float64}
 
 end
 

@@ -38,11 +38,30 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 
 using Requires
 
-@init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
+# @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
 
 @init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
 
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
+
+import ChainRulesCore
+
+function ChainRulesCore.rrule(ev::Eval, args...)
+    Z = ev.fwd(args...)
+    Z, function tullio_back(Δ)
+        isnothing(ev.rev) && error("no gradient definition here!")
+        dxs = map(ev.rev(Δ, Z, args...)) do dx
+            dx === nothing ? ChainRulesCore.Zero() : dx
+        end
+        tuple(ChainRulesCore.NO_FIELDS, dxs...)
+    end
+end
+
+@init @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" begin
+    using .FillArrays: Fill # used by Zygote
+    Tullio.promote_storage(::Type{T}, ::Type{F}) where {T, F<:Fill} = T
+    Tullio.promote_storage(::Type{F}, ::Type{T}) where {T, F<:Fill} = T
+end
 
 #========== vectorised gradients ==========#
 
