@@ -1,3 +1,5 @@
+using Pkg
+Pkg.add(name = "SpecialFunctions", version = "0.10")
 
 using Test, Printf
 
