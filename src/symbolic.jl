@@ -34,17 +34,17 @@ function insert_symbolic_gradient(axislist, store)
     for (dt, t) in unique(targets)
         drdt = leibnitz(store.right, t)
         deltar = if store.finaliser == :identity
-            simplitimes(drdt, :(conj($dZ[$(store.leftraw...)])))
+            simplitimes(simpliconj(drdt), :($dZ[$(store.leftraw...)]))
         else
             rhs = :($ZED[$(store.leftraw...)])
             dldr = leibfinal(store.finaliser, rhs)
-            simplitimes(drdt, dldr, :(conj($dZ[$(store.leftraw...)])))
+            simplitimes(simpliconj(drdt), simpliconj(dldr), :($dZ[$(store.leftraw...)]))
         end
         if store.redfun == :+
-            push!(inbody, :($dt = $dt + conj($deltar)))
+            push!(inbody, :($dt = $dt + $deltar))
         # elseif store.redfun == :*
-        #     push!(inbody, :($dt = conj($deltar) * $ZED[$(store.leftraw...)] * inv($(store.right))))
-        #     push!(prebody, :($dt = conj($deltar) * $ACC))
+        #     push!(inbody, :($dt = $deltar * $ZED[$(store.leftraw...)] * inv($(store.right))))
+        #     push!(prebody, :($dt = $deltar * $ACC))
         elseif store.redfun in [:min, :max]
             push!(inbody, :($dt += $ifelse($maxflag, $deltar, $zero($TYP))))
         end
@@ -246,6 +246,9 @@ simpliplus(x::Number, y) = x==0 ? y : :($x + $y)
 simpliplus(x, y::Number) = y==0 ? x : :($x + $y)
 simpliplus(x, y) = :($x + $y)
 simpliplus(x, y, zs...) = simpliplus(simpliplus(x, y), zs...)
+
+simpliconj(x::Number) = conj(x)
+simpliconj(x) = :(conj($x))
 
 mydiffrule(f, xs...) = begin
     f == :+ && return map(_->1, xs)
