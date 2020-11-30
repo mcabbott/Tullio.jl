@@ -52,8 +52,14 @@ using Requires
 @inline anyone(cond::Bool) = cond
 
 @init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
-
-    using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+    using .LoopVectorization
+    SVec = if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
+        using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+        Svec
+    else # version 0.9, supports Julia 1.6
+        using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
+        Vec
+    end
 
     # Functions needed for safe vectorised max gradient
     @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
