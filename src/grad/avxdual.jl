@@ -1,10 +1,14 @@
 
 #========== making ForwardDiff work with LoopVectorization ==========#
 
-# using Tullio.LoopVectorization: LoopVectorization, SVec, vconvert, SIMDPirates
 using .LoopVectorization
-using .LoopVectorization: SVec, vconvert, SIMDPirates
 using Core: VecElement
+
+using .ForwardDiff
+using .ForwardDiff: Dual, Partials, partials
+
+#=
+# using Tullio.LoopVectorization: LoopVectorization, SVec, vconvert, SIMDPirates
 
 s1 = SVec{2,Float64}(5.5, 6.6) # SVec{2,Float64}<5.5, 6.6>
 # dump(s1)
@@ -18,9 +22,6 @@ s1[2]
 s1 |> typeof |> parentmodule # VectorizationBase
 
 # @inline svec(tup::NTuple{N,T}) where {N,T} = SVec{N,T}(tup...)
-
-using .ForwardDiff
-using .ForwardDiff: Dual, Partials, partials
 
 d1 = Dual(1.23, (4,0,0))
 typeof(d1) # Dual{Nothing,Float64,3}
@@ -37,6 +38,8 @@ d1.partials[1]
 
 partials(d1, 1)
 # @inline val(d::Dual) = d.value
+
+=#
 
 ForwardDiff.can_dual(::Type{<:SVec}) = true
 
