@@ -1070,10 +1070,9 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     safe = if act! == ACT!
         isempty(store.unsafeleft)
     else # working on ∇act!
-        isempty(store.unsaferight)
+        isempty(store.unsaferight) &&
+            store.redfun == :+  && store.grad != :Dual # Disable @avx except for simplest grad, #53
     end
-
-    safe = safe && store.redfun == :+ # Disable @avx for min/max reductions, #53
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
