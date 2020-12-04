@@ -200,17 +200,23 @@ _gradient(x...) = Yota.grad(x...)[2]
 =#
 
 #===== LoopVectorization =====#
-#=
+=#
 t8 = time()
 using LoopVectorization
 
-using LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
-sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
-ms = Mask(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
-@test Tullio.onlyone(ms, 0) == Mask(0x02)
-@test Tullio.onlyone(ms, sv) == Mask(0x00)
-@test Tullio.onlyone(ms, zero(sv)) == Mask(0x02)
+if false # isdefined(LoopVectorization, :Vec)
+    @testset "LoopVectorization onlyone" begin
+        using LoopVectorization: Mask, Vec
+        ms = Mask{UInt8}(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+        sv = Vec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
 
+        @test Tullio.onlyone(ms, 0) == Mask{UInt8}(0x02)
+        @test Tullio.onlyone(ms, sv) == Mask{UInt8}(0x00)
+        @test Tullio.onlyone(ms, zero(sv)) == Mask{UInt8}(0x02)
+    end
+end
+
+using Tracker
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
 
@@ -220,16 +226,10 @@ _gradient(x...) = Tracker.gradient(x...)
 @tullio grad=Dual
 @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
 
-GRAD = :Zygote
-_gradient(x...) = Zygote.gradient(x...)
-
-@tullio grad=Base
-@testset "gradients: Zygote + LoopVectorization" begin include("gradients.jl") end
-
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
-=#
+
 #===== TensorOperations =====#
 
 t9 = time()

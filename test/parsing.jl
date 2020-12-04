@@ -11,7 +11,7 @@ using Tullio, Test, LinearAlgebra
     @test A == [i^2 for i in 1:10]
 
     # diagonals
-    @tullio D[i,i] := trunc(Int, sqrt(A[i]))
+    @tullio D[i,i] := trunc(Int, sqrt(A[i])) avx=false # MethodError: no method matching trunc(::Type{Int64}, ::VectorizationBase.Vec{4,Float64})
     @test D == Diagonal(sqrt.(A))
 
     # arrays of arrays
@@ -124,7 +124,7 @@ using Tullio, Test, LinearAlgebra
     @test H[1,:] == M[2,:] # but H[3,:] gets written into twice.
 
     J′ = [1,2,10]
-    @tullio H′[J′[i'],k] := A[k]
+    @tullio H′[J′[i'],k] := A[k] avx=false # StackOverflowError
     @test size(H′) == (10, length(A))
     @test H′[2,:] == A
     @test H′[3,4] == 0 # zeroed before being written into
@@ -219,7 +219,7 @@ end
     # scatter operation
     D = similar(A, 10, 10) .= 999
     inds = [2,3,5,2]
-    @tullio D[inds[i],j] = A[j]
+    @tullio D[inds[i],j] = A[j] avx=false # StackOverflowError
     @test D[2,:] == A
     @test D[4,4] != 0 # not zeroed before writing.
 
@@ -444,7 +444,7 @@ end
     # basics
     @test [prod(A)] == @tullio (*) P[_] := float(A[i])
     @test maximum(A) == @tullio (max) m := float(A[i])
-    @test minimum(A) == @tullio (min) m := float(A[i]) # fails with @avx
+    @test minimum(A) == @tullio (min) m := float(A[i])
 
     @test true == @tullio (&) p := A[i] > 0
     @test true === @tullio (&) p := A[i] > 0
@@ -509,7 +509,7 @@ end
     s3 = 3
     @test sum(B.^2)+3 ≈ @tullio s3 += B[i]^2
     s4 = 4im
-    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2
+    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2 avx=false # TypeError: in AbstractSIMD, in T, expected T<:(Union{Bool, Float32
 
     # no reduction means no redfun, and no init:
     @test_throws LoadError @eval @tullio (max) A2[i] := A[i]^2
@@ -593,7 +593,7 @@ end
     @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  threads=:maybe
 
     # keyword verbose accepts values [true, false, 2, 3]
-    @tullio A[i] := (1:10)[i]^2  verbose=1
+    @tullio A[i] := (1:10)[i]^2  verbose=1 avx=false # @error: rejected by LoopVectorization's check_args
     @tullio A[i] := (1:10)[i]^2  verbose=false
     @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=4
 
@@ -632,7 +632,7 @@ end
     # https://github.com/mcabbott/Tullio.jl/issues/36
     # final type real, intermediate complex... not fixed yet!
     xs = randn(1000)
-    @test_throws InexactError @tullio z[i] := exp(im * xs[i] - xs[j]) |> abs2
+    @test_throws InexactError @tullio z[i] := exp(im * xs[i] - xs[j]) |> abs2  avx=false # TypeError with LV
 
     # https://github.com/mcabbott/Tullio.jl/issues/43
     P = rand(2,2,3); Diff = rand(3,3); n=4
@@ -664,7 +664,7 @@ end
        @tullio x[i] := s[i]
     end
     @test_broken [3,7] == let s = [1 2;3 4], zero=one # left because of #50
-       @tullio x[i] := s[i,j]
+       @tullio x[i] := s[i,j]  avx=false # Unexpected Pass with LV
     end
 
 end

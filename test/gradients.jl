@@ -266,8 +266,8 @@ if Tullio._GRAD[] != :Dual
         dv = ForwardDiff.gradient(v -> sum(f7(m2,v)), v2)
         @test dv ≈ _gradient(sum∘f7, m2, v2)[2]
 
-        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3
-        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3
+        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3 avx=false # gives wrong answers
+        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3 avx=false
 
         dm = ForwardDiff.gradient(m -> sum(f8(m,v2)), m4)
         @test dm ≈_gradient(sum∘f8, m4, v2)[1]
