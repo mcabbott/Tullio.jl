@@ -1073,6 +1073,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         isempty(store.unsaferight)
     end
 
+    safe = safe && store.redfun == :+ # Disable @avx for min/max reductions, #53
+
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
         unroll = store.avx == true ? 0 : store.avx # unroll=0 is the default setting
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
