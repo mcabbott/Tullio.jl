@@ -200,7 +200,7 @@ _gradient(x...) = Yota.grad(x...)[2]
 =#
 
 #===== LoopVectorization =====#
-=#
+
 t8 = time()
 using LoopVectorization
 
