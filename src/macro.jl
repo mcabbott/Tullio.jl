@@ -1071,7 +1071,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         isempty(store.unsafeleft)
     else # working on ∇act!
         isempty(store.unsaferight) &&
-            store.redfun == :+  # Disable @avx for min/max grad, #53
+            store.redfun == :+ && # Disable @avx for min/max grad, #53
+            store.grad != :Dual   # and for use with ForwardDiff
     end
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
