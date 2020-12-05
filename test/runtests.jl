@@ -96,6 +96,8 @@ end
 
 #===== Zygote =====#
 
+if VERSION < v"1.6-" # Zygote isn't working on 1.6
+
 t5 = time()
 using Zygote
 
@@ -109,7 +111,6 @@ _gradient(x...) = Zygote.gradient(x...)
 @testset "gradients: Zygote + ForwardDiff" begin include("gradients.jl") end
 
 @tullio grad=Base
-if VERSION >= v"1.4" # mysterious failures on 1.3
 @testset "complex gradients with Zygote" begin
 
     x0 = [1,2,3] .+ [5im, 0, -11im]
@@ -161,9 +162,10 @@ if VERSION >= v"1.4" # mysterious failures on 1.3
 
     end
 end
-end # VERSION
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
+
+end # VERSION
 
 #===== ReverseDiff =====#
 #=
@@ -244,6 +246,8 @@ _gradient(x...) = Tracker.gradient(x...)
 @tullio grad=Base
 @testset "gradients: Tracker + TensorOperations" begin include("gradients.jl") end
 
+if VERSION < v"1.6-" # Zygote isn't working on 1.6
+
 using Zygote
 GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
@@ -272,6 +276,8 @@ _gradient(x...) = Zygote.gradient(x...)
 
     end
 end
+
+end # VERSION
 
 @testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
 
