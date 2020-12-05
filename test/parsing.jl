@@ -566,18 +566,18 @@ end
     # reading
     N = NamedDimsArray(rand(Int8,3,10), (:r, :c))
 
-    @tullio A[i,j] := N[i, j] + 100 * (1:10)[j]
+    @tullio A[i,j] := N[i, j] + 100 * (1:10)[j] avx=false # conversion to pointer not defined for NamedDimsArray
     @test A == N .+ 100 .* (1:10)'
 
-    @tullio B[i] := N[r=i, c=1]
+    @tullio B[i] := N[r=i, c=1] avx=false
     @test B == N[:,1]
 
-    @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j]
+    @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j] avx=false
     @test A == C'
     @test dimnames(C) == (:_, :_) # similar(parent(A)) avoids a bug
 
     # writing
-    @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j]
+    @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j] avx=false
     @test dimnames(M) == (:row, :col, :i)
 
 end
