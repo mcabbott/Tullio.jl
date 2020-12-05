@@ -505,7 +505,7 @@ end
 
     # promotion of init & += cases:
     B = rand(10)
-    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false
+    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false avx=false # InexactError: Int64 on LV 0.8
     s3 = 3
     @test sum(B.^2)+3 ≈ @tullio s3 += B[i]^2
     s4 = 4im

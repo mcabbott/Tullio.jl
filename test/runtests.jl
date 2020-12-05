@@ -230,6 +230,8 @@ _gradient(x...) = Tracker.gradient(x...)
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
+@tullio avx=false
+
 #===== TensorOperations =====#
 
 t9 = time()
