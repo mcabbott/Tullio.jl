@@ -206,17 +206,37 @@ _gradient(x...) = Yota.grad(x...)[2]
 t8 = time()
 using LoopVectorization
 
-if false # isdefined(LoopVectorization, :Vec)
-    @testset "LoopVectorization onlyone" begin
-        using LoopVectorization: Mask, Vec
-        ms = Mask{UInt8}(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
-        sv = Vec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
-
-        @test Tullio.onlyone(ms, 0) == Mask{UInt8}(0x02)
-        @test Tullio.onlyone(ms, sv) == Mask{UInt8}(0x00)
-        @test Tullio.onlyone(ms, zero(sv)) == Mask{UInt8}(0x02)
-    end
+if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
+    using LoopVectorization.VectorizationBase: SVec, Mask
+else # version 0.9, supports Julia 1.6
+    using LoopVectorization.VectorizationBase: Vec, Mask
+    SVec{N,T} = Vec{N,T}
 end
+
+@testset "LoopVectorization onlyone" begin
+    ms = Mask{UInt8}(0x03); # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+    sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
+
+    # preliminaries:
+    @test Tullio.allzero(sv) === false
+    @test Tullio.allzero(zero(sv)) === true
+
+    @test Tullio.anyone(ms) === true
+
+    # the main function:
+    @test Tullio.onlyone(false, 0) === false
+    @test Tullio.onlyone(true, 0) === true
+    @test Tullio.onlyone(true, 1) === false
+
+    # @test Tullio.onlyone(ms, 0) === Mask{UInt8}(0x02)
+    @test Tullio.onlyone(ms, 0).u == 0x02
+    # @test Tullio.onlyone(ms, sv) === Mask{UInt8}(0x00)
+    @test Tullio.onlyone(ms, sv).u == 0x00
+    # @test Tullio.onlyone(ms, zero(sv)) === Mask{UInt8}(0x02)
+    @test Tullio.onlyone(ms, zero(sv)).u == 0x02
+end
+
+@testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
 using Tracker
 GRAD = :Tracker
@@ -227,8 +247,6 @@ _gradient(x...) = Tracker.gradient(x...)
 
 @tullio grad=Dual
 @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
-
-@testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
