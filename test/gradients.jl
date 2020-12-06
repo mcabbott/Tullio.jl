@@ -259,24 +259,24 @@ if Tullio._GRAD[] != :Dual
         dv = ForwardDiff.gradient(v -> sum(f6(m2,v)), v2)
         @test dv ≈ _gradient(sum∘f6, m2, v2)[2]
 
-        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j])
+        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j]) avx=false
 
         dm = ForwardDiff.gradient(m -> sum(f7(m,v2)), m2)
-        @test dm ≈_gradient(sum∘f7, m2, v2)[1]
+        @test dm ≈_gradient(sum∘f7, m2, v2)[1]  # gives wrong answers with avx, 1.4 in tests
         dv = ForwardDiff.gradient(v -> sum(f7(m2,v)), v2)
         @test dv ≈ _gradient(sum∘f7, m2, v2)[2]
 
-        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3
-        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3
+        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3 avx=false
+        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3 avx=false
 
         dm = ForwardDiff.gradient(m -> sum(f8(m,v2)), m4)
-        @test dm ≈_gradient(sum∘f8, m4, v2)[1]
+        @test dm ≈ _gradient(sum∘f8, m4, v2)[1]  # gives wrong answers with avx, 1.5 in tests
         dv = ForwardDiff.gradient(v -> sum(f8(m4,v)), v2)
         @test dv ≈ _gradient(sum∘f8, m4, v2)[2]
         dm = ForwardDiff.gradient(m -> sum(f9(m,v2)), m4)
-        @test dm ≈_gradient(sum∘f9, m4, v2)[1]
+        @test dm ≈_gradient(sum∘f9, m4, v2)[1]  # gives wrong answers with avx, repl
         dv = ForwardDiff.gradient(v -> sum(f9(m4,v)), v2)
-        @test dv ≈ _gradient(sum∘f9, m4, v2)[2]
+        @test dv ≈ _gradient(sum∘f9, m4, v2)[2]  # gives wrong answers with avx
 
     end
 

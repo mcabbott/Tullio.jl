@@ -96,6 +96,8 @@ end
 
 #===== Zygote =====#
 
+if VERSION < v"1.6-" # Zygote isn't working on 1.6
+
 t5 = time()
 using Zygote
 
@@ -109,7 +111,6 @@ _gradient(x...) = Zygote.gradient(x...)
 @testset "gradients: Zygote + ForwardDiff" begin include("gradients.jl") end
 
 @tullio grad=Base
-if VERSION >= v"1.4" # mysterious failures on 1.3
 @testset "complex gradients with Zygote" begin
 
     x0 = [1,2,3] .+ [5im, 0, -11im]
@@ -161,9 +162,10 @@ if VERSION >= v"1.4" # mysterious failures on 1.3
 
     end
 end
-end # VERSION
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
+
+end # VERSION
 
 #===== ReverseDiff =====#
 #=
@@ -200,17 +202,43 @@ _gradient(x...) = Yota.grad(x...)[2]
 =#
 
 #===== LoopVectorization =====#
-#=
+
 t8 = time()
 using LoopVectorization
 
-using LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
-sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
-ms = Mask(0x03) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
-@test Tullio.onlyone(ms, 0) == Mask(0x02)
-@test Tullio.onlyone(ms, sv) == Mask(0x00)
-@test Tullio.onlyone(ms, zero(sv)) == Mask(0x02)
+if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
+    using LoopVectorization.VectorizationBase: SVec, Mask
+else # version 0.9, supports Julia 1.6
+    using LoopVectorization.VectorizationBase: Vec, Mask
+    SVec{N,T} = Vec{N,T}
+end
 
+@testset "LoopVectorization onlyone" begin
+    ms = Mask{UInt8}(0x03); # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+    sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
+
+    # preliminaries:
+    @test Tullio.allzero(sv) === false
+    @test Tullio.allzero(zero(sv)) === true
+
+    @test Tullio.anyone(ms) === true
+
+    # the main function:
+    @test Tullio.onlyone(false, 0) === false
+    @test Tullio.onlyone(true, 0) === true
+    @test Tullio.onlyone(true, 1) === false
+
+    # @test Tullio.onlyone(ms, 0) === Mask{UInt8}(0x02)
+    @test Tullio.onlyone(ms, 0).u == 0x02
+    # @test Tullio.onlyone(ms, sv) === Mask{UInt8}(0x00)
+    @test Tullio.onlyone(ms, sv).u == 0x00
+    # @test Tullio.onlyone(ms, zero(sv)) === Mask{UInt8}(0x02)
+    @test Tullio.onlyone(ms, zero(sv)).u == 0x02
+end
+
+@testset "parsing + LoopVectorization" begin include("parsing.jl") end
+
+using Tracker
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
 
@@ -220,16 +248,10 @@ _gradient(x...) = Tracker.gradient(x...)
 @tullio grad=Dual
 @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
 
-GRAD = :Zygote
-_gradient(x...) = Zygote.gradient(x...)
-
-@tullio grad=Base
-@testset "gradients: Zygote + LoopVectorization" begin include("gradients.jl") end
-
-@testset "parsing + LoopVectorization" begin include("parsing.jl") end
-
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
-=#
+
+@tullio avx=false
+
 #===== TensorOperations =====#
 
 t9 = time()
@@ -241,6 +263,8 @@ _gradient(x...) = Tracker.gradient(x...)
 
 @tullio grad=Base
 @testset "gradients: Tracker + TensorOperations" begin include("gradients.jl") end
+
+if VERSION < v"1.6-" # Zygote isn't working on 1.6
 
 using Zygote
 GRAD = :Zygote
@@ -270,6 +294,8 @@ _gradient(x...) = Zygote.gradient(x...)
 
     end
 end
+
+end # VERSION
 
 @testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
 
