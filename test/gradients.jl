@@ -1,3 +1,9 @@
+#=
+This file is run several times
+* with grad=Base vs grad=Dual
+* with Tracker, Zygote
+* using KernelAbstractions, LoopVectorization, TensorCast
+=#
 
 using Tullio, Test, ForwardDiff, Random
 # using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
@@ -221,7 +227,7 @@ if Tullio._GRAD[] != :Dual
     @testset "min/max" begin
 
         f1(x) = @tullio (max) z = x[i]
-        f2(x) = @tullio (min) z = x[i] avx=false
+        f2(x) = @tullio (min) z = x[i] # avx=false
 
         @test _gradient(f1, 1:4)[1] == ForwardDiff.gradient(f1, 1:4)
         @test _gradient(f2, 1:4)[1] == ForwardDiff.gradient(f2, 1:4)
@@ -231,6 +237,8 @@ if Tullio._GRAD[] != :Dual
         @test _gradient(f2, [2,2,3,3])[1] == [1,0,0,0]
 
         m4 = reshape(shuffle(1:3*4*5*2), 3,4,5,2);
+        m2 = reshape(shuffle(1:16), 4,4);
+        v2 = shuffle(1:4)
 
         f3(x) = @tullio (max) y[i,k,l] := x[i,j,k,l]
 
@@ -241,9 +249,6 @@ if Tullio._GRAD[] != :Dual
 
         @test all(==(1), sum(_gradient(sum∘f4, m4)[1], dims=(1,3,4)))
         @test _gradient(sum∘f4, m4)[1] ≈ ForwardDiff.gradient(sum∘f4, m4)
-
-        m2 = reshape(shuffle(1:16), 4,4);
-        v2 = shuffle(1:4)
 
         f5(x,y) = @tullio (max) z[i] := x[i,j] + 0.01*y[i]
 
@@ -259,24 +264,31 @@ if Tullio._GRAD[] != :Dual
         dv = ForwardDiff.gradient(v -> sum(f6(m2,v)), v2)
         @test dv ≈ _gradient(sum∘f6, m2, v2)[2]
 
-        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j]) avx=false
+        f7(x,y) = @tullio (max) z[i] := x[i,j]^2 / sqrt(y[i]) + exp(y[j])  avx=false
 
         dm = ForwardDiff.gradient(m -> sum(f7(m,v2)), m2)
-        @test dm ≈_gradient(sum∘f7, m2, v2)[1]  # gives wrong answers with avx, 1.4 in tests
+        @test dm ≈ _gradient(sum∘f7, m2, v2)[1]  # avx: broken in tests, Julia 1.4
+        dm .- _gradient(sum∘f7, m2, v2)[1]
         dv = ForwardDiff.gradient(v -> sum(f7(m2,v)), v2)
         @test dv ≈ _gradient(sum∘f7, m2, v2)[2]
 
-        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3 avx=false
-        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3 avx=false
+        f8(x,y) = @tullio (max) z[i,l] := log(x[i,j,k,l]) / y[j]^1/3  avx=false
+        f9(x,y) = @tullio (min) z[i,j] := log(x[i,j,k,l]) / y[j]^1/3  avx=false
+        @tullio z89[i,j,k,l] := log(m4[i,j,k,l]) / v2[j]^1/3
+        length(z89), length(unique(z89))
 
         dm = ForwardDiff.gradient(m -> sum(f8(m,v2)), m4)
-        @test dm ≈ _gradient(sum∘f8, m4, v2)[1]  # gives wrong answers with avx, 1.5 in tests
+        @test dm ≈ _gradient(sum∘f8, m4, v2)[1]  # avx: OK with 0.8, broken with 0.9
+        dm .- _gradient(sum∘f8, m4, v2)[1]       # at exactly one element
         dv = ForwardDiff.gradient(v -> sum(f8(m4,v)), v2)
         @test dv ≈ _gradient(sum∘f8, m4, v2)[2]
+
         dm = ForwardDiff.gradient(m -> sum(f9(m,v2)), m4)
-        @test dm ≈_gradient(sum∘f9, m4, v2)[1]  # gives wrong answers with avx, repl
+        @test dm ≈_gradient(sum∘f9, m4, v2)[1]  # avx: broken with 0.8 and 0.9
+        dm .- _gradient(sum∘f9, m4, v2)[1]
         dv = ForwardDiff.gradient(v -> sum(f9(m4,v)), v2)
-        @test dv ≈ _gradient(sum∘f9, m4, v2)[2]  # gives wrong answers with avx
+        @test dv ≈ _gradient(sum∘f9, m4, v2)[2]  # avx: broken with 0.8 and 0.9
+        dv .- _gradient(sum∘f9, m4, v2)[2]       # but broken in different elements
 
     end
 
