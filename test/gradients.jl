@@ -8,82 +8,94 @@ This file is run several times
 using Tullio, Test, ForwardDiff, Random
 # using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
 
-# simple
-@test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
-@test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
-
-# two contributions
-g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]
-mat = [1 1 3; 1 1 5; 7 7 7]
-g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
-@test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
-
-# larger array, no shared indices -- https://github.com/mcabbott/Tullio.jl/issues/14
-r100 = randn(100)
-g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
-@test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
-
-# scalar output
-s2(x) = @tullio s := exp(x[i]) / x[j]
-@test _gradient(s2, r100)[1] ≈ ForwardDiff.gradient(s2, r100)
-
-# two arrays, and a sum
-h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]
-@test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
-
-# nontrivial function
-flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
-r_x, r_y = rand(2,3), rand(3,2)
-fx = ForwardDiff.gradient(x -> sum(flog(x, r_y)), r_x)
-fy = ForwardDiff.gradient(y -> sum(flog(r_x, y)), r_y)
-@test fx ≈ _gradient(sum∘flog, r_x, r_y)[1]
-@test fy ≈ _gradient(sum∘flog, r_x, r_y)[2]
-
-# classic
-mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]
-x1 = rand(3,4);
-y1 = rand(4,5);
-z1 = x1 * y1
-dx, dy = _gradient(sum∘mm, x1, y1)
-@test dx ≈ 2 * ones(3,5) * y1'
-@test dy ≈ 2 * x1' * ones(3,5)
-
-# abs, abs2
-va = [1,-2,3,-4,5]
-abs_grad = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
-@test abs_grad ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
-abs2_grad = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
-@test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
-
-# Using zero-dim arrays fails on ReverseDiff & Tracker
-# Tracker.gradient(x -> x[], fill(1.0))
-# ReverseDiff.gradient(x -> x[], fill(1.0)) # is ambiguous
-if GRAD in [:Tracker, :ReverseDiff]
-    @test_skip _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
-else
-    @test _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+function gradtest(f, dims)
+    x = randn(dims...)
+    grad = ForwardDiff.gradient(x -> sum(sin, f(x)), x)
+    grad ≈ _gradient(x -> sum(sin, f(x)), x)[1]
 end
-# one-element vectors are fine:
-@test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
-# which is what's now used for this:
-@test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
-# gather/scatter
-inds = vcat(1:3, 1:2)
-@test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+@testset "simple" begin
 
-_gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5))[1] == [1,1,1,1,1]
-ForwardDiff.gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5)) == [0,0,1,1,1]
-# This difference may be another edge case like multiple maxima?
+    @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
+    @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
 
-ind2 = rand(1:10, 1024) # many repeats
-dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
-@test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+    # two contributions
+    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]
+    mat = [1 1 3; 1 1 5; 7 7 7]
+    g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
+    @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
 
-ind3 = vcat(unique(rand(1:1024, 10)), 1) # many missing, but includes at 1
-g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))
-@test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
-# You get weird errors here if indices of y don't start at 1.
+    # larger array, no shared indices -- https://github.com/mcabbott/Tullio.jl/issues/14
+    r100 = randn(100)
+    g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
+    @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
+
+    # scalar output
+    s2(x) = @tullio s := exp(x[i]) / x[j]
+    @test _gradient(s2, r100)[1] ≈ ForwardDiff.gradient(s2, r100)
+
+    # two arrays, and a sum
+    h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]
+    @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
+
+    # nontrivial function
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
+    r_x, r_y = rand(2,3), rand(3,2)
+    fx = ForwardDiff.gradient(x -> sum(flog(x, r_y)), r_x)
+    fy = ForwardDiff.gradient(y -> sum(flog(r_x, y)), r_y)
+    @test fx ≈ _gradient(sum∘flog, r_x, r_y)[1]
+    @test fy ≈ _gradient(sum∘flog, r_x, r_y)[2]
+
+    # classic
+    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]
+    x1 = rand(3,4);
+    y1 = rand(4,5);
+    z1 = x1 * y1
+    dx, dy = _gradient(sum∘mm, x1, y1)
+    @test dx ≈ 2 * ones(3,5) * y1'
+    @test dy ≈ 2 * x1' * ones(3,5)
+
+    # abs, abs2
+    va = [1,-2,3,-4,5]
+    abs_grad = ForwardDiff.gradient(v -> sum(abs, 1 .+ v.^2), va)
+    @test abs_grad ≈ _gradient(v -> (@tullio s := abs(1 + v[i]^2)), va)[1]
+    abs2_grad = ForwardDiff.gradient(v -> sum(abs2, 1 .+ v.^2), va)
+    @test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
+
+end
+@testset "zero-arrays" begin
+
+    # Using zero-dim arrays fails on ReverseDiff & Tracker
+    # Tracker.gradient(x -> x[], fill(1.0))
+    # ReverseDiff.gradient(x -> x[], fill(1.0)) # is ambiguous
+    if GRAD in [:Tracker, :ReverseDiff]
+        @test_skip _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+    else
+        @test _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+    end
+    # one-element vectors are fine:
+    @test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+    # which is what's now used for this:
+    @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+
+end
+@testset "gather/scatter" begin
+
+    inds = vcat(1:3, 1:2)
+    @test _gradient(x -> sum(@tullio y[i] := x[inds[i]]), rand(3))[1] == [2,2,1]
+
+    _gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5))[1] == [1,1,1,1,1]
+    ForwardDiff.gradient(x -> sum(@tullio y[inds[i]] := x[i]), rand(5)) == [0,0,1,1,1]
+    # This difference may be another edge case like multiple maxima?
+
+    ind2 = rand(1:10, 1024) # many repeats
+    dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
+    @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
+
+    ind3 = vcat(unique(rand(1:1024, 10)), 1) # many missing, but includes at 1
+    g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))
+    @test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
+    # You get weird errors here if indices of y don't start at 1.
 
 end
 @testset "shifts, etc" begin
@@ -110,8 +122,20 @@ end
     end
 
 end
+@testset "mod, clamp, pad" begin
 
-@testset "@inferred" begin # re-using a few functions from above
+    fmod(x) = @tullio y[i] := x[mod(i)]  i in 1:5
+    fclamp(x) = @tullio y[i] := x[clamp(i)]  i in 1:5
+    fpad(x) = @tullio y[i] := x[pad(i-2,2)]
+    @test _gradient(sum∘fmod, ones(3))[1] == [2,2,1]
+    @test _gradient(sum∘fclamp, ones(3))[1] == [1,1,3]
+    @test _gradient(sum∘fpad, ones(3))[1] == [1,1,1]
+
+end
+@testset "@inferred" begin
+
+    h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]  # as above
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
 
     mat = rand(3,3)
     @test @inferred(h2(mat, mat)) ≈ vec(sum(mat .+ mat', dims=2))
@@ -126,13 +150,6 @@ end
     end
 
 end
-
-function gradtest(f, dims)
-    x = randn(dims...)
-    grad = ForwardDiff.gradient(x -> sum(sin, f(x)), x)
-    grad ≈ _gradient(x -> sum(sin, f(x)), x)[1]
-end
-
 @testset "from TensorTrace" begin
     # These can all be handled using TensorOperations
 
@@ -293,16 +310,6 @@ if Tullio._GRAD[] != :Dual
         dv .- _gradient(sum∘f9, m4, v2)[2]       # but broken in different elements
 
     end
-
-    @testset "mod, clamp, pad" begin
-        fmod(x) = @tullio y[i] := x[mod(i)]  i in 1:5
-        fclamp(x) = @tullio y[i] := x[clamp(i)]  i in 1:5
-        fpad(x) = @tullio y[i] := x[pad(i-2,2)]
-        @test _gradient(sum∘fmod, ones(3))[1] == [2,2,1]
-        @test _gradient(sum∘fclamp, ones(3))[1] == [1,1,3]
-        @test _gradient(sum∘fpad, ones(3))[1] == [1,1,1]
-    end
-
     @testset "finalisers" begin
 
         norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
