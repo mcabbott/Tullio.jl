@@ -55,6 +55,10 @@ using Requires
     using .LoopVectorization
     if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
         using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
+        @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
+            # Dual numbers + svec, not needed on version 0.9
+            include("grad/avxdual.jl")
+        end
     else # version 0.9, supports Julia 1.6
         using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
         SVec{N,T} = Vec{N,T}
@@ -70,14 +74,7 @@ using Requires
     @inline allzero(seen::Int) = iszero(seen)
     @inline allzero(seen::SVec{N,Int}) where {N} = iszero((!iszero(seen)).u)
 
-    # @inline Tullio.anyone(cond::Mask) = cond != zero(cond)
-    @inline Tullio.anyone(cond::Mask) = cond.u != zero(cond).u # for v0.9
-
-    @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-        # Dual numbers + svec, should live in PaddedMatricesForwardDiff?
-        # (And where would the conditional loading go, still here?)
-        include("grad/avxdual.jl")
-    end
+    @inline Tullio.anyone(cond::Mask) = !iszero(cond.u)
 end
 
 #========== CuArrays ==========#
