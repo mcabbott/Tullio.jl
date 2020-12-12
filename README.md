@@ -1,8 +1,7 @@
 <div align="center">
 <h1>Tullio.jl</h1>
 
-<!--[![Travis CI](https://img.shields.io/travis/mcabbott/Tullio.jl/master?logo=travis)](https://travis-ci.org/mcabbott/Tullio.jl)-->
-[![Github CI](https://img.shields.io/github/workflow/status/mcabbott/Tullio.jl/CI?label=build&logo=github)](https://github.com/mcabbott/Tullio.jl/actions)
+[![CI](https://github.com/mcabbott/Tullio.jl/workflows/CI/badge.svg)](https://github.com/mcabbott/Tullio.jl/actions?query=workflow%3ACI)
 [![Gitlab GPU](https://img.shields.io/gitlab/pipeline/JuliaGPU/Tullio.jl/master?logo=nvidia&color=ddd)](https://gitlab.com/JuliaGPU/Tullio.jl/-/pipelines)
 [![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMzI1cHQiIGhlaWdodD0iMzAwcHQiIHZpZXdCb3g9IjAgMCAzMjUgMzAwIiB2ZXJzaW9uPSIxLjEiPgo8ZyBpZD0ic3VyZmFjZTkxIj4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig3OS42JSwyMy41JSwyMCUpO2ZpbGwtb3BhY2l0eToxOyIgZD0iTSAxNTAuODk4NDM4IDIyNSBDIDE1MC44OTg0MzggMjY2LjQyMTg3NSAxMTcuMzIwMzEyIDMwMCA3NS44OTg0MzggMzAwIEMgMzQuNDc2NTYyIDMwMCAwLjg5ODQzOCAyNjYuNDIxODc1IDAuODk4NDM4IDIyNSBDIDAuODk4NDM4IDE4My41NzgxMjUgMzQuNDc2NTYyIDE1MCA3NS44OTg0MzggMTUwIEMgMTE3LjMyMDMxMiAxNTAgMTUwLjg5ODQzOCAxODMuNTc4MTI1IDE1MC44OTg0MzggMjI1ICIvPgo8cGF0aCBzdHlsZT0iIHN0cm9rZTpub25lO2ZpbGwtcnVsZTpub256ZXJvO2ZpbGw6cmdiKDIyJSw1OS42JSwxNC45JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDIzNy41IDc1IEMgMjM3LjUgMTE2LjQyMTg3NSAyMDMuOTIxODc1IDE1MCAxNjIuNSAxNTAgQyAxMjEuMDc4MTI1IDE1MCA4Ny41IDExNi40MjE4NzUgODcuNSA3NSBDIDg3LjUgMzMuNTc4MTI1IDEyMS4wNzgxMjUgMCAxNjIuNSAwIEMgMjAzLjkyMTg3NSAwIDIzNy41IDMzLjU3ODEyNSAyMzcuNSA3NSAiLz4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig1OC40JSwzNC41JSw2OS44JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDMyNC4xMDE1NjIgMjI1IEMgMzI0LjEwMTU2MiAyNjYuNDIxODc1IDI5MC41MjM0MzggMzAwIDI0OS4xMDE1NjIgMzAwIEMgMjA3LjY3OTY4OCAzMDAgMTc0LjEwMTU2MiAyNjYuNDIxODc1IDE3NC4xMDE1NjIgMjI1IEMgMTc0LjEwMTU2MiAxODMuNTc4MTI1IDIwNy42Nzk2ODggMTUwIDI0OS4xMDE1NjIgMTUwIEMgMjkwLjUyMzQzOCAxNTAgMzI0LjEwMTU2MiAxODMuNTc4MTI1IDMyNC4xMDE1NjIgMjI1ICIvPgo8L2c+Cjwvc3ZnPgo=)](https://github.com/mcabbott/Tullio.jl/releases)
 </div>
@@ -21,7 +20,7 @@ Tullio is a very flexible einsum macro. It understands many array operations wri
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
 One difference is that it can parse more expressions (such as the convolution `M`, and worse).
-Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)) and recursive tiling, on large enough arrays. 
+Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)) and recursive tiling, on large enough arrays.
 But it also co-operates with various other packages, provided they are loaded before the macro is called:
 
 * It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
@@ -48,18 +47,18 @@ The expression need not be just one line, for example:
 
 Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
 (If writing into an existing array, with `out[x,y] = begin ...` or `+=`, then ranges would be taken from there.)
-Because it sees assignment being made, it does not attempt to sum over `a,b`, and it assumes that indices could go out of bounds so does not add `@inbounds` for you. 
+Because it sees assignment being made, it does not attempt to sum over `a,b`, and it assumes that indices could go out of bounds so does not add `@inbounds` for you.
 (Although in fact `mod(x+a) == mod(x+a, axes(mat,1))` is safe.)
 It will also not be able to take a symbolic derivative, but dual numbers will work fine.
 
 Pipe operators `|>` or `<|` indicate functions to be performed *outside* the sum, for example:
 
 ```julia
-@tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1))) 
+@tullio lse[j] := log <| exp(mat[i,j])   # vec(log.(sum(exp.(mat), dims=1)))
 ```
 
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
-and notices when it is unable to use the packages mentioned above. 
+and notices when it is unable to use the packages mentioned above.
 And `verbose=2` will print everything.
 
 <details><summary><b>Notation</b></summary>
@@ -93,7 +92,7 @@ S = [0,1,0,0, 0,0,0,0]
 fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 
 # Finalisers <| or |> are applied after sum (the two are equivalent):
-@tullio N2[j] := sqrt <| M[i,j]^2     # N2 ≈ map(norm, eachcol(M)) 
+@tullio N2[j] := sqrt <| M[i,j]^2     # N2 ≈ map(norm, eachcol(M))
 @tullio n3[_] := A[i]^3  |> (_)^(1/3) # n3[1] ≈ norm(A,3), with _ anon. func.
 
 # Reduction over any function:
@@ -115,8 +114,8 @@ using NamedDims, AxisKeys # Dimension names, plus pretty printing:
 </details>
 <details><summary><b>Fast & slow</b></summary>
 
-When used with LoopVectorization, on straightforward matrix multiplication of real numbers, 
-`@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer. 
+When used with LoopVectorization, on straightforward matrix multiplication of real numbers,
+`@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer.
 Here's a speed comparison on mine: [v2.5](https://github.com/mcabbott/Tullio.jl/blob/master/benchmarks/02/matmul-0.2.5-Float64-1.5.0.png).
 
 This is a useful diagnostic, but isn't really the goal. Two things `@tullio` is often
@@ -146,7 +145,7 @@ X = rand(1000,1000);
 Complex numbers aren't handled by LoopVectorization, so will be much slower.
 
 Chained multiplication is also very slow, because it doesn't know there's a better
-algorithm. Here it just makes 4 loops, instead of multiplying sequentially, 
+algorithm. Here it just makes 4 loops, instead of multiplying sequentially,
 `30^4` instead of `2 * 30^3` operations:
 
 ```julia
@@ -155,7 +154,7 @@ M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
 @btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
 ```
 
-At present indices using `pad`, `clamp` or `mod` are also slow. These result in extra 
+At present indices using `pad`, `clamp` or `mod` are also slow. These result in extra
 checks or operations at every iteration, not just around the edges:
 
 ```julia
@@ -169,7 +168,7 @@ x100 = rand(100,100); k7 = randn(7,7);
 @btime conv3($x100, $k7); # 283.634 μs
 
 using Flux
-x104 = reshape(x100,(100,100,1,1)); k74 = reshape(k7,(7,7,1,1)); 
+x104 = reshape(x100,(100,100,1,1)); k74 = reshape(k7,(7,7,1,1));
 conv1(x100, k7) ≈ @btime CrossCor($k74, false)($x104)       # 586.694 μs
 conv2(x100, k7) ≈ @btime Conv($k74, false, stride=2)($x104) # 901.573 μs
 conv3(x100, k7) ≈ @btime Conv($k74, false, pad=3)($x104)    # 932.658 μs
@@ -180,7 +179,7 @@ conv3(x100, k7) ≈ @btime Conv($k74, false, pad=3)($x104)    # 932.658 μs
 
 ```julia
 using Tullio
-mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k] 
+mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
 A = rand(3,40); B = rand(40,500);
 A * B ≈ mul(A, B) # true
@@ -219,7 +218,7 @@ end (x in 1:10, y in 1:10) # and prevents range of x from being inferred.
 # A stencil?
 offsets = [(a,b) for a in -2:2 for b in -2:2 if a>=b] # vector of tuples
 
-@tullio out[x,y,1] = begin 
+@tullio out[x,y,1] = begin
         a,b = offsets[k]
         i = clamp(x+a, extrema(axes(mat,1))...)
         # j = clamp(y+b, extrema(axes(mat,2))...) # can be written clamp(y+b)
@@ -241,11 +240,11 @@ Zygote.gradient(sum∘rowmap, fs, ones(3,2))
 <details><summary><b>Options</b></summary>
 
 The default setting is:
-```@tullio threads=true fastmath=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...``` 
+```@tullio threads=true fastmath=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...```
 * `threads=false` turns off threading, while `threads=64^3` sets a threshold size at which to divide the work (replacing the macro's best guess).
 * `avx=false` turns off the use of `LoopVectorization`, while `avx=4` inserts `@avx unroll=4 for i in ...`.
 * `grad=false` turns off gradient calculation, and `grad=Dual` switches it to use `ForwardDiff` (which must be loaded).
-* `nograd=A` turns of the gradient calculation just for `A`, and `nograd=(A,B,C)` does this for several arrays. 
+* `nograd=A` turns of the gradient calculation just for `A`, and `nograd=(A,B,C)` does this for several arrays.
 * `tensor=false` turns off the use of `TensorOperations`.
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.
@@ -256,20 +255,20 @@ The default setting is:
 Implicit:
 * Indices without shifts must have the same range everywhere they appear, but those with shifts (even `A[i+0]`) run over the intersection of possible ranges.
 * Shifted output indices must start at 1, unless `OffsetArrays` is visible in the calling module.
-* The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays). 
+* The use of `@avx`, and the calculation of gradients, are switched off by sufficiently complex syntax (such as arrays of arrays).
 * Gradient hooks are attached for any or all of `ReverseDiff`, `Tracker` & `Zygote`. These packages need not be loaded when the macro is run.
 * Gradients are only defined for reductions over `(+)` (default) and `min`, `max`.
 * GPU kernels are only constructed when both `KernelAbstractions` and `CUDA` are visible. The default `cuda=256` is passed to `kernel(CUDA(), 256)`.
 * The CPU kernels from `KernelAbstractions` are called only when `threads=false`; they are not at present very fast, but perhaps useful for testing.
 
 Extras:
-* `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred. 
+* `A[i] := i^2  (i in 1:10)` is how you specify a range for indices when this can't be inferred.
 * `A[i] := B[i, $col] - C[i, 2]` is how you fix one index to a constant (to prevent `col` being summed over).
-* `A[i] := $d * B[i]` is the preferred way to include other constants. Note that no gradient is calculated for `d`. 
+* `A[i] := $d * B[i]` is the preferred way to include other constants. Note that no gradient is calculated for `d`.
 * Within indexing, `A[mod(i), clamp(j)]` both maps `i` & `j` to lie within `axes(A)`, and disables inference of their ranges from `A`.
 * Similarly, `A[pad(i,3)]` extends the range of `i`, inserting zeros outside of `A`. Instead of zero, `pad=NaN` uses this value as padding. The implementation of this (and `mod`, `clamp`) is not very fast at present.
 * On the left, when making a new array, an underscore like `A[i+_] :=` inserts whatever shift is needed to make `A` one-based.
-* `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done. 
+* `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done.
 
 </details>
 <details><summary><b>Interals</b></summary>
@@ -386,7 +385,7 @@ function ∇act!(::Type, ΔC, ΔA, ΔB, C, A, B, ax_i, ax_j, ax_k, keep)
 end
 ```
 
-Writing `@tullio verbose=2` will print all of these functions out. 
+Writing `@tullio verbose=2` will print all of these functions out.
 
 Scalar reductions, such as `@tullio s := A[i,j] * log(B[j,i])`, are slightly different in that the `act!` function simply returns the sum, i.e. the variable `acc` above.
 
@@ -395,7 +394,7 @@ Scalar reductions, such as `@tullio s := A[i,j] * log(B[j,i])`, are slightly dif
 
 Back-end friends & relatives:
 
-* [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, if available. 
+* [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) is used here, if available.
 
 * [Gaius.jl](https://github.com/MasonProtter/Gaius.jl) and [PaddedMatrices.jl](https://github.com/chriselrod/PaddedMatrices.jl) build on that.
 
@@ -415,7 +414,7 @@ Front-end near-lookalikes:
 
 Things you can't run:
 
-* [Tortilla.jl](https://www.youtube.com/watch?v=Rp7sTl9oPNI) seems to exist, publicly, only in this very nice talk. 
+* [Tortilla.jl](https://www.youtube.com/watch?v=Rp7sTl9oPNI) seems to exist, publicly, only in this very nice talk.
 
 * [ArrayMeta.jl](https://github.com/shashi/ArrayMeta.jl) was a Julia 0.5 take on some of this.
 
