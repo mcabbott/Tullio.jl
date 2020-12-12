@@ -85,29 +85,31 @@ g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(
 @test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
 # You get weird errors here if indices of y don't start at 1.
 
-#=
-# shifts, etc
-c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
-m1 = rand(10,10,2)
-k1 = rand(3,3)
-g_m = ForwardDiff.gradient(N -> sum(sin, c1(N, k1)), m1)
-g_k = ForwardDiff.gradient(K -> sum(sin, c1(m1, K)), k1)
-@test g_m ≈ _gradient(N -> sum(sin, c1(N, k1)), m1)[1]  atol=0.01
-@test g_k ≈ _gradient(K -> sum(sin, c1(m1, K)), k1)[1]  atol=0.01
-
-c2(mat, kern) = @tullio out[x,y,n] := begin
-        i = mod(x+a, axes(mat,1))
-        j = mod(y+b, axes(mat,2))
-        @inbounds mat[i,j,n] * abs(kern[a,b])
-    end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
-
-if Tullio._GRAD[] == :Dual
-    g_m = ForwardDiff.gradient(N -> sum(sin, c2(N, k1)), m1)
-    g_k = ForwardDiff.gradient(K -> sum(sin, c2(m1, K)), k1)
-    @test g_m ≈ _gradient(N -> sum(sin, c2(N, k1)), m1)[1]  atol=0.01
-    @test g_k ≈ _gradient(K -> sum(sin, c2(m1, K)), k1)[1]  atol=0.01
 end
-=#
+@testset "shifts, etc" begin
+
+    c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
+    m1 = rand(10,10,2)
+    k1 = rand(3,3)
+    g_m = ForwardDiff.gradient(N -> sum(sin, c1(N, k1)), m1)
+    g_k = ForwardDiff.gradient(K -> sum(sin, c1(m1, K)), k1)
+    @test_skip g_m ≈ _gradient(N -> sum(sin, c1(N, k1)), m1)[1]  atol=0.01 # works at repl, fails in tests
+    @test g_k ≈ _gradient(K -> sum(sin, c1(m1, K)), k1)[1]  atol=0.01
+
+    c2(mat, kern) = @tullio out[x,y,n] := begin
+            i = mod(x+a, axes(mat,1))
+            j = mod(y+b, axes(mat,2))
+            @inbounds mat[i,j,n] * abs(kern[a,b])
+        end (x in axes(mat,1), y in axes(mat,2)) grad=Dual
+
+    if Tullio._GRAD[] == :Dual
+        g_m = ForwardDiff.gradient(N -> sum(sin, c2(N, k1)), m1)
+        g_k = ForwardDiff.gradient(K -> sum(sin, c2(m1, K)), k1)
+        @test g_m ≈ _gradient(N -> sum(sin, c2(N, k1)), m1)[1]  atol=0.01
+        @test g_k ≈ _gradient(K -> sum(sin, c2(m1, K)), k1)[1]  atol=0.01
+    end
+
+end
 
 @testset "@inferred" begin # re-using a few functions from above
 
