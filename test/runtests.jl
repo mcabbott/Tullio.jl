@@ -124,10 +124,10 @@ _gradient(x...) = Tracker.gradient(x...)
 @tullio grad=Base
 @testset "gradients: Tracker + DiffRules + LoopVectorization" begin include("gradients.jl") end
 
-if !isdefined(LoopVectorization, :SVec) # Dual tests completely broken on LV 0.8, not sure why
+# if !isdefined(LoopVectorization, :SVec) # Dual tests completely broken on LV 0.8, not sure why
     @tullio grad=Dual
     @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
-end
+# end
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
