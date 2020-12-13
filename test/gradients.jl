@@ -92,10 +92,13 @@ end
     dx2 = ForwardDiff.gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))
     @test dx2 ≈ _gradient(x -> sum(@tullio y[i] := x[ind2[i]] + x[i]), rand(1024))[1]
 
-    ind3 = vcat(unique(rand(1:1024, 10)), 1) # many missing, but includes at 1
+    ind3 = vcat(unique(rand(2:1024, 10)), 1) # many missing, no repeats, but always includes 1
     g3 = ForwardDiff.gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))
     @test g3 ≈ _gradient(x -> sum(@tullio y[ind3[i]] := i^2 * x[i]), ones(size(ind3)))[1]
     # You get weird errors here if indices of y don't start at 1.
+
+    # 1.6 failure on CI, with rand(1:1024, 10)
+    # [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 0.0, 64.0, 81.0, 100.0, 121.0] ≈ [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0, 121.0]
 
 end
 @testset "shifts, etc" begin
@@ -308,6 +311,7 @@ if Tullio._GRAD[] != :Dual
         dv = ForwardDiff.gradient(v -> sum(f9(m4,v)), v2)
         @test dv ≈ _gradient(sum∘f9, m4, v2)[2]  # avx: broken with 0.8 and 0.9
         dv .- _gradient(sum∘f9, m4, v2)[2]       # but broken in different elements
+        # I suspect that @avx is re-ordering loops, which makes onlyone() incorrect.
 
     end
     @testset "finalisers" begin
