@@ -16,7 +16,7 @@ end
 
 @testset "simple" begin
 
-if Tullio.GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1.4, LV 0.8, I have no idea why.
+if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1.4, LV 0.8, I have no idea why.
 
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
