@@ -494,7 +494,8 @@ padmodclamp_pair(A, inds, store) = begin
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
-                push!(nopadif, :($i ∈ $axes($A,$d)))
+                # push!(nopadif, :($i ∈ $axes($A,$d)))
+                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= Base.last(axes($A,$d)))) # allows avx? Weirdly, deleting "Base." causes errors
             end
             return i
         end
@@ -509,7 +510,7 @@ padmodclamp_pair(A, inds, store) = begin
             cond = :($cond & $c2)
         end
         if store.padkeyword == TYP # default
-            ex -> :($cond ? $ex : $zero($eltype($A)))
+            ex -> :($cond ? $ex : zero(eltype($A)))
         else
             ex -> :($cond ? $ex : $convert($eltype($A), $(store.padkeyword)))
         end

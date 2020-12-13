@@ -103,6 +103,19 @@ end
 end
 
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
+@tullio grad=Base
+@testset "LoopVectorization ex-bugs" begin
+
+    conv1(x,k) = @tullio y[i+_, j+_] := x[i+a, j+b] * k[a,b]
+    conv2(x,k) = @tullio y[i+_, j+_] := x[2i-a, 2j-b] * k[a,b]
+    conv3(x,k) = @tullio y[i+_, j+_] := x[pad(i-a,3), pad(j-b,3)] * k[a,b]
+    x1 = rand(100,100); k1 = rand(7,7);
+
+    @test conv1(x1,k1) ≈ @tullio y[i+_, j+_] := x1[i+a, j+b] * k1[a,b] avx=false threads=false
+    @test conv2(x1,k1) ≈ @tullio y[i+_, j+_] := x1[2i-a, 2j-b] * k1[a,b] avx=false threads=false
+    @test conv3(x1,k1) ≈ @tullio y[i+_, j+_] := x1[pad(i-a,3), pad(j-b,3)] * k1[a,b] avx=false threads=false
+
+end
 
 using Tracker
 GRAD = :Tracker
