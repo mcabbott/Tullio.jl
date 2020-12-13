@@ -33,6 +33,7 @@ if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1
     @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
 
 end
+    r100 = randn(100)
 
     # scalar output
     s2(x) = @tullio s := exp(x[i]) / x[j]
