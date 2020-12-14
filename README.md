@@ -16,6 +16,8 @@ Tullio is a very flexible einsum macro. It understands many array operations wri
 @tullio A[i,j] += B[i,k,l] * C[l,j] * D[k,j]   # sum over k,l, and add to values in A
 
 @tullio (*) Z[j] := X[ind[k],j] * exp(-Y[k])   # product over k
+
+@tullio E[i,k] := F[i,j] * G[j,k]              # matrix multiplication
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
