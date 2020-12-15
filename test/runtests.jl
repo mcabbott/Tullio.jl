@@ -205,17 +205,17 @@ _gradient(x...) = Yota.grad(x...)[2]
 
 t8 = time()
 using LoopVectorization
+using VectorizationBase
 
-if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
-    using LoopVectorization.VectorizationBase: SVec, Mask
-else # version 0.9, supports Julia 1.6
-    using LoopVectorization.VectorizationBase: Vec, Mask
-    SVec{N,T} = Vec{N,T}
+@static if Base.VERSION >= v"1.5"
+    const Vec = VectorizationBase.Vec
+else
+    const Vec = VectorizationBase.SVec
 end
 
 @testset "LoopVectorization onlyone" begin
-    ms = Mask{UInt8}(0x03); # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
-    sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
+    ms = mask(Val(8), 2) # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+    sv = Vec{4,Int}(1,2,3,4) # Vec{4,Int64}<1, 2, 3, 4>
 
     # preliminaries:
     @test Tullio.allzero(sv) === false
