@@ -248,7 +248,7 @@ The default setting is:
 * `tensor=false` turns off the use of `TensorOperations`.
 * Assignment `xi = ...` removes `xi` from the list of indices: its range is note calculated, and it will not be summed over. It also disables `@inbounds` since this is now up to you.
 * `verbose=true` prints things like the index ranges inferred, and gradient calculations. `verbose=2` prints absolutely everything.
-* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
+* `A[i,j] := ...` makes a new array, while `A[i,j] = ...` and `A[i,j] += ...` write into an existing one. (For example, `matmul(X, Y) = @tullio Z[i, k] := X[i, j] * Y[j, k]` makes a new array, while `matmul!(Z, X, Y) = @tullio Z[i, k] = X[i, j] * Y[j, k]` writes the result into `Z`.) `A[row=i, col=j] := ...` makes a new `NamedDimsArray`.
 * `@tullio (*) A[i,j] := ...` is a product, as is `@tullio A[i,j] *= ...`. For other reductions, `@tullio (f) A[i,j] ^= ...` is an in-place update.
 * `init=0.0` gives the initial value for reductions. For `+`, `*`, `min`, `min`, `&`, `|` it has sensible defaults, for other reductions uses zero.
 
