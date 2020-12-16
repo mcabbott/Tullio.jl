@@ -4,6 +4,9 @@ using Test, Printf
 t1 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t1)
 
+import InteractiveUtils
+InteractiveUtils.versioninfo(; verbose = true)
+
 @info "Testing with $(Threads.nthreads()) threads"
 if Threads.nthreads() > 1 # use threading even on small arrays
     Tullio.BLOCK[] = 32
