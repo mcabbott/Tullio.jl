@@ -1,5 +1,6 @@
-# env:
-#   SECRET_CODECOV_TOKEN: "..."
+env:
+  JULIA_NUM_THREADS: "1"
+  # SECRET_CODECOV_TOKEN: "..."
 
 steps:
   - label: "Julia 1.5"
