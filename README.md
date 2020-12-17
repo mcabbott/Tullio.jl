@@ -1,8 +1,8 @@
 <div align="center">
 <h1>Tullio.jl</h1>
 
-[![GitHub Actions CPU CI](https://github.com/mcabbott/Tullio.jl/workflows/CI/badge.svg)](https://github.com/mcabbott/Tullio.jl/actions?query=workflow%3ACI)
-[![Build status (Buildkite GPU CI)](https://badge.buildkite.com/7f7fec35c774174a59cf616fc6e1711c70e94c088248088758.svg?branch=master&step=Julia%201.5)](https://buildkite.com/julialang/tullio-dot-jl)
+[![GitHub CI](https://img.shields.io/github/workflow/status/mcabbott/Tullio.jl/CI?logo=github)](https://github.com/mcabbott/Tullio.jl/actions?query=workflow%3ACI)
+[![Buildkite GPU CI](https://img.shields.io/buildkite/7f7fec35c774174a59cf616fc6e1711c70e94c088248088758?color=eee&label=gpu&logo=nvidia)](https://buildkite.com/julialang/tullio-dot-jl)
 [![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMzI1cHQiIGhlaWdodD0iMzAwcHQiIHZpZXdCb3g9IjAgMCAzMjUgMzAwIiB2ZXJzaW9uPSIxLjEiPgo8ZyBpZD0ic3VyZmFjZTkxIj4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig3OS42JSwyMy41JSwyMCUpO2ZpbGwtb3BhY2l0eToxOyIgZD0iTSAxNTAuODk4NDM4IDIyNSBDIDE1MC44OTg0MzggMjY2LjQyMTg3NSAxMTcuMzIwMzEyIDMwMCA3NS44OTg0MzggMzAwIEMgMzQuNDc2NTYyIDMwMCAwLjg5ODQzOCAyNjYuNDIxODc1IDAuODk4NDM4IDIyNSBDIDAuODk4NDM4IDE4My41NzgxMjUgMzQuNDc2NTYyIDE1MCA3NS44OTg0MzggMTUwIEMgMTE3LjMyMDMxMiAxNTAgMTUwLjg5ODQzOCAxODMuNTc4MTI1IDE1MC44OTg0MzggMjI1ICIvPgo8cGF0aCBzdHlsZT0iIHN0cm9rZTpub25lO2ZpbGwtcnVsZTpub256ZXJvO2ZpbGw6cmdiKDIyJSw1OS42JSwxNC45JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDIzNy41IDc1IEMgMjM3LjUgMTE2LjQyMTg3NSAyMDMuOTIxODc1IDE1MCAxNjIuNSAxNTAgQyAxMjEuMDc4MTI1IDE1MCA4Ny41IDExNi40MjE4NzUgODcuNSA3NSBDIDg3LjUgMzMuNTc4MTI1IDEyMS4wNzgxMjUgMCAxNjIuNSAwIEMgMjAzLjkyMTg3NSAwIDIzNy41IDMzLjU3ODEyNSAyMzcuNSA3NSAiLz4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig1OC40JSwzNC41JSw2OS44JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDMyNC4xMDE1NjIgMjI1IEMgMzI0LjEwMTU2MiAyNjYuNDIxODc1IDI5MC41MjM0MzggMzAwIDI0OS4xMDE1NjIgMzAwIEMgMjA3LjY3OTY4OCAzMDAgMTc0LjEwMTU2MiAyNjYuNDIxODc1IDE3NC4xMDE1NjIgMjI1IEMgMTc0LjEwMTU2MiAxODMuNTc4MTI1IDIwNy42Nzk2ODggMTUwIDI0OS4xMDE1NjIgMTUwIEMgMjkwLjUyMzQzOCAxNTAgMzI0LjEwMTU2MiAxODMuNTc4MTI1IDMyNC4xMDE1NjIgMjI1ICIvPgo8L2c+Cjwvc3ZnPgo=)](https://github.com/mcabbott/Tullio.jl/releases)
 </div>
 
@@ -25,9 +25,9 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
 
-* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
-
 * It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
+
+* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
 
 The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
@@ -63,8 +63,38 @@ And `verbose=2` will print everything.
 
 <details><summary><b>Notation</b></summary>
 
+Index notation for some simple functions:
+
 ```julia
 using Pkg; Pkg.add("Tullio")
+using Tullio, Test
+M = rand(1:20, 3, 7)
+
+@tullio S[1,c] := M[r,c]  # sum over r ∈ 1:3, for each c ∈ 1:7
+@test S == sum(M, dims=1) 
+
+@tullio Q[ρ,c] := M[ρ,c] + sqrt(S[1,c])  # loop over ρ & c, no sum -- broadcasting
+@test Q ≈ M .+ sqrt.(S)
+
+mult(M,Q) = @tullio P[x,y] := M[x,c] * Q[y,c]  # sum over c ∈ 1:7 -- matrix multiplication
+@test mult(M,Q) ≈ M * transpose(Q)
+
+R = [rand(Int8, 3, 4) for δ in 1:5]
+
+@tullio T[j,i,δ] := R[δ][i,j] + 10im  # three nested loops -- concatenation
+@test T == permutedims(cat(R...; dims=3), (2,1,3)) .+ 10im
+
+@tullio (max) X[i] := abs2(T[j,i,δ])  # reduce using max, over j and δ
+@test X == dropdims(maximum(abs2, T, dims=(1,3)), dims=(1,3))
+
+dbl!(M, S) = @tullio M[r,c] = 2 * S[1,c]  # write into existing matrix, M .= 2 .* S
+dbl!(M, S)
+@test all(M[r,c] == 2*S[1,c] for r ∈ 1:3, c ∈ 1:7)
+```
+
+More complicated examples:
+
+```julia
 using Tullio
 A = [abs2(i - 11) for i in 1:21]
 
@@ -114,44 +144,52 @@ using NamedDims, AxisKeys # Dimension names, plus pretty printing:
 </details>
 <details><summary><b>Fast & slow</b></summary>
 
-When used with LoopVectorization, on straightforward matrix multiplication of real numbers,
-`@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer.
+When used with LoopVectorization, on straightforward matrix multiplication of real numbers, 
+`@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer. 
 Here's a speed comparison on mine: [v2.5](https://github.com/mcabbott/Tullio.jl/blob/master/benchmarks/02/matmul-0.2.5-Float64-1.5.0.png).
 
-This is a useful diagnostic, but isn't really the goal. Two things `@tullio` is often
-very fast at are weird tensor contractions (for which you'd need `permutedims`),
-and broadcast-reductions (where it can avoid large allocations). For example:
+This race is a useful diagnostic, but isn't really the goal. There is little point in avoiding 
+using BLAS libraries, if you want precisely what they are optimised to give you.
+One of the things `@tullio` is often very fast at is weird tensor contractions, 
+for which you would otherwise need `permutedims`:
 
 ```julia
 using Tullio, LoopVectorization, NNlib, BenchmarkTools
 
-# Batched matmul with batch index first in B, defined with @avx loops:
+# Batched matmul, with batch index first in B:
 bmm_rev(A, B) = @tullio C[i,k,b] := A[i,j,b] * B[b,k,j]  # (sum over j)
 
 A = randn(20,30,500); B = randn(500,40,30);
-bmm_rev(A, B) ≈ NNlib.batched_mul(A, permutedims(B, (3,2,1))) # true
+bmm_rev(A, B) ≈ NNlib.batched_mul(A, permutedims(B, (3,2,1)))  # true
 
-@btime bmm_rev($A, $B); # 317.526 μs, same speed as un-permuted bmm
-@btime NNlib.batched_mul($A, permutedims($B, (3,2,1))); # 1.478 ms, with MKL
-
-# Complete reduction, without first materialising X .* log.(Y')
-sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
-
-X = rand(1000,1000);
-@btime sum_opp($X)                    #   499.814 μs (173 allocations: 14.20 KiB)
-@btime sum($X .* log.(transpose($X))) # 8.759 ms (2 allocations: 7.63 MiB)
+@btime bmm_rev($A, $B);  # 317.526 μs μs, same speed as un-permuted
+@btime NNlib.batched_mul($A, permutedims($B, (3,2,1)));  # 1.478 ms, with MKL
 ```
 
 Complex numbers aren't handled by LoopVectorization, so will be much slower.
 
 Chained multiplication is also very slow, because it doesn't know there's a better
-algorithm. Here it just makes 4 loops, instead of multiplying sequentially,
+algorithm. Here it just makes 4 loops, instead of multiplying sequentially, 
 `30^4` instead of `2 * 30^3` operations:
 
 ```julia
 M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
 @btime $M1 * $M2 * $M3;                                   #  3.525 μs
 @btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
+```
+
+Another thing Tullio can be very fast at broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
+
+```julia
+sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
+sum_part(X, Y=X) = @tullio S[i] := X[i,j] * log(Y[j,i])
+
+X = rand(1000,1000);
+@btime sum_opp($X)                    #   499.814 μs (93 allocations: 3.97 KiB)
+@btime sum($X .* log.(transpose($X))) # 8.759 ms (2 allocations: 7.63 MiB)
+
+@btime sum_part($X)'                           #  1.599 ms (not the same computer!)
+@btime sum($X .* log.(transpose($X)), dims=2)  # 13.292 ms
 ```
 
 At present indices using `pad`, `clamp` or `mod` are also slow. These result in extra
@@ -163,15 +201,18 @@ conv2(x,k) = @tullio y[i+_, j+_] := x[2i-a, 2j-b] * k[a,b]
 conv3(x,k) = @tullio y[i+_, j+_] := x[pad(i-a,3), pad(j-b,3)] * k[a,b]
 
 x100 = rand(100,100); k7 = randn(7,7);
-@btime conv1($x100, $k7); #  15.690 μs
-@btime conv2($x100, $k7); #  37.835 μs
-@btime conv3($x100, $k7); # 283.634 μs
+@btime conv1($x100, $k7); #  25.574 μs
+@btime conv2($x100, $k7); #  44.590 μs
+@btime conv3($x100, $k7); #  86.228 μs
 
 using Flux
-x104 = reshape(x100,(100,100,1,1)); k74 = reshape(k7,(7,7,1,1));
+x104 = reshape(x100,(100,100,1,1)); k74 = reshape(k7,(7,7,1,1)); 
 conv1(x100, k7) ≈ @btime CrossCor($k74, false)($x104)       # 586.694 μs
 conv2(x100, k7) ≈ @btime Conv($k74, false, stride=2)($x104) # 901.573 μs
 conv3(x100, k7) ≈ @btime Conv($k74, false, pad=3)($x104)    # 932.658 μs
+
+using DSP
+@btime DSP.conv($x100, $k7); # 198.331 μs
 ```
 
 </details>
