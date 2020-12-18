@@ -3,6 +3,8 @@
 
 using DiffRules
 
+const _CSE = Ref(true)
+
 function insert_symbolic_gradient(axislist, store)
 
     dZ = Symbol(DEL, ZED)
@@ -50,7 +52,7 @@ function insert_symbolic_gradient(axislist, store)
         end
     end
     store.verbose>0 && @info "symbolic gradients" inbody
-    ex_body = commonsubex(quote $(inbody...) end)
+    ex_body = _CSE[] ? commonsubex(quote $(inbody...) end) : quote $(inbody...) end
 
     ex_pre, ex_post = if store.redfun == :* # then nonzero LHS are handled already, but harder cases here:
         product_grad(prebody, store)
