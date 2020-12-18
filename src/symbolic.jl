@@ -32,12 +32,12 @@ function insert_symbolic_gradient(axislist, store)
 
     inbody, prebody = [], []
     for (dt, t) in unique(targets)
-        drdt = leibnitz(store.right, t)
+        drdt = leibnitz(store.right, t, store.nograd)
         deltar = if store.finaliser == :identity
             simplitimes(simpliconj(drdt), :($dZ[$(store.leftraw...)]))
         else
             rhs = :($ZED[$(store.leftraw...)])
-            dldr = leibfinal(store.finaliser, rhs)
+            dldr = leibfinal(store.finaliser, rhs, store.nograd)
             simplitimes(simpliconj(drdt), simpliconj(dldr), :($dZ[$(store.leftraw...)]))
         end
         if store.redfun == :+
@@ -84,16 +84,16 @@ function insert_symbolic_gradient(axislist, store)
 
 end
 
-leibfinal(fun::Symbol, res) =
+leibfinal(fun::Symbol, res, no=()) =
     if fun == :log
         :(exp(-$res)) # this exp gets done at every element :(
         # :(inv(exp($res)))
     else
-        _leibfinal(:($fun($RHS)), res)
+        _leibfinal(:($fun($RHS)), res, no)
     end
 
-_leibfinal(out, res) = begin
-    grad1 = leibnitz(out, RHS)
+_leibfinal(out, res, no) = begin
+    grad1 = leibnitz(out, RHS, no)
     grad2 = MacroTools_postwalk(grad1) do ex
         # @show ex ex == out
         ex == out ? res : ex
@@ -103,13 +103,13 @@ _leibfinal(out, res) = begin
     end
 end
 
-leibfinal(ex::Expr, res) = begin
+leibfinal(ex::Expr, res, no=()) = begin
     if ex.head == :call && ex.args[1] isa Expr &&
         ex.args[1].head == :(->) && ex.args[1].args[1] == RHS # then it came from underscores
         inner = ex.args[1].args[2]
         if inner isa Expr && inner.head == :block
             lines = filter(a -> !(a isa LineNumberNode), inner.args)
-            length(lines) == 1 && return _leinfinal(first(lines), res)
+            length(lines) == 1 && return _leibfinal(first(lines), res, no) # not tested!
         end
     end
     throw("couldn't understand finaliser")
@@ -191,9 +191,9 @@ symbwalk(targets, store) = ex -> begin
         return ex
     end
 
-leibnitz(s::Number, target) = 0
-leibnitz(s::Symbol, target) = s == target ? 1 : 0
-leibnitz(ex::Expr, target) = begin
+leibnitz(s::Number, target, no=()) = 0
+leibnitz(s::Symbol, target, no=()) = s == target ? 1 : 0
+leibnitz(ex::Expr, target, no=()) = begin
     ex == target && return 1
     @capture_(ex, B_[ijk__]) && return 0
     if ex.head == Symbol("'")
@@ -202,34 +202,35 @@ leibnitz(ex::Expr, target) = begin
     end
     ex.head == :call || throw("expected a functionn call, got $ex.")
     fun = ex.args[1]
+    fun in no && return 0
     if fun == :log # catch log(a*b) and especially log(a/b)
         arg = ex.args[2]
         if arg isa Expr && arg.args[1] == :* && length(arg.args) == 3
             newex = :(log($(arg.args[2])) + log($(arg.args[3])))
-            return leibnitz(newex, target)
+            return leibnitz(newex, target, no)
         elseif arg isa Expr && arg.args[1] == :/
             newex = :(log($(arg.args[2])) - log($(arg.args[3])))
-            return leibnitz(newex, target)
+            return leibnitz(newex, target, no)
         end
     end
     if length(ex.args) == 2 # one-arg function
         fx = mydiffrule(fun, ex.args[2])
-        dx = leibnitz(ex.args[2], target)
+        dx = leibnitz(ex.args[2], target, no)
         return simplitimes(fx, dx)
     elseif length(ex.args) == 3  # two-arg function
         fx, fy = mydiffrule(fun, ex.args[2:end]...)
-        dx = leibnitz(ex.args[2], target)
-        dy = leibnitz(ex.args[3], target)
+        dx = leibnitz(ex.args[2], target, no)
+        dy = leibnitz(ex.args[3], target, no)
         return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy))
     elseif fun in [:+, :*]
-        fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target)
-        dxs = [leibnitz(x, target) for x in ex.args[2:end]]
+        fun == :* && return leibnitz(:(*($(ex.args[2]), *($(ex.args[3:end]...)))), target, no)
+        dxs = [leibnitz(x, target, no) for x in ex.args[2:end]]
         fun == :+ && return simpliplus(dxs...)
     elseif length(ex.args) == 4  # three-arg function such as ifelse
         fx, fy, fz = mydiffrule(fun, ex.args[2:end]...)
-        dx = leibnitz(ex.args[2], target)
-        dy = leibnitz(ex.args[3], target)
-        dz = leibnitz(ex.args[4], target)
+        dx = leibnitz(ex.args[2], target, no)
+        dy = leibnitz(ex.args[3], target, no)
+        dz = leibnitz(ex.args[4], target, no)
         return simpliplus(simplitimes(fx, dx), simplitimes(fy, dy), simplitimes(fz, dz))
     end
     throw("don't know how to handle $ex.")
