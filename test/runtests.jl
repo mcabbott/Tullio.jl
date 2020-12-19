@@ -5,7 +5,7 @@ t1 = @elapsed using Tullio
 
 is_buildkite = parse(Bool, get(ENV, "BUILDKITE", "false"))
 if is_buildkite
-    test_group = "2" # if this is Buildkite, we only run group 2
+    test_group = "2" # only run group 2 on the GPU servers
 else
     test_group = get(ENV, "TULLIO_TEST_GROUP", "all")
 end
@@ -21,10 +21,10 @@ if test_group in ["all", "1"]
     include("group-1.jl")
 end
 
-if test_group in ["all", "2"]
+if test_group in ["all", "2"] && VERSION <= v"1.6" # KA testing time-out https://github.com/JuliaGPU/KernelAbstractions.jl/issues/155
     include("group-2.jl")
 end
 
-if test_group in ["all", "3"]
+if test_group in ["all", "3"] && VERSION <= v"1.6" # LV issue with Vararg changes
     include("group-3.jl")
 end
