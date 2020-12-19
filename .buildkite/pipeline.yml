@@ -1,12 +1,14 @@
 env:
   JULIA_NUM_THREADS: "1"
+  JULIA_PKG_SERVER: ""
   # SECRET_CODECOV_TOKEN: "..."
 
 steps:
+
   - label: "Julia 1.5"
     plugins:
       - JuliaCI/julia#v0.5:
-          version: 1.5
+          version: '1.5'
       - JuliaCI/julia-test#v0.3: ~
       # - JuliaCI/julia-coverage#v0.3:
       #     codecov: true
@@ -14,4 +16,17 @@ steps:
       queue: "juliagpu"
       cuda: "*"
     if: build.message !~ /\[skip tests\]/
-    timeout_in_minutes: 60
+    timeout_in_minutes: '60'
+
+  - label: "Julia nightly"
+    plugins:
+      - JuliaCI/julia#v0.5:
+          version: 'nightly'
+      - JuliaCI/julia-test#v0.3: ~
+      # - JuliaCI/julia-coverage#v0.3:
+      #     codecov: true
+    agents:
+      queue: "juliagpu"
+      cuda: "*"
+    if: build.message !~ /\[skip tests\]/
+    timeout_in_minutes: '60'
