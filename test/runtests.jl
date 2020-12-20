@@ -25,6 +25,6 @@ if test_group in ["all", "2"] && VERSION <= v"1.6" # KA testing time-out https:/
     include("group-2.jl")
 end
 
-if test_group in ["all", "3"] && VERSION <= v"1.6" # LV issue with Vararg changes
+if test_group in ["all", "3"]
     include("group-3.jl")
 end
