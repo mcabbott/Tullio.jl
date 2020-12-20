@@ -9,7 +9,7 @@ on:
     tags: '*'
 jobs:
   test:
-    name: v${{ matrix.version }}/t-${{ matrix.threads }}/group-${{ matrix.group }}/${{ github.event_name }}/${{ matrix.arch }}+${{ matrix.os }}
+    name: v${{ matrix.version }}-t${{ matrix.threads }}/group-${{ matrix.group }}/${{ github.event_name }}/${{ matrix.arch }}+${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,7 +24,7 @@ jobs:
           - ubuntu-latest
         threads:
           - '1'
-          - '2'
+          - '6' # t>2 might be ignored on Julia <= 1.5
         version:
           - '1.4'
           - '1' # automatically expands to the latest stable 1.x release of Julia

@@ -1,5 +1,5 @@
 env:
-  JULIA_NUM_THREADS: "1"
+  JULIA_NUM_THREADS: "6"
   # SECRET_CODECOV_TOKEN: "..."
 
 steps:
