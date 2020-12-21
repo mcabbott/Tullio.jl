@@ -494,8 +494,7 @@ padmodclamp_pair(A, inds, store, assign=false) = begin
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
-                # push!(nopadif, :($i ∈ $axes($A,$d)))
-                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= Base.last(axes($A,$d)))) # allows avx? Weirdly, deleting "Base." causes errors
+                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= last(axes($A,$d)))) # allows avx
             end
             return i
         end
@@ -1073,9 +1072,8 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     safe = if act! == ACT!
         isempty(store.unsafeleft)
     else # working on ∇act!
-        isempty(store.unsaferight) # &&
-            # store.redfun == :+ && # Disable @avx for min/max grad, #53
-            # store.grad != :Dual   # and for use with ForwardDiff
+        isempty(store.unsaferight)
+            store.redfun == :+  # Disable @avx for min/max grad, #53
     end
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)

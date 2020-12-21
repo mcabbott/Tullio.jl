@@ -2,7 +2,7 @@
 This file is run several times
 * with grad=Base vs grad=Dual
 * with Tracker, Zygote
-* using KernelAbstractions, LoopVectorization, TensorCast
+* using KernelAbstractions, LoopVectorization, TensorOperations
 =#
 
 using Tullio, Test, ForwardDiff, Random
