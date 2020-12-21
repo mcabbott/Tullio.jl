@@ -1073,7 +1073,6 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         isempty(store.unsafeleft)
     else # working on ∇act!
         isempty(store.unsaferight)
-            store.redfun == :+  # Disable @avx for min/max grad, #53
     end
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
@@ -1081,6 +1080,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
         check1 = store.verbose>0 ? :(LoopVectorization.check_args($(store.arrays...)) || @error "rejected by LoopVectorization's check_args! $($note)" maxlog=3 _id=$(hash(store))) : nothing
         try
+            act! == ACT! || store.redfun == :+ || throw("use of LoopVectorization for min/max gradients is disabled")
             lex = if isnothing(exloopfinal)
                 quote
 
