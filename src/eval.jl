@@ -71,8 +71,8 @@ using Requires
     @inline Tullio.onlyone(cond::Mask, seen::Union{Int,SVec}) =
         Tullio.allzero(seen) ? Tullio.onlyone(cond) : zero(cond)
 
-    @inline allzero(seen::Int) = iszero(seen)
-    @inline allzero(seen::SVec{N,Int}) where {N} = iszero((!iszero(seen)).u)
+    @inline allzero(seen::Integer) = iszero(seen)
+    @inline allzero(seen::SVec) = iszero((!iszero(seen)).u)
 
     @inline Tullio.anyone(cond::Mask) = !iszero(cond.u)
 end
