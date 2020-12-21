@@ -466,7 +466,7 @@ padmodclamp_replace(s, store, inside=false) = s
 padmodclamp_replace(ex::Expr, store, inside=false) =
     if ex.head == :(=) && @capture_(ex.args[1], A_[inds__])
         # This tricky case is 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
-        Aex, fun = padmodclamp_pair(A, inds, store)
+        Aex, fun = padmodclamp_pair(A, inds, store, true)
         right = if fun != identity
             padmodclamp_replace(ex.args[2], store, true)
         else
@@ -481,7 +481,7 @@ padmodclamp_replace(ex::Expr, store, inside=false) =
         Expr(ex.head, args...)
     end
 
-padmodclamp_pair(A, inds, store) = begin
+padmodclamp_pair(A, inds, store, assign=false) = begin
     nopadif = []
     inds4 = map(enumerate(inds)) do (d,ex)
         isexpr(ex, :call) || return ex
@@ -509,7 +509,9 @@ padmodclamp_pair(A, inds, store) = begin
         for c2 in nopadif[2:end]
             cond = :($cond & $c2)
         end
-        if store.padkeyword == TYP # default
+        if assign # for gradients, this wraps 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
+            ex -> :($cond && $ex)
+        elseif store.padkeyword == TYP # default, pad with zero
             ex -> :($cond ? $ex : zero(eltype($A)))
         else
             ex -> :($cond ? $ex : $convert($eltype($A), $(store.padkeyword)))
