@@ -494,7 +494,8 @@ padmodclamp_pair(A, inds, store, assign=false) = begin
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
-                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= last(axes($A,$d)))) # allows avx
+                # push!(nopadif, :($i >= first(axes($A,$d))), :($i <= last(axes($A,$d)))) # allows avx
+                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= Base.last(axes($A,$d)))) # allows avx... but LV 0.8, Julia 1.4, needs Base?
             end
             return i
         end
