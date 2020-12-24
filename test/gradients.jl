@@ -132,8 +132,8 @@ end
 end
 @testset "mod, clamp, pad" begin
 
-    fmod(x) = @tullio y[i] := x[mod(i)]  i in 1:5
-    fclamp(x) = @tullio y[i] := x[clamp(i)]  i in 1:5
+    fmod(x) = @tullio y[i] := x[mod(i)]  i in 1:5  avx=false # fails on 1.4, LV 0.8
+    fclamp(x) = @tullio y[i] := x[clamp(i)]  i in 1:5  avx=false
     fpad(x) = @tullio y[i] := x[pad(i-2,2)]
     @test _gradient(sum∘fmod, ones(3))[1] == [2,2,1]
     @test _gradient(sum∘fclamp, ones(3))[1] == [1,1,3]
