@@ -119,7 +119,7 @@ else # LV version 0.9, supports Julia >= 1.5
 end
 
 @testset "LoopVectorization onlyone" begin
-    ms = Mask{4,UInt8}(0x03); # Mask{8,Bool}<1, 1, 0, 0, 0, 0, 0, 0>
+    ms = Mask{4,UInt8}(0x03) # Mask{4,Bool}<1, 1, 0, 0>
     sv = SVec{4,Int}(1,2,3,4) # SVec{4,Int64}<1, 2, 3, 4>
 
     # preliminaries:
