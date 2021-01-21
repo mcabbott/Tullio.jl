@@ -452,7 +452,7 @@ Front-end near-lookalikes:
 
 * [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. See [tests/einsum.jl](https://github.com/mcabbott/Tullio.jl/blob/master/test/einsum.jl) where `using Tullio: @einsum` is an almost-seamless replacement.
 
-* [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations.
+* [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations. [TensorRules.jl](https://github.com/ho-oto/TensorRules.jl) makes `@tensor` differentiable; see also [TensorGrad.jl](https://github.com/mcabbott/TensorGrad.jl) and [TensorTrack.jl](https://github.com/mcabbott/TensorTrack.jl) for earlier attempts.
 
 * [TensorCast.jl](https://github.com/mcabbott/TensorCast.jl) expresses everything as Julia array operations, broadcasting and reduction. (OMEinsum.jl also treats some cases as a special lazy broadcast-reduction.)
 
