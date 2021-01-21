@@ -1,5 +1,7 @@
 #===== Zygote =====#
 
+if VERSION < v"1.6.9" # Zygote is failing on nightly
+
 t5 = time()
 using Zygote
 
@@ -66,6 +68,8 @@ _gradient(x...) = Zygote.gradient(x...)
 end
 
 @info @sprintf("Zygote tests took %.1f seconds", time()-t5)
+
+end # VERSION
 
 #===== ReverseDiff =====#
 #=
