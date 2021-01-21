@@ -29,7 +29,7 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
 
 @testset "range_expr_walk" begin
 
-    for r in [Base.OneTo(10), 0:10, 0:11, 0:12, -1:13]
+    for r in [Base.OneTo(10), 0:10, 0:11, 0:12, -1:13, -11:-1, -12:0]
         for (f, ex) in [
             # +
             (i -> i+1, :(i+1)),
@@ -55,6 +55,7 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             (i -> i÷2, :(i÷2)),
             (i -> 1+i÷3, :(1+i÷3)),
             (i -> 1+(i-1)÷3, :(1+(i-1)÷3)),
+            (i -> i ÷₁ 3, :(i ÷₁ 3)), # fld1
             # triple...
             (i -> i+1+2, :(i+1+2)),
             (i -> 1+2+i, :(1+2+i)),
@@ -66,7 +67,12 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             (i -> 3-(-i)÷2, :(3-(-i)÷2)), # needs divrange_minus
             ]
             rex, i = range_expr_walk(:($r .+ 0), ex)
-            @test issubset(sort(f.(eval(rex))), r)
+            rev = eval(rex)
+            @test issubset(f.(rev), r)
+            rev1 = first(rev):last(rev)+1
+            rev2 = first(rev)-1:last(rev)
+            @test !issubset(f.(rev1), r)
+            @test !issubset(f.(rev2), r)
         end
 
         rex, _ = range_expr_walk(:($r .+ 0), :(pad(i,2)))
@@ -80,14 +86,49 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
         # range adjusting functions
         @test minusrange(r) == divrange(r, -1)
 
-        @test issubset(subranges(r, 1:3) .+ 1, r)
-        @test issubset(subranges(r, 1:3) .+ 3, r)
-        @test union(subranges(r, 1:3) .+ 1, subranges(r, 1:3) .+ 3) == r
+        # @test issubset(subranges(r, 1:3) .+ 1, r)
+        # @test issubset(subranges(r, 1:3) .+ 3, r)
+        # @test union(subranges(r, 1:3) .+ 1, subranges(r, 1:3) .+ 3) == r
 
-        @test issubset(addranges(r, 1:3) .- 1, r)
-        @test issubset(addranges(r, 1:3) .- 3, r)
-        @test sort(union(addranges(r, 1:3) .- 1, addranges(r, 1:3) .- 3)) == r
+        # @test issubset(addranges(r, 1:3) .- 1, r)
+        # @test issubset(addranges(r, 1:3) .- 3, r)
+        # @test sort(union(addranges(r, 1:3) .- 1, addranges(r, 1:3) .- 3)) == r
     end
+    @test_throws String range_expr_walk(:(1:10), :(i*j+3))  # product of indices
+    @test_throws String range_expr_walk(:(1:10), :(f(i)+3)) # function
+    @test_throws String range_expr_walk(:(1:10), :(mod(i+j))) # mod is handled elsewhere
+end
+
+using Tullio: antidivrange, antifld1range
+
+@testset "range = $r, n = $n" for r in [Base.OneTo(10),
+        2:10, 3:10, 4:10,
+        0:10, 0:11, 0:12,
+        -1:13, -2:13, -3:13,
+        -10:-1, -11:-2, -12:-3], n in 1:3
+
+    a = subranges(r, n:7)
+    @test a .+ n ⊆ r
+    @test a .+ 7 ⊆ r
+    @test !issubset(a .+ n .- 1, r)
+    @test !issubset(a .+ 7 .+ 1, r)
+
+    b = addranges(r, n:7)
+    @test b .- n ⊆ r
+    @test b .- 7 ⊆ r
+    @test !issubset(b .- n .+ 1, r)
+    @test !issubset(b .- 7 .- 1, r)
+
+    c = antidivrange(r, n)
+    @test div.(c,n) ⊆ r
+    @test !issubset(div.(c .- 1, n), r)
+    @test !issubset(div.(c .+ 1, n), r)
+
+    d = antifld1range(r, n)
+    @test fld1.(d,n) ⊆ r
+    @test !issubset(fld1.(d .- 1, n), r)
+    @test !issubset(fld1.(d .+ 1, n), r)
+
 end
 
 using Tullio: cleave, trisect, productlength

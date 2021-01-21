@@ -61,27 +61,59 @@ issubset(addranges(1:10, 1:3) .- 1, 1:10)
 issubset(addranges(1:10, 1:3) .- 3, 1:10)
 =#
 
-# # This is to get range of j in A[j÷2], from axes(A,1):
+# This is to get range of j in A[j÷2], from axes(A,1).
+# div isn't really the ideal function for such things, fld1 better?
 
-function mulrange(r::AbstractUnitRange, f::Integer)
-    first(r)*f : last(r)*f
+function antidivrange(r::AbstractUnitRange, f::Integer)
+    @info "antidivrange" r f
+    f > 0 || throw("can't scale indices by zero or negative numbers")
+    lo = if first(r) > 0
+        first(r)*f
+    else
+        first(r)*f -f+1
+    end
+    hi = if last(r) >= 0
+        last(r)*f + f-1
+    else
+        last(r)*f
+    end
+    lo:hi
 end
 
-function dotdiv(r::AbstractUnitRange, f::Integer)
-    first(r)÷f : last(r)÷f
+"""
+    a ÷₁ b == fld1(a, b)
+
+This is the natural notion of integer division for 1-based indices,
+`÷ === div`
+"""
+fld1
+const ÷₁ = fld1
+export ÷₁
+
+function antifld1range(r::AbstractUnitRange, f::Integer)
+    @info "antidivrange" r f
+    f > 0 || throw("can't scale indices by zero or negative numbers")
+    lo = first(r)*f -f+1
+    hi = last(r)*f
+    lo:hi
 end
 
 #=
-mulrange(1:10, 2) .÷ 2 |> unique
-mulrange(0:10, 2) .÷ 2 |> unique
-mulrange(1:11, 2) .÷ 2 |> unique
+antidivrange(1:10, 2) .÷ 2 |> unique
+antidivrange(0:10, 2) .÷ 2 |> unique
+antidivrange(1:11, 2) .÷ 2 |> unique
 
-mulrange(1:10, 3) .÷ 3 |> unique
-mulrange(-10:-1, 3) .÷ 3 |> unique
-mulrange(-11:-1, 3) .÷ 3 |> unique
-mulrange(-11:-2, 3) .÷ 3 |> unique
-mulrange(-12:-3, 3) .÷ 3 |> unique
+antidivrange(1:10, 3) .÷ 3 |> unique
+antidivrange(-10:-1, 3) .÷ 3 |> unique
+antidivrange(-11:-1, 3) .÷ 3 |> unique
+antidivrange(-11:-2, 3) .÷ 3 |> unique
+antidivrange(-12:-3, 3) .÷ 3 |> unique
 =#
+
+function dotdiv(r::AbstractUnitRange, f::Integer)
+    @info "dotdiv" r f
+    first(r)÷f : last(r)÷f
+end
 
 # This is for A[I[j]] (where this range must be a subset of axes(A,1))
 # and for A[I[j]+k] (where it enters into the calculation of k's range).
@@ -178,9 +210,11 @@ function range_expr_walk(r, ex::Expr, con=[])
             is_const(a) && return range_expr_walk(:($divrange($r, $a)), b)
             is_const(b) && return range_expr_walk(:($divrange($r, $b)), a)
         elseif op == :÷
-            is_const(b) && return range_expr_walk(:($mulrange($r, $b)), a)
+            is_const(b) && return range_expr_walk(:($antidivrange($r, $b)), a)
+        elseif op == :÷₁
+            is_const(b) && return range_expr_walk(:($antifld1range($r, $b)), a)
         elseif op == :/
-            throw("not sure what to do with $ex, perhaps you wanted ÷")
+            throw("not sure what to do with $ex, perhaps you wanted ÷ or ÷₁")
         end
     elseif length(ex.args) > 3
         op, a, b, c = ex.args[1:4]
