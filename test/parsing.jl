@@ -417,7 +417,7 @@ end
 
     # matrix
     M = rand(Int8, 3,4)
-    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1
+    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1  avx=false
     @test H == [trues(2,10); trues(3,3) M trues(3,3); trues(2,10)]
 
     # pad keyword
