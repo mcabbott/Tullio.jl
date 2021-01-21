@@ -9,7 +9,7 @@ on:
     tags: '*'
 jobs:
   test:
-    name: v${{ matrix.version }}-t${{ matrix.threads }}/group-${{ matrix.group }}/${{ github.event_name }}/${{ matrix.arch }}+${{ matrix.os }}
+    name: v${{ matrix.version }} -t${{ matrix.threads }} / group-${{ matrix.group }} / ${{ github.event_name }} / ${{ matrix.os }}+${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
