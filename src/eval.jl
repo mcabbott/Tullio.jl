@@ -63,7 +63,7 @@ using Requires
         using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
         SVec{N,T} = Vec{N,T}
     end
-
+#=
     # Functions needed for safe vectorised max gradient
     @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
 
@@ -75,6 +75,7 @@ using Requires
     @inline allzero(seen::SVec) = iszero((!iszero(seen)).u)
 
     @inline Tullio.anyone(cond::Mask) = !iszero(cond.u)
+=#
 end
 
 #========== CuArrays ==========#

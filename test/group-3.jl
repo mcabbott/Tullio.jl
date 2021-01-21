@@ -107,6 +107,7 @@ t8 = time()
 using LoopVectorization
 using VectorizationBase
 
+#=
 if isdefined(VectorizationBase, :SVec) # LV version 0.8, for Julia <= 1.5
     using VectorizationBase: SVec, Mask
 else # LV version 0.9, supports Julia >= 1.5
@@ -136,6 +137,7 @@ end
     @test Tullio.onlyone(ms, zero(sv)) === Mask{4}(0x02)
     # @test Tullio.onlyone(ms, zero(sv)).u == 0x02
 end
+=#
 
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
