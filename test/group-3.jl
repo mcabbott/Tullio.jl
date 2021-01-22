@@ -145,6 +145,8 @@ end
 
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
+Threads.nthreads() > 1 && test_group == "2" && exit()  # Github CI times out on multi-thread LV gradient checks.
+
 using Tracker
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
