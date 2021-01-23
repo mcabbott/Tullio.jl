@@ -28,6 +28,10 @@ jobs:
         version:
           - 'nightly'
     steps:
+      - uses: actions/checkout@v2        #
+      - name: Setup tmate session        #
+        uses: mxschmitt/action-tmate@v3  # https://github.com/marketplace/actions/debugging-with-tmate
+        timeout-minutes: 120             #
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
