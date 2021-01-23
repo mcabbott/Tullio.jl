@@ -99,7 +99,7 @@ using Tullio
 A = [abs2(i - 11) for i in 1:21]
 
 # Downsample -- range of i is that allowed by both terms:
-@tullio D[i] := (A[2i] + A[2i+1])/2  # 1:10 == intersect(1:10, 0:10)
+@tullio B[i] := (A[2i] + A[2i+1])/2  # 1:10 == intersect(1:10, 0:10)
 
 # Shifts -- range of i calculated in terms of that given for j:
 @tullio M[i,j] := A[i+j-1]  (j in 1:15)  # i in 1:7
@@ -128,6 +128,9 @@ fft(S) ≈ @tullio F[k] := S[x] * exp(-im*pi/8 * (k-1) * x)  (k ∈ axes(S,1))
 # Reduction over any function:
 @tullio (*) P[i] := A[i+k]  (k in 0:2) # product
 @tullio (max) X[i,_] := D[i,j]         # maximum(D, dims=2), almost
+
+min1(x,y) = ifelse(first(x) < first(y), x, y); # findmin(D, dims=1), almost:
+@tullio (min1) Ts[j+_] := (D[i,j], (i,j))  init=(typemax(Int), (0,0))
 
 # Access to fields & arrays -- this uses j ∈ eachindex(first(N).c)
 N = [(a=i, b=i^2, c=fill(i^3,3)) for i in 1:10]
@@ -449,7 +452,7 @@ Front-end near-lookalikes:
 
 * [Einsum.jl](https://github.com/ahwillia/Einsum.jl) makes simple loops. See [tests/einsum.jl](https://github.com/mcabbott/Tullio.jl/blob/master/test/einsum.jl) where `using Tullio: @einsum` is an almost-seamless replacement.
 
-* [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations.
+* [TensorOperations.jl](https://github.com/Jutho/TensorOperations.jl) and [OMEinsum.jl](https://github.com/under-Peter/OMEinsum.jl) identify patterns on which they can call various basic operations. [TensorRules.jl](https://github.com/ho-oto/TensorRules.jl) makes `@tensor` differentiable; see also [TensorGrad.jl](https://github.com/mcabbott/TensorGrad.jl) and [TensorTrack.jl](https://github.com/mcabbott/TensorTrack.jl) for earlier attempts.
 
 * [TensorCast.jl](https://github.com/mcabbott/TensorCast.jl) expresses everything as Julia array operations, broadcasting and reduction. (OMEinsum.jl also treats some cases as a special lazy broadcast-reduction.)
 

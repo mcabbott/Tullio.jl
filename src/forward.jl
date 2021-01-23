@@ -17,8 +17,8 @@ function insert_forward_gradient(axislist, store)
 
     defineepsilons, readepsilons = [], []
     for (d, (Aepsilon, Aex)) in enumerate(epsilondict)
-        basis = [i==d ? :(one($TYP)) : :(zero($TYP)) for i in 1:length(epsilondict)]
-        push!(defineepsilons, :($Aepsilon = ForwardDiff.Dual(zero($TYP), ($(basis...),))))
+        basis = [i==d ? :($one($TYP)) : :($zero($TYP)) for i in 1:length(epsilondict)]
+        push!(defineepsilons, :($Aepsilon = ForwardDiff.Dual($zero($TYP), ($(basis...),))))
         push!(readepsilons, :($Aex = $Aex + ForwardDiff.partials($ZED, $d) * $dZ[$(store.leftraw...)]))
     end
 

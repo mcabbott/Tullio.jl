@@ -9,7 +9,7 @@ on:
     tags: '*'
 jobs:
   test-julia-nightly:
-    name: NIGHTLY/t-${{ matrix.threads }}/group-${{ matrix.group }}/${{ github.event_name }}/${{ matrix.arch }}+${{ matrix.os }}
+    name: NIGHTLY -t${{ matrix.threads }} / group-${{ matrix.group }} / ${{ github.event_name }} / ${{ matrix.os }}+${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,7 +24,7 @@ jobs:
           - ubuntu-latest
         threads:
           - '1'
-          - '2'
+          - '6'
         version:
           - 'nightly'
     steps:

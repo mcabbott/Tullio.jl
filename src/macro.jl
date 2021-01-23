@@ -466,7 +466,7 @@ padmodclamp_replace(s, store, inside=false) = s
 padmodclamp_replace(ex::Expr, store, inside=false) =
     if ex.head == :(=) && @capture_(ex.args[1], A_[inds__])
         # This tricky case is 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
-        Aex, fun = padmodclamp_pair(A, inds, store)
+        Aex, fun = padmodclamp_pair(A, inds, store, true)
         right = if fun != identity
             padmodclamp_replace(ex.args[2], store, true)
         else
@@ -481,7 +481,7 @@ padmodclamp_replace(ex::Expr, store, inside=false) =
         Expr(ex.head, args...)
     end
 
-padmodclamp_pair(A, inds, store) = begin
+padmodclamp_pair(A, inds, store, assign=false) = begin
     nopadif = []
     inds4 = map(enumerate(inds)) do (d,ex)
         isexpr(ex, :call) || return ex
@@ -494,7 +494,8 @@ padmodclamp_pair(A, inds, store) = begin
         elseif ex.args[1] == :pad && length(ex.args) >= 2
             i = ex.args[2]
             if !all(==(0), ex.args[3:end]) || length(ex.args) == 2
-                push!(nopadif, :($i ∈ $axes($A,$d)))
+                # push!(nopadif, :($i >= first(axes($A,$d))), :($i <= last(axes($A,$d)))) # allows avx
+                push!(nopadif, :($i >= first(axes($A,$d))), :($i <= Base.last(axes($A,$d)))) # allows avx... but LV 0.8, Julia 1.4, needs Base?
             end
             return i
         end
@@ -508,8 +509,10 @@ padmodclamp_pair(A, inds, store) = begin
         for c2 in nopadif[2:end]
             cond = :($cond & $c2)
         end
-        if store.padkeyword == TYP # default
-            ex -> :($cond ? $ex : $zero($eltype($A)))
+        if assign # for gradients, this wraps 𝛥A[pad(i,2)] = 𝛥A[pad(i,2)] + ...
+            ex -> :($cond && $ex)
+        elseif store.padkeyword == TYP # default, pad with zero
+            ex -> :($cond ? $ex : zero(eltype($A)))
         else
             ex -> :($cond ? $ex : $convert($eltype($A), $(store.padkeyword)))
         end
@@ -1070,9 +1073,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     safe = if act! == ACT!
         isempty(store.unsafeleft)
     else # working on ∇act!
-        isempty(store.unsaferight) &&
-            store.redfun == :+ && # Disable @avx for min/max grad, #53
-            store.grad != :Dual   # and for use with ForwardDiff
+        isempty(store.unsaferight)
     end
 
     if safe && store.avx != false && isdefined(store.mod, :LoopVectorization)
@@ -1080,6 +1081,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
         info1 = store.verbose>0 ? :(@info "running LoopVectorization actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
         check1 = store.verbose>0 ? :(LoopVectorization.check_args($(store.arrays...)) || @error "rejected by LoopVectorization's check_args! $($note)" maxlog=3 _id=$(hash(store))) : nothing
         try
+            act! == ACT! || store.redfun == :+ || throw("use of LoopVectorization for min/max gradients is disabled")
             lex = if isnothing(exloopfinal)
                 quote
 

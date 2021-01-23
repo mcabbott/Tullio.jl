@@ -402,7 +402,7 @@ end
     @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
     @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
 
-    @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]
+    @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]  avx=false # 1.4
     @test vcat(zeros(2), A, zeros(3)) == @tullio D[i+_] := A[pad(i,2,3)]
     @test vcat(A, zeros(10)) == @tullio E[i] := A[pad(i)]  i in 1:20
 
@@ -417,7 +417,7 @@ end
 
     # matrix
     M = rand(Int8, 3,4)
-    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1
+    @tullio H[i+_,j+_] := M[pad(i,2), pad(j,3)]  pad=1  avx=false
     @test H == [trues(2,10); trues(3,3) M trues(3,3); trues(2,10)]
 
     # pad keyword
