@@ -21,7 +21,7 @@ if test_group in ["all", "1"]
     include("group-1.jl")
 end
 
-if test_group in ["all", "2"] && VERSION <= v"1.6" # KA testing time-out https://github.com/JuliaGPU/KernelAbstractions.jl/issues/155
+if test_group in ["all", "2"] # && VERSION <= v"1.6" # KA testing time-out https://github.com/JuliaGPU/KernelAbstractions.jl/issues/155
     include("group-2.jl")
 end
 
