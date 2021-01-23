@@ -153,7 +153,7 @@ end
 
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
-if test_group != "3" # Github CI fails, on some runs, "ERROR: Package Tullio errored during testing (received signal: KILL)"
+# if test_group != "3" # Github CI fails, on some runs, "ERROR: Package Tullio errored during testing (received signal: KILL)"
     # https://github.com/mcabbott/Tullio.jl/pull/57/checks?check_run_id=1753332805
 
     using Tracker
@@ -166,7 +166,7 @@ if test_group != "3" # Github CI fails, on some runs, "ERROR: Package Tullio err
     @tullio grad=Dual
     @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
 
-end
+# end
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
