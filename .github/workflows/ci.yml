@@ -18,15 +18,15 @@ jobs:
           - x64
         group:
           - '1'
-          - '2'
-          - '3'
+          # - '2'
+          # - '3'
         os:
           - ubuntu-latest
         threads:
           - '1'
-          - '6' # t>2 might be ignored on Julia <= 1.5
+          # - '6' # t>2 might be ignored on Julia <= 1.5
         version:
-          - '1.4'
+          # - '1.4'
           - '1' # automatically expands to the latest stable 1.x release of Julia
     steps:
       - uses: actions/checkout@v2
