@@ -884,6 +884,27 @@ function output_array(store)
     store.verbose==2 && @info ">>>>> Preliminary expressions" verbosetidy(ex_pre)
 end
 
+function make_func(ex, name = nothing, runtimegen=true)
+    if ex.head == :block
+        nonlines = filter(x->!(x isa LineNumberNode), ex.args)
+        @assert length(nonlines) == 1
+        return make_func(nonlines[1], name, runtimegen)
+    elseif ex.head == :macrocall && ex.args[1] == Symbol("@inline")
+        ex = last(ex.args)
+        pushfirst!(ex.args[end].args, :(Base.@_inline_meta))
+        return make_func(ex, name, runtimegen)
+    end
+    if ex.head == :function && ex.args[1].head == :call
+        name = ex.args[1].args[1]
+    end
+
+    if runtimegen
+        :($name = $(@RuntimeGeneratedFunction(ex)))
+    else ex
+        :($name = $ex)
+    end
+end
+
 #========== action functions ==========#
 
 function action_functions(store)
@@ -971,10 +992,11 @@ function action_functions(store)
     if store.newarray
         # then slurp up outex to make a function:
         ex_make = quote
-            local @inline function $MAKE($(store.arrays...), $(store.scalars...), )
+            function $MAKE($(store.arrays...), $(store.scalars...), )
+                Base.@_inline_meta
                 $(store.outex...)
             end
-        end
+        end |> make_func
         store.verbose==2 && @info ">>>>> Maker function" verbosetidy(ex_make)
         ex = quote
             let $ACT! = $ACT!
@@ -1043,22 +1065,24 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     ex_act = if store.fastmath && isempty(store.notfree)
         quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+            function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                Base.@_inline_meta
                 @inbounds @fastmath ($ex1; $ex2)
             end
-        end
+        end |> make_func
     elseif isempty(store.notfree)
         quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+            function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                Base.@_inline_meta
                 @inbounds ($ex1; $ex2)
-            end
+            end |> make_func
         end
     else
         quote
-            local @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+            @inline function $act!(::Type, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                 ($ex1; $ex2)
             end
-        end
+        end |> make_func
     end
     store.verbose==2 && @info "===== Base actor $note" verbosetidy(ex_act)
     push!(store.outpre, ex_act)
@@ -1091,8 +1115,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             act! == ACT! || store.redfun == :+ || throw("use of LoopVectorization for min/max gradients is disabled")
             lex = if isnothing(exloopfinal)
                 quote
-
-                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
                         $check1
@@ -1100,11 +1123,10 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $expost
                     end
 
-                end
+                end |> make_func
             else # "isnothing(final) ? exp(rhs) : rhs" does not prevent execution of finaliser within @avx
                 quote
-
-                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
                         $check1
@@ -1116,7 +1138,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $expost
                     end
 
-                end
+                end |> make_func
             end
             store.verbose==2 && @info "=====LV===== LoopVectorization actor $note" verbosetidy(lex)
             push!(store.outpre, macroexpand(store.mod, lex))
@@ -1169,8 +1191,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
                 kex2 = quote
-
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
                         cu_kern! = $kernel(CUDADevice(), $(store.cuda))
                         $(asserts...)
@@ -1178,14 +1199,13 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
-                end
+                end |> make_func
                 store.verbose==2 && @info "=====KA===== KernelAbstractions CUDA actor $note" verbosetidy(kex2)
                 push!(store.outpre, kex2)
             end
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
             kex3 = quote
-
-                local @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                @inline function $act!(::Type{<:Array}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                     $info3
                     cpu_kern! = $kernel(CPU(), 4)
                     $(asserts...)
@@ -1193,7 +1213,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     KernelAbstractions.wait($ACC)
                 end
 
-            end
+            end |> make_func
             if store.threads==false
                 # This CPU kernel can't be called by threader, and so threads=false
                 # offers a way to control whether it gets used or not. By default, not.

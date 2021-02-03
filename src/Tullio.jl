@@ -1,5 +1,7 @@
 module Tullio
 
+using RuntimeGeneratedFunctions
+RuntimeGeneratedFunctions.init(@__MODULE__)
 export @tullio
 
 @nospecialize
