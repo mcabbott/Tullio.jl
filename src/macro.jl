@@ -119,7 +119,7 @@ _FASTMATH = Ref(true)
 _THREADS = Ref{Any}(true)
 _GRAD = Ref{Any}(:Base)
 _AVX = Ref{Any}(true)
-_CUDA = Ref{Any}(nothing)
+_CUDA = Ref{Any}(true)
 _TENSOR = Ref(true)
 
 function parse_options(exs...)
@@ -1128,8 +1128,9 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
     end
     safeouter = setdiff(outer, unsafe)
 
-    if store.cuda === nothing || store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
+    if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
         kernel = gensym(:🇨🇺)
+        workgroupsize = store.cuda === true ? nothing : store.cuda  # cuda=true means "use auto-tuning"
         axouter = map(i -> Symbol(AXIS, i), safeouter)
         asserts = map(ax -> :( $first($ax)==1 || $throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
@@ -1167,7 +1168,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                         $info2
                         cu_kern! = $kernel(CUDADevice())
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$(store.cuda), dependencies=Event(CUDADevice()))
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$workgroupsize, dependencies=Event(CUDADevice()))
                         KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 
