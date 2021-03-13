@@ -1,4 +1,13 @@
 
+#========== linear indexing ==========#
+
+# Not so related to shifts, but has to live somewhere! (Runtime.)
+
+linearindex(A::Tuple) = eachindex(A)
+linearindex(A::AbstractArray) = linearindex(IndexStyle(A), A)
+linearindex(::LinearIndices, A::AbstractArray) = eachindex(A)
+linearindex(::IndexStyle, A::AbstractArray) = 1:length(A)  # 1:last(LinearIndices(A))
+
 #========== adjusting index ranges, runtime ==========#
 
 # This is to get the range of j in A[2j], from axes(A,1):

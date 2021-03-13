@@ -363,7 +363,7 @@ saveconstraints(A, inds, store, right=true) = begin
     foreach(enumerate(inds)) do (d,ex)
         is_const(ex) && return
         containsany(ex, store.notfree) && return
-        axis_i = length(inds)==1 ? :($eachindex($A1)) : :($axes($A1,$d))
+        axis_i = length(inds)==1 ? :($linearindex($A1)) : :($axes($A1,$d))
         ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
         range_i, i = range_expr_walk(axis_i, ex_i)
         if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
@@ -403,10 +403,11 @@ saveconstraints(A, inds, store, right=true) = begin
         append!(store.leftind, is) # why can's this be the only path for store.leftind??
     end
     n = length(inds)
-    if n==1
-        str = "expected a 1-array $A1, or a tuple"
-        push!(store.outpre, :( $A1 isa Tuple || $ndims($A1) == 1 || $throw($str) ))
-    else
+    # if n==1
+        # str = "expected a 1-array $A1, or a tuple"
+        # push!(store.outpre, :( $A1 isa Tuple || $ndims($A1) == 1 || $throw($str) ))
+    # else
+    if n>1  # one index now means linear indexing
         str = "expected a $n-array $A1" # already arrayfirst(A)
         push!(store.outpre, :( $ndims($A1) == $n || $throw($str) ))
     end
@@ -639,7 +640,7 @@ function parse_ranges(ranges, store) # now runs after parse_input
             end
         end
         # for axes(A,2) where A is already available, just save it
-        if isexpr(r, :call) && r.args[1] in (:axes, :eachindex) && r.args[2] in store.arrays
+        if isexpr(r, :call) && r.args[1] in (:axes, :linearindex) && r.args[2] in store.arrays
             push!(v, r)
             continue
         end

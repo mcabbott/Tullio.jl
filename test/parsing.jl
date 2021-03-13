@@ -32,6 +32,10 @@ using Tullio, Test, LinearAlgebra
     @tullio W[i,j] := Y[i][j]
     @test W[9,3] == 9^3
 
+    # linear indexing
+    @tullio V[i] := W[i]^2
+    @test V == vec(W).^2
+
     # scalar
     @tullio S := A[i]/2
     @tullio S′ = A[i]/2 # here = is equivalent
