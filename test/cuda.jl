@@ -2,7 +2,7 @@
 using Tullio, Test
 using CUDA, KernelAbstractions
 CUDA.allowscalar(false)
-using Tracker
+using Tracker, ForwardDiff
 @tullio grad=Base
 
 # matmul
@@ -17,7 +17,6 @@ A = rand(3,40); B = rand(40,500);
 @test ΔA ≈ ones(3,500) * B'
 @test cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1]
 
-#=
 # shifts
 @tullio D[i,j] := A[i,j+k]  k in 0:10
 @test axes(D) == (1:3, 1:30)
@@ -25,6 +24,7 @@ A = rand(3,40); B = rand(40,500);
 @test cD isa CuArray
 @test cD ≈ cu(D)
 
+#=
 # ranges
 @tullio E[i,j] := A[i,j+k-1] + (-1:0.5:1)[k]
 @test axes(E) == (1:3, 1:36)
