@@ -6,7 +6,7 @@
 linearindex(A::Tuple) = eachindex(A)
 linearindex(A::AbstractArray) = linearindex(IndexStyle(A), A)
 linearindex(::LinearIndices, A::AbstractArray) = eachindex(A)
-linearindex(::IndexStyle, A::AbstractArray) = 1:length(A)  # 1:last(LinearIndices(A))
+linearindex(::IndexStyle, A::AbstractArray) = Base.OneTo(length(A))
 
 #========== adjusting index ranges, runtime ==========#
 
