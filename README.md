@@ -181,7 +181,7 @@ M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
 @btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
 ```
 
-Another thing Tullio can be very fast at broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
+Another thing Tullio can be very fast at is broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
 
 ```julia
 sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
@@ -315,7 +315,7 @@ Extras:
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done.
 
 </details>
-<details><summary><b>Interals</b></summary>
+<details><summary><b>Internals</b></summary>
 
 The following three macros all end up calling the same functions as does `C = A * B`:
 
