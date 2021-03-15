@@ -161,9 +161,6 @@ using Tullio, Test, LinearAlgebra
     end
     @test B == (4:13) .// (1:3)'
 
-    # wrong ndims
-    @test_throws Any @tullio Z[i] := B[i] # Any as TensorOperations throws ErrorException
-
     # internal name leaks
     for sy in Tullio.SYMBOLS
         @test !isdefined(@__MODULE__, sy)
@@ -366,6 +363,10 @@ using OffsetArrays
     @tullio I[i,j] := 0 * A[i+j] + 0 * B[j]
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
+
+    # linear indexing
+    @tullio L[i] := I[i] + 1 # I is an offset matrix
+    @test L == vec(I) .+ 1
 
     # indexing by an array
     inds = [-1,0,0,0,1]
