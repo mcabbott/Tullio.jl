@@ -39,16 +39,7 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=_VERBOSE[], fastmath=_FASTMATH[], threads=_THREADS[], grad=_GRAD[], avx=_AVX[], cuda=_CUDA[], tensor=_TENSOR[])
-    end
-
-    if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(; mod = mod, opts...,
-            newarray = false, scalar = false,
-            arrays = Symbol[], indices = [], scalars = Symbol[]))
-        if res != nothing # then forward & backward both handled by try_tensor
-            return Expr(:block, res...) |> esc
-        end
+        return (verbose=_VERBOSE[], fastmath=_FASTMATH[], threads=_THREADS[], grad=_GRAD[], avx=_AVX[], cuda=_CUDA[])
     end
 
     store = DotDict(; mod = mod, opts...,
@@ -120,7 +111,6 @@ _THREADS = Ref{Any}(true)
 _GRAD = Ref{Any}(:Base)
 _AVX = Ref{Any}(true)
 _CUDA = Ref{Any}(true)
-_TENSOR = Ref(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
@@ -133,7 +123,7 @@ function parse_options(exs...)
         :grad => _GRAD[],
         :avx => _AVX[],
         :cuda => _CUDA[],
-        :tensor => _TENSOR[],
+        :tensor => false,
         )
     expr = nothing
     nograd = Symbol[]
@@ -188,8 +178,8 @@ function parse_options(exs...)
         _GRAD[] = opts[:grad]
         _AVX[] = opts[:avx]
         _CUDA[] = opts[:cuda]
-        _TENSOR[] = opts[:tensor]
     end
+    opts[:tensor] == false || @warn "option tensor=true is deprecated, try Tullio.@tensor"
     (redfun=opts[:redfun],
         initkeyword=opts[:init], # surely there is a tidier way...
         padkeyword=opts[:pad],
@@ -199,7 +189,6 @@ function parse_options(exs...)
         grad=opts[:grad],
         avx=opts[:avx],
         cuda=opts[:cuda],
-        tensor=opts[:tensor],
         nograd=nograd,
     ), ranges, expr
 end

@@ -1,14 +1,36 @@
 
 #========== use TensorOperations when you can ==========#
-# This seems to always be faster, when applicable.
-# When not, it will return nothing, and we go back the the loops.
+
+"""
+    Tullio.@tensor C[i,j] := A[i,k] * B[k,j]
+
+This is a way to run `TensorOperations.@tensor`, whose only advantage is 
+that it provides gradient definitions. (This code is part of Tullio.jl a bit by accident.)
+
+This is less flexible than `TensorOperations.@tensor`, and in particular it accepts 
+only a single term on the RHS. It is much less flexible that `@tullio`, but will 
+sometimes be faster.
+"""
+macro tensor(exs...)
+    opts, ranges, ex = parse_options(exs...)
+    
+    isempty(ranges) || throw("@tensor does not accept explicit index ranges")
+    opts.redfun == :+ || throw("@tensor only reduces over +")
+    opts.initkeyword == TYP || throw("@tensor does not accept init keyword")
+
+    res = try_tensor(ex, ranges, DotDict(; mod = __module__, opts...,
+        newarray = false, scalar = false,
+        arrays = Symbol[], indices = [], scalars = Symbol[]))
+
+    Expr(:block, res...) |> esc
+end
 
 function try_tensor(expr, ranges, store)
 
     fail = nothing
     if isexpr(expr, [:(:=), :(=), :(+=)])
     else
-        fail = "TensorOperations not used, expected left := right etc"
+        fail = "@tensor expected left := right etc"
     end
     if @capture_(expr.args[1], Z_[leftind__]) && all(a -> a isa Symbol, leftind)
         if expr.head == :(:=)
@@ -24,7 +46,7 @@ function try_tensor(expr, ranges, store)
             store.newarray = true
         end # for scalars, only += case isn't :newarray
     else
-        fail = "TensorOperations not used, expected A[i,j,k] := ..."
+        fail = "@tensor expected A[i,j,k] := ..."
     end
     MacroTools_postwalk(expr.args[2]) do ex
         ex isa Expr || return ex
@@ -35,17 +57,14 @@ function try_tensor(expr, ranges, store)
             # Allows -A[i]. Could allow conj() too, but gradient would be wrong.
         else
             # Disallows anything containing +, since A[i] + B[i,k,k] has differing meanings.
-            fail = "TensorOperations not used, can't handle $(ex)"
+            fail = "Tullio.@tensor can't handle $(ex)"
         end
         ex
     end
-    if fail != nothing
-        store.verbose>0 && @warn fail
-        return nothing
-    end
+    fail != nothing && throw(fail)
 
     outex = [] # you could simplify, only one expression really
-    try
+    # try
         tex = macroexpand(store.mod, :(TensorOperations.@tensor $expr))
 
         if store.newarray
@@ -103,16 +122,16 @@ function try_tensor(expr, ranges, store)
         store.verbose>1 && verbose_tensor(outex, store)
         return outex
 
-    catch err
-        store.verbose>0 && @warn "TensorOperations failed" err
-        return nothing
-    end
+    # catch err
+    #     store.verbose>0 && @warn "TensorOperations failed" err
+    #     return nothing
+    # end
 end
 
 verbose_tensor(outex, store) = begin
-    verboseprint(store)
     printstyled("TensorOperations outex =\n", color=:blue)
     foreach(ex -> printstyled(Base.remove_linenums!(ex) , "\n", color=:green), outex)
+    verboseprint(store)
 end
 
 
@@ -227,7 +246,7 @@ function replace_B_with_Δ(B, Bijk, right, leftind)
     # I said:
     # Gradient has indices appearing only on LHS... so you need * ones()[i,j]?
 
-    countB > 1 && error("can't handle case of $B appearing twice with same indices")
+    countB > 1 && throw("can't handle case of $B appearing twice with same indices")
     # Could also multiply by countB, and replace just once, would that be safe?
 
     return out, extra, newijk
