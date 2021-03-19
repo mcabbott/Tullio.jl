@@ -1,7 +1,7 @@
 name = "Tullio"
 uuid = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
 authors = ["Michael Abbott"]
-version = "0.2.12"
+version = "0.2.13"
 
 [deps]
 DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
