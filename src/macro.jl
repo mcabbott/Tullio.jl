@@ -310,6 +310,7 @@ function parse_input(expr, store)
     unique!(store.leftind)
     store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
+    union!(store.unsaferight, store.shiftedind)
     any(==(:_), vcat(store.leftind, store.rightind)) && throw("can't use _ as an index name")
 
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
