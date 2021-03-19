@@ -32,6 +32,10 @@ using Tullio, Test, LinearAlgebra
     @tullio W[i,j] := Y[i][j]
     @test W[9,3] == 9^3
 
+    # linear indexing
+    @tullio V[i] := W[i]^2
+    @test V == vec(W).^2
+
     # scalar
     @tullio S := A[i]/2
     @tullio S′ = A[i]/2 # here = is equivalent
@@ -156,9 +160,6 @@ using Tullio, Test, LinearAlgebra
         x // y
     end
     @test B == (4:13) .// (1:3)'
-
-    # wrong ndims
-    @test_throws Any @tullio Z[i] := B[i] # Any as TensorOperations throws ErrorException
 
     # internal name leaks
     for sy in Tullio.SYMBOLS
@@ -362,6 +363,10 @@ using OffsetArrays
     @tullio I[i,j] := 0 * A[i+j] + 0 * B[j]
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
+
+    # linear indexing
+    @tullio L[i] := I[i] + 1 # I is an offset matrix
+    @test L == vec(I) .+ 1
 
     # indexing by an array
     inds = [-1,0,0,0,1]
