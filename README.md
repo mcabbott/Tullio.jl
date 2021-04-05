@@ -232,7 +232,7 @@ using Tracker # or Zygote
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
-using CUDA, KernelAbstractions # Now defined with a GPU version:
+using CUDA, CUDAKernels, KernelAbstractions # Now defined with a GPU version:
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
 cu(A * B) ≈ mul(cu(A), cu(B)) # true
