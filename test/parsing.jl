@@ -11,7 +11,7 @@ using Tullio, Test, LinearAlgebra
     @test A == [i^2 for i in 1:10]
 
     # diagonals
-    @tullio D[i,i] := trunc(Int, sqrt(A[i])) avx=false # MethodError: no method matching trunc(::Type{Int64}, ::VectorizationBase.Vec{4,Float64})
+    @tullio D[i,i] := trunc(Int, sqrt(A[i]))
     @test D == Diagonal(sqrt.(A))
 
     # arrays of arrays
@@ -278,6 +278,8 @@ if !@isdefined OffsetArray
 end
 
 using OffsetArrays
+
+# One new failure in here on 0.12, looks similar to others?
 
 @testset "index shifts" begin
 
