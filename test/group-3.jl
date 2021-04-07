@@ -4,6 +4,14 @@ if VERSION < v"1.6.9" # Zygote is failing on nightly
 
 t5 = time()
 using Zygote
+# patch for https://github.com/FluxML/Zygote.jl/issues/897
+@eval Zygote begin
+   function _pullback(cx::AContext, ::typeof(sum), f, xs::AbstractArray)
+      y, back = pullback(cx, ((f, xs) -> sum(f.(xs))), f, xs)
+      y, ȳ -> (nothing, back(ȳ)...)
+   end
+end
+
 
 GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
