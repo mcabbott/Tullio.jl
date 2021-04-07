@@ -259,29 +259,35 @@ function parse_input(expr, store)
     end
 
     # Left hand side:
-    if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
+    if @capture_(left, Z_[leftraw__] )
+    elseif @capture_(left, [leftraw__] )
+        Base.depwarn("to omit a name for the output, please write `_[i,j] := ...` with an underscore (for Tullio ≥ 0.2.14)", Symbol("@tullio"))
+        Z = :_
     elseif left isa Symbol # complete reduction
         store.newarray = true
         store.scalar = true
         store.leftscalar = left # because store.leftarray will be the array
         leftraw = Any[1,] # the gradient still indexes a fake 1D array
         expr.head == :(+=) && push!(store.scalars, left)
+        Z = ZED
     else
         throw("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw2 = tidyleftraw(leftraw, store)
     store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(store.newarray) && throw("can't write into an array whose name isn't given!")
-    Zed = isnothing(Z) ? ZED : Z
-    store.leftarray = Zed
+    if Z == :_
+        store.newarray || throw("can't write into an array whose name isn't given!")
+        Z = ZED
+    end
+    store.leftarray = Z
 
     store.leftraw = finishleftraw(leftraw2, store)
     if store.newarray && !allunique(store.leftind)
         store.zero = true # making diagonals, etc.
     end
     if !(store.newarray)
-        saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
+        saveconstraints(Z, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
         store.plusequals && detectunsafe(left, store.unsafeleft, store) # A[J[k]] += is unsafe, A[J[k]] = is not.
     end
 
@@ -315,8 +321,8 @@ function parse_input(expr, store)
 
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
-    if store.newarray && Zed in store.arrays
-        throw("can't create a new array $Zed when this also appears on the right")
+    if store.newarray && Z in store.arrays
+        throw("can't create a new array $Z when this also appears on the right")
     end
 end
 

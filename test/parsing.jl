@@ -150,7 +150,7 @@ using Tullio, Test, LinearAlgebra
     @test Y[2] === (ind = 2, val = 4)
 
     # no name given
-    Z = @tullio [i] := A[i] + 1
+    Z = @tullio _[i] := A[i] + 1
     @test Z == A .+ 1
 
     # multi-line
@@ -212,6 +212,7 @@ end
     @test W2 == W
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
+    @test_throws LoadError @eval @tullio _[i,j] = A[i] + 100
 
     # zero off-diagonal? no.
     @tullio D[i,i] = A[i]
