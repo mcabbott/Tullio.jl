@@ -51,19 +51,13 @@ using Requires
 
 @inline anyone(cond::Bool) = cond
 
-@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
-    using .LoopVectorization
-    if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
-        using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
-        @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-            # Dual numbers + svec, not needed on version 0.9
-            include("grad/avxdual.jl")
-        end
-    else # version 0.9, supports Julia 1.6
-        using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
-        SVec{N,T} = Vec{N,T}
-    end
 #=
+
+@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
+    using .LoopVectorization # version 0.9+ only now
+    using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
+    SVec{N,T} = Vec{N,T}
+    end
     # Functions needed for safe vectorised max gradient
     @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
 
@@ -75,8 +69,9 @@ using Requires
     @inline allzero(seen::SVec) = iszero((!iszero(seen)).u)
 
     @inline Tullio.anyone(cond::Mask) = !iszero(cond.u)
-=#
 end
+
+=#
 
 #========== CuArrays ==========#
 

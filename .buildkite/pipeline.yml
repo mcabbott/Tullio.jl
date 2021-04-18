@@ -3,10 +3,10 @@ env:
   # SECRET_CODECOV_TOKEN: "..."
 
 steps:
-  - label: "Julia 1.5"
+  - label: "Julia 1.6"
     plugins:
       - JuliaCI/julia#v0.5:
-          version: 1.5
+          version: 1.6
       - JuliaCI/julia-test#v0.3: ~
       # - JuliaCI/julia-coverage#v0.3:
       #     codecov: true
