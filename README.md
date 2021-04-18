@@ -181,6 +181,18 @@ M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
 @btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
 ```
 
+Or slightly less obviously:
+
+```julia
+M, Σ = randn(100,100), randn(100,100);
+@tullio R4[i, j] := (M[μ, i] - M[μ,j])' * Σ[μ,ν] * (M[ν, i] - M[ν, j]);
+begin
+  S = M' * Σ * M  # two N^3 operations, instead of one N^4
+  @tullio R3[i,j] := S[i,i] + S[j,j] - S[i,j] - S[j,i]
+end;
+R3 ≈ R4
+```
+
 Another thing Tullio can be very fast at is broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
 
 ```julia
