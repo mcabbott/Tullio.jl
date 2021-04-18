@@ -183,8 +183,6 @@ _gradient(x...) = Tracker.gradient(x...)
 
 @testset "gradients: Tracker + TensorOperations" begin include("tensorgrad.jl") end
 
-if VERSION < v"1.6-" # Zygote isn't working on 1.6
-
 using Zygote
 GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
@@ -214,8 +212,6 @@ _gradient(x...) = Zygote.gradient(x...)
     end
     =#
 end
-
-end # VERSION
 
 @info @sprintf("TensorOperations tests took %.1f seconds", time()-t9)
 
