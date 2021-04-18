@@ -596,20 +596,20 @@ end
     # when using KernelAbstractions, something leaks from the 1st leading 2nd to error
     block = 64
     @tullio A[i] := (1:10)[i]^2  threads=block # Symbol
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  threads=:maybe
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  threads=:maybe
 
     # keyword verbose accepts values [true, false, 2, 3]
     @tullio A[i] := (1:10)[i]^2  verbose=1 avx=false # @error: rejected by LoopVectorization's check_args
     @tullio A[i] := (1:10)[i]^2  verbose=false
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=4
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  verbose=4
 
     # keyword grad accepts values [false, Base, Dual]
     @tullio A[i] := (1:10)[i]^2  grad=false
     @tullio A[i] := (1:10)[i]^2  grad=Base
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  grad=true
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  grad=true
 
     # recognised keywords are [:threads, :verbose, :avx, :cuda, :grad]
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  key=nothing
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  key=nothing
 
 end
 
