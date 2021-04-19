@@ -17,8 +17,8 @@ jobs:
         arch:
           - x64
         group:
-          # - '1'
-          # - '2'
+          - '1'
+          - '2'
           - '3'
         os:
           - ubuntu-latest
