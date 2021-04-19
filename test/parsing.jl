@@ -42,11 +42,11 @@ using Tullio, Test, LinearAlgebra
     @test S ≈ S′ ≈ sum(A)/2
 
     # almost scalar
-    @tullio Z[] := A[i] + A[j]
+    @tullio Z[] := A[i] + A[j]  avx=false
     @test Z isa Array{Int,0}
-    @tullio Z′[1,1] := A[i] + A[j]
+    @tullio Z′[1,1] := A[i] + A[j]  avx=false
     @test size(Z′) == (1,1)
-    @tullio Z′′[_] := A[i] + A[j]
+    @tullio Z′′[_] := A[i] + A[j]  avx=false
     @test size(Z′′) == (1,)
     @test Z[] == Z′[1,1] == Z′′[1] == sum(A .+ A')
 
