@@ -383,6 +383,10 @@ using OffsetArrays
     @test axes(@tullio _[i] := log10(V[i])) == (3:6,)
 
     # indexing by an array
+    @tullio W[i] := I[end-i+1] # does not use lastindex(I,1)
+    @test W == reverse(vec(I))
+
+    # indexing by an array: gather
     inds = [-1,0,0,0,1]
     @tullio K[i,j] := A[inds[i]+j]
     @test K[2,3] == K[3,3] == K[4,3]
