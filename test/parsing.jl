@@ -296,10 +296,12 @@ using OffsetArrays
     j = 7 # interpolation
     @tullio C[i] := A[2i+$j]
     @test axes(C,1) == -3:1
-    @tullio C[i] := A[end-2i] # end can appear in range inference
+
+    # end can appear in range inference
+    @tullio C[i] := A[end-2i]  avx=false
     @test axes(C,1) == 0:4
 
-    @tullio C[i] := A[end-2begin-i]
+    @tullio C[i] := A[end-2begin-i]  avx=false
     @test parent(C) == [A[end-2begin-i] for i in -2:7]
 
     cee(A) = @tullio C[i] := A[2i+$j] # closure over j
@@ -383,7 +385,7 @@ using OffsetArrays
     @test axes(@tullio _[i] := log10(V[i])) == (3:6,)
 
     # indexing by an array
-    @tullio W[i] := I[end-i+1] # does not use lastindex(I,1)
+    @tullio W[i] := I[end-i+1]  avx=false # does not use lastindex(I,1)
     @test W == reverse(vec(I))
 
     # indexing by an array: gather
