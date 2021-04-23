@@ -7,6 +7,7 @@ linearindex(A::Tuple) = eachindex(A)
 linearindex(A::AbstractArray) = linearindex(IndexStyle(A), A)
 linearindex(::LinearIndices, A::AbstractArray) = eachindex(A)
 linearindex(::IndexStyle, A::AbstractArray) = Base.OneTo(length(A))
+linearindex(::IndexStyle, v::AbstractVector) = UnitRange(eachindex(v))
 
 #========== adjusting index ranges, runtime ==========#
 
