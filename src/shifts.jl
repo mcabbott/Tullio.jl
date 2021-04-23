@@ -3,10 +3,8 @@
 
 # Not so related to shifts, but has to live somewhere! (Runtime.)
 
-linearindex(A::Tuple) = eachindex(A)
-linearindex(A::AbstractArray) = linearindex(IndexStyle(A), A)
-linearindex(::LinearIndices, A::AbstractArray) = eachindex(A)
-linearindex(::IndexStyle, A::AbstractArray) = Base.OneTo(length(A))
+linearindex(A) = Base.OneTo(length(A))  # Tuple, AbstractArray
+linearindex(v::AbstractVector) = Base.axes1(v)
 
 #========== adjusting index ranges, runtime ==========#
 

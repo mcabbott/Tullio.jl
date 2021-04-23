@@ -369,6 +369,9 @@ using OffsetArrays
     @tullio L[i] := I[i] + 1 # I is an offset matrix
     @test L == vec(I) .+ 1
 
+    V = OffsetArray([1,10,100,1000],2) # offset vector
+    @test axes(@tullio _[i] := log10(V[i])) == (3:6,)
+
     # indexing by an array
     inds = [-1,0,0,0,1]
     @tullio K[i,j] := A[inds[i]+j]
