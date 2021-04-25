@@ -294,6 +294,35 @@ function range_expr_walk(r::Nothing, ex::Expr)
     # end
 end
 
+"""
+    range_fix_end( :(minusrange(axes(A, 1), end), :(axes(A, 1)) )
+
+While `range_expr_walk` knows that `:end` is a constant, it doesn't remove it
+from expressions to calculate ranges, since it has by then forgotten the original range.
+"""
+function range_fix_end(expr, axis_i)
+    MacroTools_prewalk(expr) do ex
+        ex === :end && return _fix_end(axis_i)
+        ex === :begin && return _fix_begin(axis_i)
+        return ex
+    end
+end
+
+_fix_end(ex) =
+    if isexpr(ex, :call) && ex.args[1] in (:axes, axes, :(Base.axes))
+        _, A, d = ex.args
+        :($lastindex($A, $d))
+    else
+        :($last($ex)) 
+    end
+_fix_begin(ex) =
+    if isexpr(ex, :call) && ex.args[1] in (:axes, axes, :(Base.axes))
+        _, A, d = ex.args
+        :($firstindex($A, $d))
+    else
+        :($first($ex)) 
+    end
+
 @specialize
 
 #========== the end ==========#

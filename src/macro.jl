@@ -274,7 +274,7 @@ function parse_input(expr, store)
         throw("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw2 = tidyleftraw(leftraw, store)
-    store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
+    store.leftind = filter(i -> i isa Symbol && !is_const(i), leftraw2) # this gives correct outer loop order
 
     if Z == :_
         store.newarray || throw("can't write into an array whose name isn't given!")
@@ -373,6 +373,7 @@ saveconstraints(A, inds, store, right=true) = begin
         axis_i = length(inds)==1 ? :($linearindex($A1)) : :($axes($A1,$d))
         ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
         range_i, i = range_expr_walk(axis_i, ex_i)
+        range_i = range_fix_end(range_i, axis_i)
         if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
             if i isa Symbol
                 push!(is, i)
@@ -554,8 +555,10 @@ tidyleftraw(leftraw, store) = begin
 end
 
 finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
+    is_const(i) && store.newarray && (i != 1)  &&
+        throw("can't fix indices on LHS when making a new array")
+
     if isexpr(i, :$)
-        store.newarray && throw("can't fix indices on LHS when making a new array")
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]

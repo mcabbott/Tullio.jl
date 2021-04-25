@@ -64,7 +64,7 @@ using Tullio, Test, LinearAlgebra
 
     @test_throws LoadError @eval @tullio D[i,$j] := A[i]
 
-    @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
+    @tullio H[i] := D[i,:]
     @test H[5] == F
 
     # trivial dimensions
@@ -196,9 +196,14 @@ end
 
     # fixed on left
     j = 3
+    D .= 3;
     @tullio D[$j,i] = 99
     @test D[j,j] == 99
     @test D[1,1] != 0
+    @tullio D[i,end] = 100*A[i]  avx=false
+    @test D[2,end] == 100*A[2]
+    @tullio D[i,end-3] = 1000*A[i]  avx=false
+    @test D[2,end-3] == 1000*A[2]
 
     # diagonal & ==, from https://github.com/ahwillia/Einsum.jl/pull/14
     B = [1 2 3; 4 5 6; 7 8 9]
@@ -292,6 +297,13 @@ using OffsetArrays
     @tullio C[i] := A[2i+$j]
     @test axes(C,1) == -3:1
 
+    # end can appear in range inference
+    @tullio C[i] := A[end-2i]  avx=false
+    @test axes(C,1) == 0:4
+
+    @tullio C[i] := A[end-2begin-i]  avx=false
+    @test parent(C) == [A[end-2begin-i] for i in -2:7]
+
     cee(A) = @tullio C[i] := A[2i+$j] # closure over j
     @test axes(cee(A),1) == -3:1
 
@@ -373,6 +385,10 @@ using OffsetArrays
     @test axes(@tullio _[i] := log10(V[i])) == (3:6,)
 
     # indexing by an array
+    @tullio W[i] := I[end-i+1]  avx=false # does not use lastindex(I,1)
+    @test W == reverse(vec(I))
+
+    # indexing by an array: gather
     inds = [-1,0,0,0,1]
     @tullio K[i,j] := A[inds[i]+j]
     @test K[2,3] == K[3,3] == K[4,3]
