@@ -343,7 +343,7 @@ if Tullio._GRAD[] != :Dual
         @test _gradient(sum∘norm2, mat)[1] ≈ ForwardDiff.gradient(sum∘norm2, mat)
         @test gradtest(norm2, (3,4))
 
-        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
+        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh  avx=false # this takes 15 mins +?
         @test gradtest(layer, (3,4))
 
         @printline
