@@ -21,7 +21,7 @@ OffsetArrays = "1"
 Requires = "1"
 TensorOperations = "3"
 Tracker = "0.2"
-VectorizationBase = "0.19.25"
+VectorizationBase = "0.19.30"
 Zygote = "0.6.9"
 julia = "1.5"
 
