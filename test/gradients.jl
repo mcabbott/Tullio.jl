@@ -65,6 +65,9 @@ end
     @test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
 
 end
+
+println("... 69")
+
 @testset "zero-arrays" begin
 
     # Using zero-dim arrays fails on ReverseDiff & Tracker
@@ -103,6 +106,9 @@ end
     # [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 0.0, 64.0, 81.0, 100.0, 121.0] ≈ [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0, 121.0]
 
 end
+
+println("... 110")
+
 @testset "shifts, etc" begin
 
     c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
@@ -155,6 +161,9 @@ end
     end
 
 end
+
+println("... 165")
+
 @testset "from TensorTrace" begin
     # These can all be handled using TensorOperations
 
@@ -220,6 +229,8 @@ end
     @test gradtest(sc2, (3,3))
 
 end
+
+println("... 233")
 
 if Tullio._GRAD[] != :Dual
 #=
@@ -316,6 +327,9 @@ if Tullio._GRAD[] != :Dual
         # I suspect that @avx is re-ordering loops, which makes onlyone() incorrect.
 
     end
+
+    println("... 331")
+
     @testset "finalisers" begin
 
         norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
@@ -355,3 +369,5 @@ if GRAD == :Zygote
 
     end
 end
+
+println("... 373!")

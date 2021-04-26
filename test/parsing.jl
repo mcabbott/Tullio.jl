@@ -79,14 +79,13 @@ using Tullio, Test, LinearAlgebra
     @test A2 == 2 .* A
 
     # broadcasting
-    @tullio S[i] := sqrt.(M[:,i]) # avx & grad now disabled by try/catch
-    # @tullio T[i] := A[i] .+ A[j]  # dot does nothing, fails with LoopVectorization loaded
+    @tullio S[i] := sqrt.(M[:,i]) 
 
     # scope
     f(x,k) = @tullio y[i] := x[i] + i + $k
     @test f(ones(3),j) == 1 .+ (1:3) .+ j
 
-    g(x) = @tullio y := sqrt(x[i])
+    g(x) = @tullio y := sqrt(x[i])  avx=false
     @test g(fill(4,5)) == 10
 
     # ranges
