@@ -16,8 +16,6 @@ end
 
 @testset "simple" begin
 
-if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1.4, LV 0.8, I have no idea why.
-
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
 
@@ -32,7 +30,6 @@ if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1
     g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
     @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
 
-end
     r100 = randn(100)
 
     # scalar output
@@ -216,10 +213,10 @@ end
     @test gradtest(con14, (3,3,9,9))
 
     ## scalar -- one with :=, one without
-    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]
-    @test gradtest(sc1, (1,2,3))
+    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false
+    @test gradtest(sc1, (1,2,3)) # UndefVarError: ####op#798_0 not defined
 
-    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]
+    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]  avx=false
     @test gradtest(sc2, (3,3))
 
 end
