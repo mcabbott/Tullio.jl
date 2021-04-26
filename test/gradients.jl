@@ -6,7 +6,7 @@ This file is run several times
 =#
 
 using Tullio, Test, ForwardDiff, Random
-# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
+# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker; macro printline() end
 
 function gradtest(f, dims)
     x = randn(dims...)
@@ -66,7 +66,7 @@ end
 
 end
 
-println("... 69")
+@printline
 
 @testset "zero-arrays" begin
 
@@ -107,7 +107,7 @@ end
 
 end
 
-println("... 110")
+@printline
 
 @testset "shifts, etc" begin
 
@@ -162,7 +162,7 @@ end
 
 end
 
-println("... 165")
+@printline
 
 @testset "from TensorTrace" begin
     # These can all be handled using TensorOperations
@@ -202,6 +202,8 @@ println("... 165")
     con7(x) = @tullio C[m,n,j,i] := 44 * x[i,j,k] * r392[k,m,n]
     @test gradtest(con7, (9,2,3))
 
+    @printline
+
     ## contract! B
     con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]
     @test gradtest(con8b, (2,3))
@@ -221,6 +223,8 @@ println("... 165")
     con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
     @test gradtest(con14, (3,3,9,9))
 
+    @printline
+
     ## scalar -- one with :=, one without
     sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false
     @test gradtest(sc1, (1,2,3)) # UndefVarError: ####op#798_0 not defined
@@ -230,7 +234,7 @@ println("... 165")
 
 end
 
-println("... 233")
+@printline
 
 if Tullio._GRAD[] != :Dual
 #=
@@ -328,7 +332,7 @@ if Tullio._GRAD[] != :Dual
 
     end
 
-    println("... 331")
+    @printline
 
     @testset "finalisers" begin
 
@@ -342,6 +346,8 @@ if Tullio._GRAD[] != :Dual
         layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
         @test gradtest(layer, (3,4))
 
+        @printline
+
         lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
         @test gradtest(lse1, (3,4))
 
@@ -354,6 +360,8 @@ if Tullio._GRAD[] != :Dual
 
     end
 end
+
+@printline
 
 if GRAD == :Zygote
     @testset "nograd keyword" begin
@@ -370,4 +378,4 @@ if GRAD == :Zygote
     end
 end
 
-println("... 373!")
+@printline

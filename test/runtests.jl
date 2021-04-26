@@ -17,6 +17,11 @@ if Threads.nthreads() > 1 # use threading even on small arrays
     Tullio.TILE[] = 32
 end
 
+macro printline()  # useful in hunting for where tests get stuck
+    file = split(string(__source__.file), "/")[end]
+    printstyled("  ", file, ":", __source__.line, "\n", color=:light_black)
+end
+
 if test_group in ["all", "1"]
     include("group-1.jl")
 end

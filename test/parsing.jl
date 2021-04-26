@@ -167,7 +167,7 @@ using Tullio, Test, LinearAlgebra
 
 end
 
-println("... 171")
+@printline
 
 @testset "in-place" begin
 
@@ -260,7 +260,7 @@ println("... 171")
 
 end
 
-println("... 264")
+@printline
 
 if !@isdefined OffsetArray
     @testset "without packages" begin
@@ -421,7 +421,7 @@ using OffsetArrays
     @test_throws LoadError @eval @tullio Z[i+_] = A[2i+10] # in-place
 end
 
-println("... 427")
+@printline
 
 @testset "modulo, clamped & padded" begin
 
@@ -467,7 +467,7 @@ println("... 427")
     @test_throws InexactError @tullio J[i,i] := A[i]  pad=im
 end
 
-println("... 473")
+@printline
 
 @testset "other reductions" begin
 
@@ -549,7 +549,7 @@ println("... 473")
 
 end
 
-println("... 555")
+@printline
 
 @testset "finalisers" begin
 
@@ -616,7 +616,7 @@ end
 
 end
 
-println("... 622")
+@printline
 
 @testset "options" begin
 
@@ -705,4 +705,4 @@ end
 
 end
 
-println("... 711!")
+@printline
