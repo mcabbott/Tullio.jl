@@ -27,8 +27,6 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
-* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
-
 The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
 
@@ -325,6 +323,10 @@ Extras:
 * Similarly, `A[pad(i,3)]` extends the range of `i`, inserting zeros outside of `A`. Instead of zero, `pad=NaN` uses this value as padding. The implementation of this (and `mod`, `clamp`) is not very fast at present.
 * On the left, when making a new array, an underscore like `A[i+_] :=` inserts whatever shift is needed to make `A` one-based.
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done.
+
+Macros:
+* `Tullio.@tensor` is a macro which uses TensorOperations to evaluate expressions, but provides gradient definitions. (Previously this was automatic behaviour, when TensorOperations.jl was loaded & the expression was suitable.)
+* `Tullio.@einsum` is a variant with a few changes, to allow the running of Einsum.jl's tests.
 
 </details>
 <details><summary><b>Internals</b></summary>
