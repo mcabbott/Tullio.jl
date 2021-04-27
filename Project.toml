@@ -1,7 +1,7 @@
 name = "Tullio"
 uuid = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
 authors = ["Michael Abbott"]
-version = "0.2.14"
+version = "0.3.0"
 
 [deps]
 DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
@@ -9,23 +9,25 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [compat]
-CUDA = "1, 2"
+CUDA = "2"
+CUDAKernels = "0.1"
 DiffRules = "1"
-FillArrays = "0.10"
+FillArrays = "0.10, 0.11"
 ForwardDiff = "0.10"
-KernelAbstractions = "0.5.2"
-LoopVectorization = "0.8.26, 0.9.20"
+KernelAbstractions = "0.6"
+LoopVectorization = "0.12.12"
 NamedDims = "0.2"
 OffsetArrays = "1"
 Requires = "1"
 TensorOperations = "3"
 Tracker = "0.2"
-VectorizationBase = "0.12.33, 0.15.7"
-Zygote = "0.6"
-julia = "1.3"
+VectorizationBase = "0.19.30"
+Zygote = "0.6.9"
+julia = "1.5"
 
 [extras]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CUDAKernels = "72cfdca4-0801-4ab0-bf6a-d52aa10adc57"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
@@ -42,4 +44,4 @@ VectorizationBase = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
-test = ["Test", "CUDA", "FillArrays", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "LoopVectorization", "NamedDims", "OffsetArrays", "Printf", "Random", "TensorOperations", "Tracker", "VectorizationBase", "Zygote"]
+test = ["Test", "CUDA", "CUDAKernels", "FillArrays", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "LoopVectorization", "NamedDims", "OffsetArrays", "Printf", "Random", "TensorOperations", "Tracker", "VectorizationBase", "Zygote"]

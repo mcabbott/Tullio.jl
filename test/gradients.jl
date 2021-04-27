@@ -6,7 +6,7 @@ This file is run several times
 =#
 
 using Tullio, Test, ForwardDiff, Random
-# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
+# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker; macro printline() end
 
 function gradtest(f, dims)
     x = randn(dims...)
@@ -15,8 +15,6 @@ function gradtest(f, dims)
 end
 
 @testset "simple" begin
-
-if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1.4, LV 0.8, I have no idea why.
 
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
@@ -32,7 +30,6 @@ if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1
     g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
     @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
 
-end
     r100 = randn(100)
 
     # scalar output
@@ -68,6 +65,9 @@ end
     @test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
 
 end
+
+@printline
+
 @testset "zero-arrays" begin
 
     # Using zero-dim arrays fails on ReverseDiff & Tracker
@@ -106,6 +106,9 @@ end
     # [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 0.0, 64.0, 81.0, 100.0, 121.0] ≈ [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0, 121.0]
 
 end
+
+@printline
+
 @testset "shifts, etc" begin
 
     c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
@@ -158,6 +161,9 @@ end
     end
 
 end
+
+@printline
+
 @testset "from TensorTrace" begin
     # These can all be handled using TensorOperations
 
@@ -196,6 +202,8 @@ end
     con7(x) = @tullio C[m,n,j,i] := 44 * x[i,j,k] * r392[k,m,n]
     @test gradtest(con7, (9,2,3))
 
+    @printline
+
     ## contract! B
     con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]
     @test gradtest(con8b, (2,3))
@@ -215,14 +223,18 @@ end
     con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
     @test gradtest(con14, (3,3,9,9))
 
-    ## scalar -- one with :=, one without
-    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]
-    @test gradtest(sc1, (1,2,3))
+    @printline
 
-    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]
+    ## scalar -- one with :=, one without
+    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false
+    @test gradtest(sc1, (1,2,3)) # UndefVarError: ####op#798_0 not defined
+
+    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]  avx=false
     @test gradtest(sc2, (3,3))
 
 end
+
+@printline
 
 if Tullio._GRAD[] != :Dual
 #=
@@ -319,6 +331,9 @@ if Tullio._GRAD[] != :Dual
         # I suspect that @avx is re-ordering loops, which makes onlyone() incorrect.
 
     end
+
+    @printline
+
     @testset "finalisers" begin
 
         norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
@@ -328,8 +343,10 @@ if Tullio._GRAD[] != :Dual
         @test _gradient(sum∘norm2, mat)[1] ≈ ForwardDiff.gradient(sum∘norm2, mat)
         @test gradtest(norm2, (3,4))
 
-        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
+        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh  avx=false # this takes 15 mins +?
         @test gradtest(layer, (3,4))
+
+        @printline
 
         lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
         @test gradtest(lse1, (3,4))
@@ -343,6 +360,8 @@ if Tullio._GRAD[] != :Dual
 
     end
 end
+
+@printline
 
 if GRAD == :Zygote
     @testset "nograd keyword" begin
@@ -358,3 +377,5 @@ if GRAD == :Zygote
 
     end
 end
+
+@printline

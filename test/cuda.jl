@@ -1,6 +1,6 @@
 
 using Tullio, Test
-using CUDA, KernelAbstractions
+using CUDA, CUDAKernels, KernelAbstractions
 CUDA.allowscalar(false)
 using Tracker, ForwardDiff
 @tullio grad=Base
