@@ -352,11 +352,6 @@ using OffsetArrays
     @test axes(@tullio J[i,j] := A[-2j+i] + 0 * B[j]) == (9:12, 1:4)
     @test axes(@tullio J[i,j] := A[2i-2j] + 0 * B[j]) == (5:6, 1:4)
 
-    @test axes(@tullio I[i,j] := A[i+j÷2] + 0 * B[j]) == (1:8, 1:4)
-    @test axes(@tullio I[i,j] := A[i+(j-1)÷2] + 0 * B[j]) == (1:9, 1:4)
-    @test axes(@tullio I[i,j] := A[2i+(j-1)÷2] + 0 * B[j] avx=false) == (1:4, 1:4)  # wtf?
-    @test axes(@tullio I[i,j] := A[i+(j-1)÷3] + 0 * B[j]) == (1:9, 1:4)
-
     @test_throws LoadError @eval @tullio I[i,j] := A[i+j] # under-specified
 
     # in-place
