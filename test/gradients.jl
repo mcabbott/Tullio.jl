@@ -358,7 +358,7 @@ if Tullio._GRAD[] != :Dual
 
         @printline
 
-        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt
+        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt  avx=false # sometimes gets stuck here?
         mx3(mat) # hmmm what is this?
         _gradient(sum∘mx3, mat)[1] # zero
 
