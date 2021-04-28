@@ -226,10 +226,12 @@ end
     @printline
 
     ## scalar -- one with :=, one without
-    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false
+    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false verbose=true
     @test gradtest(sc1, (1,2,3)) # UndefVarError: ####op#798_0 not defined
 
-    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]  avx=false
+    @printline
+
+    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]  avx=false verbose=true
     @test gradtest(sc2, (3,3))
 
 end
@@ -353,6 +355,8 @@ if Tullio._GRAD[] != :Dual
 
         # relu(x) = max(x, zero(x))
         # lay2(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> relu
+
+        @printline
 
         mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt
         mx3(mat) # hmmm what is this?
