@@ -9,8 +9,8 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [compat]
-CUDA = "2"
-CUDAKernels = "0.1"
+CUDA = "2, 3"
+CUDAKernels = "0.1, 0.2"
 DiffRules = "1"
 FillArrays = "0.10, 0.11"
 ForwardDiff = "0.10"
