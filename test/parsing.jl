@@ -127,7 +127,7 @@ using Tullio, Test, LinearAlgebra
     @test H[1,:] == M[2,:] # but H[3,:] gets written into twice.
 
     J′ = [1,2,10]
-    @tullio H′[J′[i'],k] := A[k]
+    @tullio H′[J′[i'],k] := A[k]  avx=false # new failure LoopVectorization v0.12.13?
     @test size(H′) == (10, length(A))
     @test H′[2,:] == A
     @test H′[3,4] == 0 # zeroed before being written into
