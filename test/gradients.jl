@@ -41,7 +41,7 @@ end
     @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
 
     # nontrivial function
-    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
     r_x, r_y = rand(2,3), rand(3,2)
     fx = ForwardDiff.gradient(x -> sum(flog(x, r_y)), r_x)
     fy = ForwardDiff.gradient(y -> sum(flog(r_x, y)), r_y)
@@ -79,7 +79,7 @@ end
         @test _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
     end
     # one-element vectors are fine:
-    @test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+    @test _gradient(x -> sum(@tullio y[1] := log(x[i]) avx=false), collect(1:3.0))[1] == 1 ./ (1:3)  # new failure LoopVectorization v0.12.14? only on CI?
     # which is what's now used for this:
     @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
@@ -146,7 +146,7 @@ end
 @testset "@inferred" begin
 
     h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]  # as above
-    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
 
     mat = rand(3,3)
     @test @inferred(h2(mat, mat)) ≈ vec(sum(mat .+ mat', dims=2))
