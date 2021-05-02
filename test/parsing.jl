@@ -127,7 +127,7 @@ using Tullio, Test, LinearAlgebra
     @test H[1,:] == M[2,:] # but H[3,:] gets written into twice.
 
     J′ = [1,2,10]
-    @tullio H′[J′[i'],k] := A[k]  avx=false # new failure LoopVectorization v0.12.13?
+    @tullio H′[J′[i'],k] := A[k]  avx=false # new failure LoopVectorization v0.12.13? only on CI?
     @test size(H′) == (10, length(A))
     @test H′[2,:] == A
     @test H′[3,4] == 0 # zeroed before being written into
@@ -371,7 +371,7 @@ using OffsetArrays
 
     # shifts on left
     E = zero(A)
-    @tullio E[2i+1] = A[i]
+    @tullio E[2i+1] = A[i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
     @test E[2+1] == A[1]
     @test E[2*4+1] == A[4]
 
@@ -557,7 +557,7 @@ end
 
     @tullio B[i,j] := A[i] + A[k] // A[j]
 
-    @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
+    @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt  avx=false # new failure LoopVectorization v0.12.14? only on CI?
     @test B2 ≈ mapslices(norm, B .+ B', dims=1)
 
     # trivial use, scalar output -- now forbidden
@@ -569,11 +569,11 @@ end
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
-    @tullio n2[_] := C[i]^2 |> sqrt
+    @tullio n2[_] := C[i]^2 |> sqrt  avx=false
     @test n2[1] ≈ norm(C,2)
 
     D = rand(1000, 1000) # > Tullio.TILE[]
-    @tullio D2[_,j] := D[i,j]^2 |> sqrt
+    @tullio D2[_,j] := D[i,j]^2 |> sqrt  avx=false
     @test D2 ≈ mapslices(norm, D, dims=1)
 
     # functions with underscores
