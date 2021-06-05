@@ -277,7 +277,10 @@ function parse_input(expr, store)
     end
     if !(store.newarray)
         saveconstraints(Z, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-        store.plusequals && detectunsafe(left, store.unsafeleft, store) # A[J[k]] += is unsafe, A[J[k]] = is not.
+        if store.plusequals # A[J[k]] += is unsafe, A[J[k]] = is not.
+            detectunsafe(left, store.unsafeleft, store)
+            store.unsafeleft = setdiff(store.unsafeleft, store.leftraw) # and A[J[k],k] += ... is safe.
+        end
     end
 
     # Right hand side
@@ -305,7 +308,7 @@ function parse_input(expr, store)
     unique!(store.leftind)
     store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
-    union!(store.unsaferight, store.shiftedind)
+    store.unsaferight = union(setdiff(store.unsaferight, store.sharedind), store.shiftedind)
     any(==(:_), vcat(store.leftind, store.rightind)) && throw("can't use _ as an index name")
 
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
