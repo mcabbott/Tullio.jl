@@ -51,9 +51,9 @@ function ChainRulesCore.rrule(ev::Eval, args...)
     Z, function tullio_back(Δ)
         isnothing(ev.rev) && error("no gradient definition here!")
         dxs = map(ev.rev(Δ, Z, args...)) do dx
-            dx === nothing ? ChainRulesCore.Zero() : dx
+            dx === nothing ? ChainRulesCore.ZeroTangent() : dx
         end
-        tuple(ChainRulesCore.NO_FIELDS, dxs...)
+        tuple(ChainRulesCore.ZeroTangent(), dxs...)
     end
 end
 
