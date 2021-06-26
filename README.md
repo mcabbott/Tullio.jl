@@ -27,10 +27,10 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
-The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
+The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or (via  [ChainRules](https://github.com/JuliaDiff/ChainRules.jl)) for [Zygote](https://github.com/FluxML/Zygote.jl), [Yota](https://github.com/dfdx/Yota.jl), etc. <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
 
-* By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
+* By default it takes a symbolic derivative of the right hand side expression. (Only for reductions over `+` or `min`/`max`.)
 
 * The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side (only for reductions over `+`). This allows for more complicated expressions.
 
