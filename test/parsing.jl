@@ -496,7 +496,7 @@ end
     @test 200 == @tullio (max) m := A[i] init=200
     @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 avx=false # widens type
     @test C == max.(33.3, A)
-    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() avx=false tensor=false # UndefVarError: ##op#1444_0__1 not defined
+    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn()
     @test C == fill(C[1], 10)
 
     # more dimensions
