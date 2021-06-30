@@ -186,13 +186,13 @@ end
 
     r22 = rand(2,2);
 
-    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]
+    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]  avx=false # I think leading size-1 dims are the problem
     @test gradtest(con3, (1,2,3))
 
-    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]
+    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]  avx=false
     @test gradtest(con4, (1,2,3))
 
-    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]
+    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]  avx=false
     @test gradtest(con5, (1,2,3))
 
     r392 = randn(3,9,2);
@@ -205,7 +205,7 @@ end
     @printline
 
     ## contract! B
-    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]
+    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]  avx=false
     @test gradtest(con8b, (2,3))
 
     con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]
@@ -220,7 +220,7 @@ end
     @test gradtest(con13, (3,3,9,9))
 
     r33 = rand(3,3);
-    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
+    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]  avx=false
     @test gradtest(con14, (3,3,9,9))
 
     @printline
