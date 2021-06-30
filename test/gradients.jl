@@ -20,7 +20,7 @@ end
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
 
     # two contributions
-    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]
+    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]  avx=false
     mat = [1 1 3; 1 1 5; 7 7 7]
     g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
     @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
@@ -49,7 +49,7 @@ end
     @test fy ≈ _gradient(sum∘flog, r_x, r_y)[2]
 
     # classic
-    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]
+    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]  avx=false # new?
     x1 = rand(3,4);
     y1 = rand(4,5);
     z1 = x1 * y1
@@ -186,13 +186,13 @@ end
 
     r22 = rand(2,2);
 
-    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]
+    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]  avx=false # I think leading size-1 dims are the problem
     @test gradtest(con3, (1,2,3))
 
-    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]
+    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]  avx=false
     @test gradtest(con4, (1,2,3))
 
-    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]
+    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]  avx=false
     @test gradtest(con5, (1,2,3))
 
     r392 = randn(3,9,2);
@@ -205,13 +205,13 @@ end
     @printline
 
     ## contract! B
-    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]
+    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]  avx=false
     @test gradtest(con8b, (2,3))
 
     con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]
     @test gradtest(con9b, (1,2,3))
 
-    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]
+    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]  avx=false
     @test gradtest(con10b, (9,2,3))
 
     r3399 = randn(3,3,9,9);
@@ -220,7 +220,7 @@ end
     @test gradtest(con13, (3,3,9,9))
 
     r33 = rand(3,3);
-    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
+    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]  avx=false
     @test gradtest(con14, (3,3,9,9))
 
     @printline
