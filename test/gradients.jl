@@ -211,7 +211,7 @@ end
     con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]
     @test gradtest(con9b, (1,2,3))
 
-    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]
+    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]  avx=false
     @test gradtest(con10b, (9,2,3))
 
     r3399 = randn(3,3,9,9);
