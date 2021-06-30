@@ -49,7 +49,7 @@ end
     @test fy ≈ _gradient(sum∘flog, r_x, r_y)[2]
 
     # classic
-    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]
+    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]  avx=false # new?
     x1 = rand(3,4);
     y1 = rand(4,5);
     z1 = x1 * y1
