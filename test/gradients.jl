@@ -20,7 +20,7 @@ end
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
 
     # two contributions
-    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]
+    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]  avx=false
     mat = [1 1 3; 1 1 5; 7 7 7]
     g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
     @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
