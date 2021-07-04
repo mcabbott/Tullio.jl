@@ -17,11 +17,16 @@ if Threads.nthreads() > 1 # use threading even on small arrays
     Tullio.TILE[] = 32
 end
 
+macro printline()  # useful in hunting for where tests get stuck
+    file = split(string(__source__.file), "/")[end]
+    printstyled("  ", file, ":", __source__.line, "\n", color=:light_black)
+end
+
 if test_group in ["all", "1"]
     include("group-1.jl")
 end
 
-if test_group in ["all", "2"] # && VERSION <= v"1.6" # KA testing time-out https://github.com/JuliaGPU/KernelAbstractions.jl/issues/155
+if test_group in ["all", "2"]
     include("group-2.jl")
 end
 

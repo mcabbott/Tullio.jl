@@ -20,8 +20,10 @@ using ForwardDiff, FillArrays
 
     @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2)) == Vector{ForwardDiff.Dual{Nothing,Float64,1}}
     @test storage_type(rand(2), fill(ForwardDiff.Dual(1,0),2,3)) == Array{ForwardDiff.Dual{Nothing,Float64,1}}
-    @test storage_type(rand(2), FillArrays.Fill(1.0, 2,2)) == AbstractArray{Float64,N} where N
-    @test storage_type(rand(2), FillArrays.Fill(true, 2,2)) == AbstractArray
+
+    # special case, but is this a good idea?
+    @test storage_type(rand(2), FillArrays.Fill(1.0, 2,2)) == Vector{Float64}
+    @test storage_type(rand(2), FillArrays.Fill(true, 2,2)) == Vector{Float64}
 
 end
 
@@ -51,10 +53,6 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             (i -> -1+2i, :(-1+2i)),
             (i -> 1-3i, :(1-3i)),
             (i -> 1-3(i+4), :(1-3(i+4))),
-            # ÷
-            (i -> i÷2, :(i÷2)),
-            (i -> 1+i÷3, :(1+i÷3)),
-            (i -> 1+(i-1)÷3, :(1+(i-1)÷3)),
             # triple...
             (i -> i+1+2, :(i+1+2)),
             (i -> 1+2+i, :(1+2+i)),
@@ -63,7 +61,6 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
             (i -> 1+2+3+4(-i), :(1+2+3+4(-i))),
             # evil
             (i -> (2i+1)*3+4, :((2i+1)*3+4)),
-            (i -> 3-(-i)÷2, :(3-(-i)÷2)), # needs divrange_minus
             ]
             rex, i = range_expr_walk(:($r .+ 0), ex)
             @test issubset(sort(f.(eval(rex))), r)
@@ -75,7 +72,6 @@ using Tullio: range_expr_walk, divrange, minusrange, subranges, addranges
         @test extrema(eval(rex)) == (first(r)-1-2, last(r)-1+5)
 
         @test range_expr_walk(:($r .+ 0), :(i+j))[2] == (:i, :j) # weak test!
-        @test range_expr_walk(:($r .+ 0), :(2i+(j-1)÷3))[2] == (:i, :j) # weak test!
 
         # range adjusting functions
         @test minusrange(r) == divrange(r, -1)

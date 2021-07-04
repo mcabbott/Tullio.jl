@@ -1,4 +1,11 @@
 
+#========== linear indexing ==========#
+
+# Not so related to shifts, but has to live somewhere! (Runtime.)
+
+linearindex(A) = Base.OneTo(length(A))  # Tuple, AbstractArray
+linearindex(v::AbstractVector) = Base.axes1(v)
+
 #========== adjusting index ranges, runtime ==========#
 
 # This is to get the range of j in A[2j], from axes(A,1):
@@ -59,28 +66,6 @@ issubset(subranges(1:10, 1:3) .+ 3, 1:10)
 
 issubset(addranges(1:10, 1:3) .- 1, 1:10)
 issubset(addranges(1:10, 1:3) .- 3, 1:10)
-=#
-
-# # This is to get range of j in A[j÷2], from axes(A,1):
-
-function mulrange(r::AbstractUnitRange, f::Integer)
-    first(r)*f : last(r)*f
-end
-
-function dotdiv(r::AbstractUnitRange, f::Integer)
-    first(r)÷f : last(r)÷f
-end
-
-#=
-mulrange(1:10, 2) .÷ 2 |> unique
-mulrange(0:10, 2) .÷ 2 |> unique
-mulrange(1:11, 2) .÷ 2 |> unique
-
-mulrange(1:10, 3) .÷ 3 |> unique
-mulrange(-10:-1, 3) .÷ 3 |> unique
-mulrange(-11:-1, 3) .÷ 3 |> unique
-mulrange(-11:-2, 3) .÷ 3 |> unique
-mulrange(-12:-3, 3) .÷ 3 |> unique
 =#
 
 # This is for A[I[j]] (where this range must be a subset of axes(A,1))
@@ -177,10 +162,8 @@ function range_expr_walk(r, ex::Expr, con=[])
         elseif op == :*
             is_const(a) && return range_expr_walk(:($divrange($r, $a)), b)
             is_const(b) && return range_expr_walk(:($divrange($r, $b)), a)
-        elseif op == :÷
-            is_const(b) && return range_expr_walk(:($mulrange($r, $b)), a)
-        elseif op == :/
-            throw("not sure what to do with $ex, perhaps you wanted ÷")
+        elseif op in (:÷, :/)
+            throw("division using ÷ or / in indexing is not supported")
         end
     elseif length(ex.args) > 3
         op, a, b, c = ex.args[1:4]
@@ -252,8 +235,6 @@ range_unwrap(ex::Expr) = begin
         elseif op == :-
             is_const(a) && return :($a .- $(range_unwrap(b)))
             is_const(b) && return :($(range_unwrap(a)) .- $b)
-        elseif op == :÷
-            is_const(b) && return :($dotdiv($(range_unwrap(a)), $b))
         end
     end
     throw("don't know how to handle $ex, sorry")
@@ -286,6 +267,35 @@ function range_expr_walk(r::Nothing, ex::Expr)
         end
     # end
 end
+
+"""
+    range_fix_end( :(minusrange(axes(A, 1), end), :(axes(A, 1)) )
+
+While `range_expr_walk` knows that `:end` is a constant, it doesn't remove it
+from expressions to calculate ranges, since it has by then forgotten the original range.
+"""
+function range_fix_end(expr, axis_i)
+    MacroTools_prewalk(expr) do ex
+        ex === :end && return _fix_end(axis_i)
+        ex === :begin && return _fix_begin(axis_i)
+        return ex
+    end
+end
+
+_fix_end(ex) =
+    if isexpr(ex, :call) && ex.args[1] in (:axes, axes, :(Base.axes))
+        _, A, d = ex.args
+        :($lastindex($A, $d))
+    else
+        :($last($ex)) 
+    end
+_fix_begin(ex) =
+    if isexpr(ex, :call) && ex.args[1] in (:axes, axes, :(Base.axes))
+        _, A, d = ex.args
+        :($firstindex($A, $d))
+    else
+        :($first($ex)) 
+    end
 
 @specialize
 

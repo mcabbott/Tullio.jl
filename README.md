@@ -6,7 +6,7 @@
 [![Tag Version](https://img.shields.io/github/v/tag/mcabbott/Tullio.jl?color=red&logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMzI1cHQiIGhlaWdodD0iMzAwcHQiIHZpZXdCb3g9IjAgMCAzMjUgMzAwIiB2ZXJzaW9uPSIxLjEiPgo8ZyBpZD0ic3VyZmFjZTkxIj4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig3OS42JSwyMy41JSwyMCUpO2ZpbGwtb3BhY2l0eToxOyIgZD0iTSAxNTAuODk4NDM4IDIyNSBDIDE1MC44OTg0MzggMjY2LjQyMTg3NSAxMTcuMzIwMzEyIDMwMCA3NS44OTg0MzggMzAwIEMgMzQuNDc2NTYyIDMwMCAwLjg5ODQzOCAyNjYuNDIxODc1IDAuODk4NDM4IDIyNSBDIDAuODk4NDM4IDE4My41NzgxMjUgMzQuNDc2NTYyIDE1MCA3NS44OTg0MzggMTUwIEMgMTE3LjMyMDMxMiAxNTAgMTUwLjg5ODQzOCAxODMuNTc4MTI1IDE1MC44OTg0MzggMjI1ICIvPgo8cGF0aCBzdHlsZT0iIHN0cm9rZTpub25lO2ZpbGwtcnVsZTpub256ZXJvO2ZpbGw6cmdiKDIyJSw1OS42JSwxNC45JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDIzNy41IDc1IEMgMjM3LjUgMTE2LjQyMTg3NSAyMDMuOTIxODc1IDE1MCAxNjIuNSAxNTAgQyAxMjEuMDc4MTI1IDE1MCA4Ny41IDExNi40MjE4NzUgODcuNSA3NSBDIDg3LjUgMzMuNTc4MTI1IDEyMS4wNzgxMjUgMCAxNjIuNSAwIEMgMjAzLjkyMTg3NSAwIDIzNy41IDMzLjU3ODEyNSAyMzcuNSA3NSAiLz4KPHBhdGggc3R5bGU9IiBzdHJva2U6bm9uZTtmaWxsLXJ1bGU6bm9uemVybztmaWxsOnJnYig1OC40JSwzNC41JSw2OS44JSk7ZmlsbC1vcGFjaXR5OjE7IiBkPSJNIDMyNC4xMDE1NjIgMjI1IEMgMzI0LjEwMTU2MiAyNjYuNDIxODc1IDI5MC41MjM0MzggMzAwIDI0OS4xMDE1NjIgMzAwIEMgMjA3LjY3OTY4OCAzMDAgMTc0LjEwMTU2MiAyNjYuNDIxODc1IDE3NC4xMDE1NjIgMjI1IEMgMTc0LjEwMTU2MiAxODMuNTc4MTI1IDIwNy42Nzk2ODggMTUwIDI0OS4xMDE1NjIgMTUwIEMgMjkwLjUyMzQzOCAxNTAgMzI0LjEwMTU2MiAxODMuNTc4MTI1IDMyNC4xMDE1NjIgMjI1ICIvPgo8L2c+Cjwvc3ZnPgo=)](https://github.com/mcabbott/Tullio.jl/releases)
 </div>
 
-Tullio is a very flexible einsum macro. It understands many array operations written in index notation, for example:
+Tullio is a very flexible einsum macro. It understands many array operations written in index notation -- not just matrix multiplication and permutations, but also convolutions, stencils, scatter/gather, and broadcasting. For example:
 
 ```julia
 @tullio M[x,y,c] := N[x+i, y+j,c] * K[i,j]     # sum over i,j, and create M
@@ -19,20 +19,18 @@ Tullio is a very flexible einsum macro. It understands many array operations wri
 ```
 
 Used by itself the macro writes ordinary nested loops much like [`Einsum.@einsum`](https://github.com/ahwillia/Einsum.jl).
-One difference is that it can parse more expressions (such as the convolution `M`, and worse).
+One difference is that it can parse more expressions, and infer ranges for their indices.
 Another is that it will use multi-threading (via [`Threads.@spawn`](https://julialang.org/blog/2019/07/multithreading/)) and recursive tiling, on large enough arrays.
 But it also co-operates with various other packages, provided they are loaded before the macro is called:
 
-* It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
+* It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with keyword `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
 
-* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
+* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) (plus CUDAKernels) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
-* It uses [`TensorOperations.@tensor`](https://github.com/Jutho/TensorOperations.jl) on expressions which this understands. (Disable with `tensor=false`.) These must be Einstein-convention contractions of one term; none of the examples above qualify.
-
-The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or [Zygote](https://github.com/FluxML/Zygote.jl). <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
+The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or (via  [ChainRules](https://github.com/JuliaDiff/ChainRules.jl)) for [Zygote](https://github.com/FluxML/Zygote.jl), [Yota](https://github.com/dfdx/Yota.jl), etc. <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
 
-* By default it takes a symbolic derivative of the right hand side expression. When using `@tensor`, this writes another `@tensor` expression for each input array, otherwise it simply fills in all the gradient arrays at once. (Only for reductions over `+` or `min`/`max`.)
+* By default it takes a symbolic derivative of the right hand side expression. This works for reductions over `+` or `min`/`max`. The functions as typed must be known, mostly from [DiffRules](https://github.com/JuliaDiff/DiffRules.jl). 
 
 * The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side (only for reductions over `+`). This allows for more complicated expressions.
 
@@ -60,6 +58,8 @@ Pipe operators `|>` or `<|` indicate functions to be performed *outside* the sum
 The option `@tullio verbose=true` will cause it to print index ranges, symbolic derivatives,
 and notices when it is unable to use the packages mentioned above.
 And `verbose=2` will print everything.
+
+If it's useful in academic work, you can cite it with this DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5047410.svg)](https://doi.org/10.5281/zenodo.5047410)
 
 <details><summary><b>Notation</b></summary>
 
@@ -181,7 +181,19 @@ M1, M2, M3 = randn(30,30), randn(30,30), randn(30,30);
 @btime @tullio M4[i,l] := $M1[i,j] * $M2[j,k] * $M3[k,l]; # 30.401 μs
 ```
 
-Another thing Tullio can be very fast at broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
+Or slightly less obviously:
+
+```julia
+M, Σ = randn(100,100), randn(100,100);
+@tullio R4[i, j] := (M[μ, i] - M[μ,j])' * Σ[μ,ν] * (M[ν, i] - M[ν, j]);
+begin
+  S = M' * Σ * M  # two N^3 operations, instead of one N^4
+  @tullio R3[i,j] := S[i,i] + S[j,j] - S[i,j] - S[j,i]
+end;
+R3 ≈ R4
+```
+
+Another thing Tullio can be very fast at is broadcast reductions, where it can avoid large allocations. Here LoopVectorization is speeding up `log`, and Tullio is handling tiled memory access and multi-threading:
 
 ```julia
 sum_opp(X, Y=X) = @tullio s := X[i,j] * log(Y[j,i])
@@ -232,7 +244,7 @@ using Tracker # or Zygote
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
-using CUDA, KernelAbstractions # Now defined with a GPU version:
+using CUDA, CUDAKernels, KernelAbstractions # Now defined with a GPU version:
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
 cu(A * B) ≈ mul(cu(A), cu(B)) # true
@@ -314,8 +326,12 @@ Extras:
 * On the left, when making a new array, an underscore like `A[i+_] :=` inserts whatever shift is needed to make `A` one-based.
 * `Tullio.@printgrad (x+y)*log(x/z)   x y z` prints out how symbolic derivatives will be done.
 
+Macros:
+* `Tullio.@tensor` is a macro which uses TensorOperations to evaluate expressions, but provides gradient definitions. (Previously this was automatic behaviour, when TensorOperations.jl was loaded & the expression was suitable.)
+* `Tullio.@einsum` is a variant with a few changes, to allow the running of Einsum.jl's tests.
+
 </details>
-<details><summary><b>Interals</b></summary>
+<details><summary><b>Internals</b></summary>
 
 The following three macros all end up calling the same functions as does `C = A * B`:
 

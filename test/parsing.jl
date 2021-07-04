@@ -11,7 +11,7 @@ using Tullio, Test, LinearAlgebra
     @test A == [i^2 for i in 1:10]
 
     # diagonals
-    @tullio D[i,i] := trunc(Int, sqrt(A[i])) avx=false # MethodError: no method matching trunc(::Type{Int64}, ::VectorizationBase.Vec{4,Float64})
+    @tullio D[i,i] := trunc(Int, sqrt(A[i]))
     @test D == Diagonal(sqrt.(A))
 
     # arrays of arrays
@@ -32,17 +32,21 @@ using Tullio, Test, LinearAlgebra
     @tullio W[i,j] := Y[i][j]
     @test W[9,3] == 9^3
 
+    # linear indexing
+    @tullio V[i] := W[i]^2
+    @test V == vec(W).^2
+
     # scalar
     @tullio S := A[i]/2
     @tullio S′ = A[i]/2 # here = is equivalent
     @test S ≈ S′ ≈ sum(A)/2
 
     # almost scalar
-    @tullio Z[] := A[i] + A[j]
+    @tullio Z[] := A[i] + A[j]  avx=false
     @test Z isa Array{Int,0}
-    @tullio Z′[1,1] := A[i] + A[j]
+    @tullio Z′[1,1] := A[i] + A[j]  avx=false
     @test size(Z′) == (1,1)
-    @tullio Z′′[_] := A[i] + A[j]
+    @tullio Z′′[_] := A[i] + A[j]  avx=false
     @test size(Z′′) == (1,)
     @test Z[] == Z′[1,1] == Z′′[1] == sum(A .+ A')
 
@@ -60,7 +64,7 @@ using Tullio, Test, LinearAlgebra
 
     @test_throws LoadError @eval @tullio D[i,$j] := A[i]
 
-    @tullio H[i] := D[i,:] # storage_type(H, D) == Array, this avoids @avx
+    @tullio H[i] := D[i,:]
     @test H[5] == F
 
     # trivial dimensions
@@ -75,14 +79,13 @@ using Tullio, Test, LinearAlgebra
     @test A2 == 2 .* A
 
     # broadcasting
-    @tullio S[i] := sqrt.(M[:,i]) # avx & grad now disabled by try/catch
-    # @tullio T[i] := A[i] .+ A[j]  # dot does nothing, fails with LoopVectorization loaded
+    @tullio S[i] := sqrt.(M[:,i]) 
 
     # scope
     f(x,k) = @tullio y[i] := x[i] + i + $k
     @test f(ones(3),j) == 1 .+ (1:3) .+ j
 
-    g(x) = @tullio y := sqrt(x[i])
+    g(x) = @tullio y := sqrt(x[i])  avx=false
     @test g(fill(4,5)) == 10
 
     # ranges
@@ -124,7 +127,7 @@ using Tullio, Test, LinearAlgebra
     @test H[1,:] == M[2,:] # but H[3,:] gets written into twice.
 
     J′ = [1,2,10]
-    @tullio H′[J′[i'],k] := A[k] avx=false # StackOverflowError
+    @tullio H′[J′[i'],k] := A[k]  avx=false # new failure LoopVectorization v0.12.13? only on CI?
     @test size(H′) == (10, length(A))
     @test H′[2,:] == A
     @test H′[3,4] == 0 # zeroed before being written into
@@ -146,7 +149,7 @@ using Tullio, Test, LinearAlgebra
     @test Y[2] === (ind = 2, val = 4)
 
     # no name given
-    Z = @tullio [i] := A[i] + 1
+    Z = @tullio _[i] := A[i] + 1
     @test Z == A .+ 1
 
     # multi-line
@@ -157,15 +160,14 @@ using Tullio, Test, LinearAlgebra
     end
     @test B == (4:13) .// (1:3)'
 
-    # wrong ndims
-    @test_throws Any @tullio Z[i] := B[i] # Any as TensorOperations throws ErrorException
-
     # internal name leaks
     for sy in Tullio.SYMBOLS
         @test !isdefined(@__MODULE__, sy)
     end
 
 end
+
+@printline
 
 @testset "in-place" begin
 
@@ -195,9 +197,14 @@ end
 
     # fixed on left
     j = 3
+    D .= 3;
     @tullio D[$j,i] = 99
     @test D[j,j] == 99
     @test D[1,1] != 0
+    @tullio D[i,end] = 100*A[i]  avx=false
+    @test D[2,end] == 100*A[2]
+    @tullio D[i,end-3] = 1000*A[i]  avx=false
+    @test D[2,end-3] == 1000*A[2]
 
     # diagonal & ==, from https://github.com/ahwillia/Einsum.jl/pull/14
     B = [1 2 3; 4 5 6; 7 8 9]
@@ -211,6 +218,7 @@ end
     @test W2 == W
 
     @test_throws LoadError @eval @tullio [i,j] = A[i] + 100
+    @test_throws LoadError @eval @tullio _[i,j] = A[i] + 100
 
     # zero off-diagonal? no.
     @tullio D[i,i] = A[i]
@@ -219,7 +227,7 @@ end
     # scatter operation
     D = similar(A, 10, 10) .= 999
     inds = [2,3,5,2]
-    @tullio D[inds[i],j] = A[j] avx=false # StackOverflowError
+    @tullio D[inds[i],j] = A[j]
     @test D[2,:] == A
     @test D[4,4] != 0 # not zeroed before writing.
 
@@ -251,6 +259,8 @@ end
     end
 
 end
+
+@printline
 
 if !@isdefined OffsetArray
     @testset "without packages" begin
@@ -289,6 +299,13 @@ using OffsetArrays
     j = 7 # interpolation
     @tullio C[i] := A[2i+$j]
     @test axes(C,1) == -3:1
+
+    # end can appear in range inference
+    @tullio C[i] := A[end-2i]  avx=false
+    @test axes(C,1) == 0:4
+
+    @tullio C[i] := A[end-2begin-i]  avx=false
+    @test parent(C) == [A[end-2begin-i] for i in -2:7]
 
     cee(A) = @tullio C[i] := A[2i+$j] # closure over j
     @test axes(cee(A),1) == -3:1
@@ -335,11 +352,6 @@ using OffsetArrays
     @test axes(@tullio J[i,j] := A[-2j+i] + 0 * B[j]) == (9:12, 1:4)
     @test axes(@tullio J[i,j] := A[2i-2j] + 0 * B[j]) == (5:6, 1:4)
 
-    @test axes(@tullio I[i,j] := A[i+j÷2] + 0 * B[j]) == (1:8, 1:4)
-    @test axes(@tullio I[i,j] := A[i+(j-1)÷2] + 0 * B[j]) == (1:9, 1:4)
-    @test axes(@tullio I[i,j] := A[2i+(j-1)÷2] + 0 * B[j]) == (1:4, 1:4)
-    @test axes(@tullio I[i,j] := A[i+(j-1)÷3] + 0 * B[j]) == (1:9, 1:4)
-
     @test_throws LoadError @eval @tullio I[i,j] := A[i+j] # under-specified
 
     # in-place
@@ -354,7 +366,7 @@ using OffsetArrays
 
     # shifts on left
     E = zero(A)
-    @tullio E[2i+1] = A[i]
+    @tullio E[2i+1] = A[i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
     @test E[2+1] == A[1]
     @test E[2*4+1] == A[4]
 
@@ -363,7 +375,18 @@ using OffsetArrays
     @test axes(@tullio I[i,j] = A[i+j] + B[j]) == (0:6, 1:4) # over-specified
     @test axes(@tullio I[i,j] = A[i+j]) == (0:6, 1:4) # needs range from LHS
 
+    # linear indexing
+    @tullio L[i] := I[i] + 1 # I is an offset matrix
+    @test L == vec(I) .+ 1
+
+    V = OffsetArray([1,10,100,1000],2) # offset vector
+    @test axes(@tullio _[i] := log10(V[i]) avx=false) == (3:6,) # https://github.com/JuliaSIMD/LoopVectorization.jl/issues/249
+
     # indexing by an array
+    @tullio W[i] := I[end-i+1]  avx=false # does not use lastindex(I,1)
+    @test W == reverse(vec(I))
+
+    # indexing by an array: gather
     inds = [-1,0,0,0,1]
     @tullio K[i,j] := A[inds[i]+j]
     @test K[2,3] == K[3,3] == K[4,3]
@@ -393,6 +416,8 @@ using OffsetArrays
     @test_throws LoadError @eval @tullio Z[i+_] = A[2i+10] # in-place
 end
 
+@printline
+
 @testset "modulo, clamped & padded" begin
 
     A = [i^2 for i in 1:10]
@@ -402,7 +427,7 @@ end
     @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
     @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
 
-    @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]  avx=false # 1.4
+    @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]  avx=false # no method matching _vload(::VectorizationBase.FastRange{Int64,
     @test vcat(zeros(2), A, zeros(3)) == @tullio D[i+_] := A[pad(i,2,3)]
     @test vcat(A, zeros(10)) == @tullio E[i] := A[pad(i)]  i in 1:20
 
@@ -437,6 +462,8 @@ end
     @test_throws InexactError @tullio J[i,i] := A[i]  pad=im
 end
 
+@printline
+
 @testset "other reductions" begin
 
     A = [i^2 for i in 1:10]
@@ -448,7 +475,7 @@ end
 
     @test true == @tullio (&) p := A[i] > 0
     @test true === @tullio (&) p := A[i] > 0
-    @test true == @tullio (|) q := A[i] > 50
+    @test true == @tullio (|) q := A[i] > 50  avx=false # zero_mask not defined
 
     # in-place
     C = copy(A)
@@ -467,9 +494,9 @@ end
 
     # initialisation
     @test 200 == @tullio (max) m := A[i] init=200
-    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 # widens type
+    @tullio (max) C[i] := i^2   (i in 1:10, j in 1:1)  init=33.3 avx=false # widens type
     @test C == max.(33.3, A)
-    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn() tensor=false # runs once
+    @tullio C[i] := 0   (i in 1:10, j in 1:1)  init=randn()
     @test C == fill(C[1], 10)
 
     # more dimensions
@@ -505,11 +532,11 @@ end
 
     # promotion of init & += cases:
     B = rand(10)
-    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false avx=false # InexactError: Int64 on LV 0.8
+    @test sum(B.^2)+2 ≈ @tullio s2 := B[i]^2 init=2 threads=false
     s3 = 3
     @test sum(B.^2)+3 ≈ @tullio s3 += B[i]^2
     s4 = 4im
-    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2 avx=false # TypeError: in AbstractSIMD, in T, expected T<:(Union{Bool, Float32
+    @test sum(B.^2)+4im ≈ @tullio s4 += B[i]^2
 
     # no reduction means no redfun, and no init:
     @test_throws LoadError @eval @tullio (max) A2[i] := A[i]^2
@@ -517,13 +544,15 @@ end
 
 end
 
+@printline
+
 @testset "finalisers" begin
 
     A = [i^2 for i in 1:10]
 
     @tullio B[i,j] := A[i] + A[k] // A[j]
 
-    @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt
+    @tullio B2[_,j] := (B[i,j] + B[j,i])^2 |> sqrt  avx=false # new failure LoopVectorization v0.12.14? only on CI?
     @test B2 ≈ mapslices(norm, B .+ B', dims=1)
 
     # trivial use, scalar output -- now forbidden
@@ -535,11 +564,11 @@ end
 
     # larger size, to trigger threads & tiles
     C = randn(10^6) # > Tullio.BLOCK[]
-    @tullio n2[_] := C[i]^2 |> sqrt
+    @tullio n2[_] := C[i]^2 |> sqrt  avx=false
     @test n2[1] ≈ norm(C,2)
 
     D = rand(1000, 1000) # > Tullio.TILE[]
-    @tullio D2[_,j] := D[i,j]^2 |> sqrt
+    @tullio D2[_,j] := D[i,j]^2 |> sqrt  avx=false
     @test D2 ≈ mapslices(norm, D, dims=1)
 
     # functions with underscores
@@ -582,6 +611,8 @@ end
 
 end
 
+@printline
+
 @testset "options" begin
 
     # keyword threads accepts false or a positive integer
@@ -590,20 +621,20 @@ end
     # when using KernelAbstractions, something leaks from the 1st leading 2nd to error
     block = 64
     @tullio A[i] := (1:10)[i]^2  threads=block # Symbol
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  threads=:maybe
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  threads=:maybe
 
     # keyword verbose accepts values [true, false, 2, 3]
-    @tullio A[i] := (1:10)[i]^2  verbose=1 avx=false # @error: rejected by LoopVectorization's check_args
+    @tullio A[i] := (1:10)[i]^2  verbose=1
     @tullio A[i] := (1:10)[i]^2  verbose=false
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  verbose=4
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  verbose=4
 
     # keyword grad accepts values [false, Base, Dual]
     @tullio A[i] := (1:10)[i]^2  grad=false
     @tullio A[i] := (1:10)[i]^2  grad=Base
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  grad=true
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  grad=true
 
     # recognised keywords are [:threads, :verbose, :avx, :cuda, :grad]
-    @test_throws LoadError @macroexpand1 @tullio A[i] := (1:10)[i]^2  key=nothing
+    @test_throws LoadError @eval @tullio A[i] := (1:10)[i]^2  key=nothing
 
 end
 
@@ -668,3 +699,5 @@ end
     end
 
 end
+
+@printline

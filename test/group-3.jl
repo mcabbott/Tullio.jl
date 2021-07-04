@@ -4,6 +4,14 @@ if VERSION < v"1.6.9" # Zygote is failing on nightly
 
 t5 = time()
 using Zygote
+# patch for https://github.com/FluxML/Zygote.jl/issues/897
+@eval Zygote begin
+   function _pullback(cx::AContext, ::typeof(sum), f, xs::AbstractArray)
+      y, back = pullback(cx, ((f, xs) -> sum(f.(xs))), f, xs)
+      y, ȳ -> (nothing, back(ȳ)...)
+   end
+end
+
 
 GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
@@ -145,20 +153,15 @@ end
 
 @testset "parsing + LoopVectorization" begin include("parsing.jl") end
 
-if test_group != "3" # Github CI fails, on some runs, "ERROR: Package Tullio errored during testing (received signal: KILL)"
-    # https://github.com/mcabbott/Tullio.jl/pull/57/checks?check_run_id=1753332805
+using Tracker
+GRAD = :Tracker
+_gradient(x...) = Tracker.gradient(x...)
 
-    using Tracker
-    GRAD = :Tracker
-    _gradient(x...) = Tracker.gradient(x...)
+@tullio grad=Base
+@testset "gradients: Tracker + DiffRules + LoopVectorization" begin include("gradients.jl") end
 
-    @tullio grad=Base
-    @testset "gradients: Tracker + DiffRules + LoopVectorization" begin include("gradients.jl") end
-
-    @tullio grad=Dual
-    @testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
-
-end
+@tullio grad=Dual
+@testset "gradients: Tracker + ForwardDiff + LoopVectorization" begin include("gradients.jl") end
 
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
@@ -173,17 +176,13 @@ using Tracker
 GRAD = :Tracker
 _gradient(x...) = Tracker.gradient(x...)
 
-@tullio grad=Base
-@testset "gradients: Tracker + TensorOperations" begin include("gradients.jl") end
-
-if VERSION < v"1.6-" # Zygote isn't working on 1.6
+@testset "gradients: Tracker + TensorOperations" begin include("tensorgrad.jl") end
 
 using Zygote
 GRAD = :Zygote
 _gradient(x...) = Zygote.gradient(x...)
 
-@tullio grad=Base
-@testset "gradients: Zygote + TensorOperations" begin include("gradients.jl") end
+@testset "gradients: Zygote + TensorOperations" begin include("tensorgrad.jl") end
 
 @testset "complex gradients with TensorOperations" begin
 
@@ -193,23 +192,21 @@ _gradient(x...) = Zygote.gradient(x...)
 
         g1 = _gradient(x -> real(sum(x * x)), x0)[1]
         g1i = _gradient(x -> imag(sum(x * x)), x0)[1]
-        @test g1 ≈ _gradient(x -> real(sum(@tullio y[i,j] := x[i,k] * x[k,j])), x0)[1]
-        @test g1i ≈ _gradient(x -> imag(sum(@tullio y[i,j] := x[i,k] * x[k,j])), x0)[1]
+        @test g1 ≈ _gradient(x -> real(sum(Tullio.@tensor y[i,j] := x[i,k] * x[k,j])), x0)[1]
+        @test g1i ≈ _gradient(x -> imag(sum(Tullio.@tensor y[i,j] := x[i,k] * x[k,j])), x0)[1]
 
     end
+    #=  # conj isn't handled by gradient code for @tensor here
     @testset "non-analytic" begin
 
         g2 = _gradient(x -> real(sum(x * x')), x0)[1]
         g2i = _gradient(x -> imag(sum(x * x')), x0)[1] # zero
-        @test_broken g2 ≈ _gradient(x -> real(sum(@tullio y[i,j] := x[i,k] * conj(x[j,k]))), x0)[1]
-        @test_broken g2i ≈ _gradient(x -> imag(sum(@tullio y[i,j] := x[i,k] * conj(x[j,k]))), x0)[1]
+        @test_broken g2 ≈ _gradient(x -> real(sum(Tullio.@tensor y[i,j] := x[i,k] * conj(x[j,k]))), x0)[1]
+        @test_broken g2i ≈ _gradient(x -> imag(sum(Tullio.@tensor y[i,j] := x[i,k] * conj(x[j,k]))), x0)[1]
 
     end
+    =#
 end
-
-end # VERSION
-
-@testset "parsing + TensorOperations" begin include("parsing.jl") end # testing correct fallback
 
 @info @sprintf("TensorOperations tests took %.1f seconds", time()-t9)
 

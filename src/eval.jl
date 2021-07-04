@@ -38,11 +38,30 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 
 using Requires
 
-@init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
+# @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
 
 @init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
 
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
+
+import ChainRulesCore
+
+function ChainRulesCore.rrule(ev::Eval, args...)
+    Z = ev.fwd(args...)
+    Z, function tullio_back(Δ)
+        isnothing(ev.rev) && error("no gradient definition here!")
+        dxs = map(ev.rev(Δ, Z, args...)) do dx
+            dx === nothing ? ChainRulesCore.ZeroTangent() : dx
+        end
+        tuple(ChainRulesCore.ZeroTangent(), dxs...)
+    end
+end
+
+@init @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" begin
+    using .FillArrays: Fill # used by Zygote
+    Tullio.promote_storage(::Type{T}, ::Type{F}) where {T, F<:Fill} = T
+    Tullio.promote_storage(::Type{F}, ::Type{T}) where {T, F<:Fill} = T
+end
 
 #========== vectorised gradients ==========#
 
@@ -51,19 +70,13 @@ using Requires
 
 @inline anyone(cond::Bool) = cond
 
-@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
-    using .LoopVectorization
-    if isdefined(LoopVectorization, :SVec) # version 0.8, for Julia ⩽1.5
-        using .LoopVectorization.VectorizationBase: SVec, Mask, prevpow2
-        @require ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210" begin
-            # Dual numbers + svec, not needed on version 0.9
-            include("grad/avxdual.jl")
-        end
-    else # version 0.9, supports Julia 1.6
-        using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
-        SVec{N,T} = Vec{N,T}
-    end
 #=
+
+@init @require LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890" begin
+    using .LoopVectorization # version 0.9+ only now
+    using .LoopVectorization.VectorizationBase: Vec, Mask, prevpow2
+    SVec{N,T} = Vec{N,T}
+    end
     # Functions needed for safe vectorised max gradient
     @inline Tullio.onlyone(cond::Bool, seen::SVec) = cond && allzero(seen)
 
@@ -75,8 +88,9 @@ using Requires
     @inline allzero(seen::SVec) = iszero((!iszero(seen)).u)
 
     @inline Tullio.anyone(cond::Mask) = !iszero(cond.u)
-=#
 end
+
+=#
 
 #========== CuArrays ==========#
 

@@ -6,7 +6,7 @@ This file is run several times
 =#
 
 using Tullio, Test, ForwardDiff, Random
-# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker
+# using Tracker; _gradient(x...) = Tracker.gradient(x...); GRAD = :Tracker; macro printline() end
 
 function gradtest(f, dims)
     x = randn(dims...)
@@ -16,13 +16,11 @@ end
 
 @testset "simple" begin
 
-if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1.4, LV 0.8, I have no idea why.
-
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i]), rand(3))[1] == [2,2,2]
     @test _gradient(x -> sum(@tullio y[i] := 2*x[i] + i), rand(3))[1] == [2,2,2]
 
     # two contributions
-    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]
+    g2(x) = @tullio y[i, j] := 1 * x[i] + 1000 * x[j]  avx=false
     mat = [1 1 3; 1 1 5; 7 7 7]
     g_fd = ForwardDiff.gradient(x -> sum(mat .* g2(x)), rand(3))
     @test g_fd ≈ _gradient(x -> sum(mat .* g2(x)), rand(3))[1]
@@ -32,7 +30,6 @@ if Tullio._GRAD[] != :Dual || VERSION >= v"1.5" # These 3 give errors on Julia 1
     g_fd = ForwardDiff.gradient(x -> sum(sin, g2(x)), r100)
     @test g_fd ≈ _gradient(x -> sum(sin, g2(x)), r100)[1]
 
-end
     r100 = randn(100)
 
     # scalar output
@@ -44,7 +41,7 @@ end
     @test _gradient(sum∘h2, rand(2,3), rand(3,2)) == (ones(2,3), ones(3,2))
 
     # nontrivial function
-    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
     r_x, r_y = rand(2,3), rand(3,2)
     fx = ForwardDiff.gradient(x -> sum(flog(x, r_y)), r_x)
     fy = ForwardDiff.gradient(y -> sum(flog(r_x, y)), r_y)
@@ -52,7 +49,7 @@ end
     @test fy ≈ _gradient(sum∘flog, r_x, r_y)[2]
 
     # classic
-    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]
+    mm(x,y) = @tullio z[i,j] := 2 * x[i,k] * y[k,j]  avx=false # new?
     x1 = rand(3,4);
     y1 = rand(4,5);
     z1 = x1 * y1
@@ -68,6 +65,9 @@ end
     @test abs2_grad ≈ _gradient(v -> (@tullio s := abs2(1 + v[i]^2)), va)[1]
 
 end
+
+@printline
+
 @testset "zero-arrays" begin
 
     # Using zero-dim arrays fails on ReverseDiff & Tracker
@@ -79,7 +79,7 @@ end
         @test _gradient(x -> sum(@tullio y[] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
     end
     # one-element vectors are fine:
-    @test _gradient(x -> sum(@tullio y[1] := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
+    @test _gradient(x -> sum(@tullio y[1] := log(x[i]) avx=false), collect(1:3.0))[1] == 1 ./ (1:3)  # new failure LoopVectorization v0.12.14? only on CI?
     # which is what's now used for this:
     @test _gradient(x -> (@tullio y := log(x[i])), collect(1:3.0))[1] == 1 ./ (1:3)
 
@@ -106,6 +106,9 @@ end
     # [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 0.0, 64.0, 81.0, 100.0, 121.0] ≈ [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0, 121.0]
 
 end
+
+@printline
+
 @testset "shifts, etc" begin
 
     c1(N,K) = @tullio M[x,y,c] := N[x+i-1, y+j-1,c] * K[i,j]
@@ -143,7 +146,7 @@ end
 @testset "@inferred" begin
 
     h2(x,y) = @tullio z[i] := x[i,j] + y[j,i]  # as above
-    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]
+    flog(x,y) = @tullio z[i] := log(x[i,j]) / y[j,i]  avx=false  # new failure LoopVectorization v0.12.14? only on CI?
 
     mat = rand(3,3)
     @test @inferred(h2(mat, mat)) ≈ vec(sum(mat .+ mat', dims=2))
@@ -158,6 +161,9 @@ end
     end
 
 end
+
+@printline
+
 @testset "from TensorTrace" begin
     # These can all be handled using TensorOperations
 
@@ -180,13 +186,13 @@ end
 
     r22 = rand(2,2);
 
-    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]
+    con3(x) = @tullio C[i,j,m,n] := x[i,j,k] * r312[k,m,n]  avx=false # I think leading size-1 dims are the problem
     @test gradtest(con3, (1,2,3))
 
-    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]
+    con4(x) = @tullio C[i,m] := x[i,kk,k] * r312[k,m,kk]  avx=false
     @test gradtest(con4, (1,2,3))
 
-    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]
+    con5(x) = @tullio C[j,i,n,m] := 44 * x[i,j,k] * r312[k,m,n]  avx=false
     @test gradtest(con5, (1,2,3))
 
     r392 = randn(3,9,2);
@@ -196,14 +202,16 @@ end
     con7(x) = @tullio C[m,n,j,i] := 44 * x[i,j,k] * r392[k,m,n]
     @test gradtest(con7, (9,2,3))
 
+    @printline
+
     ## contract! B
-    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]
+    con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]  avx=false
     @test gradtest(con8b, (2,3))
 
     con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]
     @test gradtest(con9b, (1,2,3))
 
-    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]
+    con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]  avx=false
     @test gradtest(con10b, (9,2,3))
 
     r3399 = randn(3,3,9,9);
@@ -212,17 +220,23 @@ end
     @test gradtest(con13, (3,3,9,9))
 
     r33 = rand(3,3);
-    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]
+    con14(x) = @tullio K[i,j] := r3399[a,b,j,k] * x[b,c,k,i] * r33[a,c]  avx=false
     @test gradtest(con14, (3,3,9,9))
 
-    ## scalar -- one with :=, one without
-    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]
-    @test gradtest(sc1, (1,2,3))
+    @printline
 
-    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]
+    ## scalar -- one with :=, one without
+    sc1(x) = @tullio s = r22[b,β] * x[a,b,c] * r312[c,a,β]  avx=false verbose=true
+    @test gradtest(sc1, (1,2,3)) # UndefVarError: ####op#798_0 not defined
+
+    @printline
+
+    sc2(x) = @tullio s := x[γ,c] * r3399[c,γ,i,i]  avx=false verbose=true
     @test gradtest(sc2, (3,3))
 
 end
+
+@printline
 
 if Tullio._GRAD[] != :Dual
 #=
@@ -319,6 +333,9 @@ if Tullio._GRAD[] != :Dual
         # I suspect that @avx is re-ordering loops, which makes onlyone() incorrect.
 
     end
+
+    @printline
+
     @testset "finalisers" begin
 
         norm2(m) = @tullio n[i] := m[i,j]^2 |> sqrt
@@ -328,8 +345,10 @@ if Tullio._GRAD[] != :Dual
         @test _gradient(sum∘norm2, mat)[1] ≈ ForwardDiff.gradient(sum∘norm2, mat)
         @test gradtest(norm2, (3,4))
 
-        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh
+        layer(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> tanh  avx=false # this takes 15 mins +?
         @test gradtest(layer, (3,4))
+
+        @printline
 
         lse1(mat) = @tullio lse[j] := log <| exp(mat[i,j])
         @test gradtest(lse1, (3,4))
@@ -337,12 +356,16 @@ if Tullio._GRAD[] != :Dual
         # relu(x) = max(x, zero(x))
         # lay2(x) = @tullio y[i,k] := mat[i,j] * x[j,k] |> relu
 
-        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt
+        @printline
+
+        mx3(x) = @tullio (max) r[i] := x[i,j]^3 |> cbrt  avx=false # sometimes gets stuck here?
         mx3(mat) # hmmm what is this?
         _gradient(sum∘mx3, mat)[1] # zero
 
     end
 end
+
+@printline
 
 if GRAD == :Zygote
     @testset "nograd keyword" begin
@@ -358,3 +381,5 @@ if GRAD == :Zygote
 
     end
 end
+
+@printline

@@ -39,16 +39,7 @@ function _tullio(exs...; mod=Main)
 
     opts, ranges, ex = parse_options(exs...)
     if isnothing(ex) # then we simply updated global settings
-        return (verbose=_VERBOSE[], fastmath=_FASTMATH[], threads=_THREADS[], grad=_GRAD[], avx=_AVX[], cuda=_CUDA[], tensor=_TENSOR[])
-    end
-
-    if opts.tensor && opts.redfun == :+ && isdefined(mod, :TensorOperations) && opts.grad != :Dual
-        res = try_tensor(ex, ranges, DotDict(; mod = mod, opts...,
-            newarray = false, scalar = false,
-            arrays = Symbol[], indices = [], scalars = Symbol[]))
-        if res != nothing # then forward & backward both handled by try_tensor
-            return Expr(:block, res...) |> esc
-        end
+        return (verbose=_VERBOSE[], fastmath=_FASTMATH[], threads=_THREADS[], grad=_GRAD[], avx=_AVX[], cuda=_CUDA[])
     end
 
     store = DotDict(; mod = mod, opts...,
@@ -119,8 +110,7 @@ _FASTMATH = Ref(true)
 _THREADS = Ref{Any}(true)
 _GRAD = Ref{Any}(:Base)
 _AVX = Ref{Any}(true)
-_CUDA = Ref{Any}(256)
-_TENSOR = Ref(true)
+_CUDA = Ref{Any}(true)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
@@ -133,7 +123,7 @@ function parse_options(exs...)
         :grad => _GRAD[],
         :avx => _AVX[],
         :cuda => _CUDA[],
-        :tensor => _TENSOR[],
+        :tensor => false,
         )
     expr = nothing
     nograd = Symbol[]
@@ -199,8 +189,8 @@ function parse_options(exs...)
         _GRAD[] = opts[:grad]
         _AVX[] = opts[:avx]
         _CUDA[] = opts[:cuda]
-        _TENSOR[] = opts[:tensor]
     end
+    opts[:tensor] == false || @warn "option tensor=true is deprecated, try Tullio.@tensor"
     (redfun=opts[:redfun],
         initkeyword=opts[:init], # surely there is a tidier way...
         padkeyword=opts[:pad],
@@ -210,7 +200,6 @@ function parse_options(exs...)
         grad=opts[:grad],
         avx=opts[:avx],
         cuda=opts[:cuda],
-        tensor=opts[:tensor],
         nograd=nograd,
         safe=safe,
     ), ranges, expr
@@ -271,30 +260,39 @@ function parse_input(expr, store)
     end
 
     # Left hand side:
-    if @capture_(left, Z_[leftraw__] ) || @capture_(left, [leftraw__] )
+    if @capture_(left, Z_[leftraw__] )
+    elseif @capture_(left, [leftraw__] )
+        Base.depwarn("to omit a name for the output, please write `_[i,j] := ...` with an underscore (for Tullio ≥ 0.2.14)", Symbol("@tullio"))
+        Z = :_
     elseif left isa Symbol # complete reduction
         store.newarray = true
         store.scalar = true
         store.leftscalar = left # because store.leftarray will be the array
         leftraw = Any[1,] # the gradient still indexes a fake 1D array
         expr.head == :(+=) && push!(store.scalars, left)
+        Z = ZED
     else
         throw("can't understand LHS, expected A[i,j,k], got $left")
     end
     leftraw2 = tidyleftraw(leftraw, store)
-    store.leftind = filter(i -> i isa Symbol, leftraw2) # this gives correct outer loop order
+    store.leftind = filter(i -> i isa Symbol && !is_const(i), leftraw2) # this gives correct outer loop order
 
-    isnothing(Z) && !(store.newarray) && throw("can't write into an array whose name isn't given!")
-    Zed = isnothing(Z) ? ZED : Z
-    store.leftarray = Zed
+    if Z == :_
+        store.newarray || throw("can't write into an array whose name isn't given!")
+        Z = ZED
+    end
+    store.leftarray = Z
 
     store.leftraw = finishleftraw(leftraw2, store)
     if store.newarray && !allunique(store.leftind)
         store.zero = true # making diagonals, etc.
     end
     if !(store.newarray)
-        saveconstraints(Zed, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
-        store.plusequals && detectunsafe(left, store.unsafeleft, store) # A[J[k]] += is unsafe, A[J[k]] = is not.
+        saveconstraints(Z, leftraw, store, false) # this adds to leftind, e.g. A[2i+1] = ..., is that bad??
+        if store.plusequals # A[J[k]] += is unsafe, A[J[k]] = is not.
+            detectunsafe(left, store.unsafeleft, store)
+            store.unsafeleft = setdiff(store.unsafeleft, store.leftraw) # and A[J[k],k] += ... is safe.
+        end
     end
 
     # Right hand side
@@ -322,12 +320,13 @@ function parse_input(expr, store)
     unique!(store.leftind)
     store.sharedind = unique!(setdiff(store.sharedind, store.notfree))
     store.rightind = unique!(setdiff(store.rightind, store.notfree))
+    store.unsaferight = union(setdiff(store.unsaferight, store.sharedind), store.shiftedind)
     any(==(:_), vcat(store.leftind, store.rightind)) && throw("can't use _ as an index name")
 
     unique!(store.outpre) # kill mutiple assertions, and evaluate any f(A) only once
 
-    if store.newarray && Zed in store.arrays
-        throw("can't create a new array $Zed when this also appears on the right")
+    if store.newarray && Z in store.arrays
+        throw("can't create a new array $Z when this also appears on the right")
     end
 end
 
@@ -375,9 +374,10 @@ saveconstraints(A, inds, store, right=true) = begin
     foreach(enumerate(inds)) do (d,ex)
         is_const(ex) && return
         containsany(ex, store.notfree) && return
-        axis_i = length(inds)==1 ? :($eachindex($A1)) : :($axes($A1,$d))
+        axis_i = length(inds)==1 ? :($linearindex($A1)) : :($axes($A1,$d))
         ex_i, axis_i = padmodclamp_ind(ex, axis_i, store) # this may pad the axis, or may make it nothing
         range_i, i = range_expr_walk(axis_i, ex_i)
+        range_i = range_fix_end(range_i, axis_i)
         if isnothing(axis_i) # because mod(i) or clamp(i+j). Do save index, don't save range.
             if i isa Symbol
                 push!(is, i)
@@ -415,10 +415,7 @@ saveconstraints(A, inds, store, right=true) = begin
         append!(store.leftind, is) # why can's this be the only path for store.leftind??
     end
     n = length(inds)
-    if n==1
-        str = "expected a 1-array $A1, or a tuple"
-        push!(store.outpre, :( $A1 isa Tuple || $ndims($A1) == 1 || $throw($str) ))
-    else
+    if n>1  # one index now means linear indexing
         str = "expected a $n-array $A1" # already arrayfirst(A)
         push!(store.outpre, :( $ndims($A1) == $n || $throw($str) ))
     end
@@ -562,8 +559,10 @@ tidyleftraw(leftraw, store) = begin
 end
 
 finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
+    is_const(i) && store.newarray && (i != 1)  &&
+        throw("can't fix indices on LHS when making a new array")
+
     if isexpr(i, :$)
-        store.newarray && throw("can't fix indices on LHS when making a new array")
         i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
         push!(store.scalars, i.args[1])
         return i.args[1]
@@ -1142,6 +1141,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if store.cuda > 0 && isdefined(store.mod, :KernelAbstractions)
         kernel = gensym(:🇨🇺)
+        workgroupsize = store.cuda === true ? nothing : store.cuda  # cuda=true means "use auto-tuning"
         axouter = map(i -> Symbol(AXIS, i), safeouter)
         asserts = map(ax -> :( $first($ax)==1 || $throw("KernelAbstractions can't handle OffsetArrays here")), axouter)
         sizes = map(ax -> :(length($ax)), axouter)
@@ -1177,9 +1177,9 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
                     local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
-                        cu_kern! = $kernel(CUDADevice(), $(store.cuda))
+                        cu_kern! = $kernel(CUDADevice())
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), dependencies=Event(CUDADevice()))
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$workgroupsize, dependencies=Event(CUDADevice()))
                         KernelAbstractions.wait(CUDADevice(), $ACC)
                     end
 

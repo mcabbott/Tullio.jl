@@ -15,3 +15,16 @@ steps:
       cuda: "*"
     if: build.message !~ /\[skip tests\]/
     timeout_in_minutes: 60
+
+  - label: "Julia 1.6"
+    plugins:
+      - JuliaCI/julia#v0.5:
+          version: 1.6
+      - JuliaCI/julia-test#v0.3: ~
+      # - JuliaCI/julia-coverage#v0.3:
+      #     codecov: true
+    agents:
+      queue: "juliagpu"
+      cuda: "*"
+    if: build.message !~ /\[skip tests\]/
+    timeout_in_minutes: 60
