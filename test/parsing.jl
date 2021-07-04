@@ -698,6 +698,15 @@ end
        @tullio x[i] := s[i,j]  avx=false # Unexpected Pass with LV
     end
 
+    # https://github.com/mcabbott/Tullio.jl/issues/115
+    # we must detect that cumsum isn't thread-safe, but should it be illegal?
+    x = rand(Int8, 10) .+ 0
+    y = copy(x)
+    @tullio y[i] = y[i-1] + y[i]
+    @test y == cumsum(x)
+    z = (y=copy(x),)
+    @tullio z.y[i] = z.y[i-1] + z.y[i]  # version with field access
+    @test z.y == cumsum(x)
 end
 
 @printline
