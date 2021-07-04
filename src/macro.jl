@@ -557,12 +557,7 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
     is_const(i) && store.newarray && (i != 1)  &&
         throw("can't fix indices on LHS when making a new array")
 
-    if isexpr(i, :$)
-        i.args[1] isa Symbol || throw("you can only interpolate single symbols, not $ex")
-        push!(store.scalars, i.args[1])
-        return i.args[1]
-
-    elseif isexpr(i, :call) && i.args[1] == :+ &&
+    if isexpr(i, :call) && i.args[1] == :+ &&
             length(i.args)==3 && i.args[3] == :_ # magic un-shift A[i+_, j] := ...
         i = primeindices(i.args)[2]
         i isa Symbol || throw("index ($i + _) is too complicated, sorry")
@@ -585,6 +580,10 @@ finishleftraw(leftraw, store) = map(enumerate(leftraw)) do (d,i)
         end
 
         return ex # has primes dealt with
+
+    elseif i isa Expr  # deal with A[i,$j] = ... and also A[i,$j+1] = ... 
+        ex = MacroTools_postwalk(dollarwalk(store), i)
+        return ex
     end
     i
 end

@@ -707,6 +707,13 @@ end
     z = (y=copy(x),)
     @tullio z.y[i] = z.y[i-1] + z.y[i]  # version with field access
     @test z.y == cumsum(x)
+
+    # https://github.com/mcabbott/Tullio.jl/issues/115
+    A = zeros(Int, 3,4)
+    for r in 2:4
+        @tullio A[$r-1, c] = c + $r^2  # dollar on LHS with a shift
+    end
+    @test A == [c + r^2 for r in 2:4, c in 1:4]
 end
 
 @printline
