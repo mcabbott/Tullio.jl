@@ -319,7 +319,7 @@ function parse_input(expr, store)
         accumlike = intersect(store.leftind, store.shiftedind)
         if !isempty(accumlike)
             @warn "detected accumulation-like behaviour, this might be made an error" accumlike
-            # store.avx = false
+            store.avx = false
             append!(store.unsafeleft, accumlike)  # this means no threading, but not sure that's enough
         end
     end

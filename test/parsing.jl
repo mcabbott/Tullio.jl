@@ -704,9 +704,14 @@ end
     y = copy(x)
     @tullio y[i] = y[i-1] + y[i]
     @test y == cumsum(x)
+
+@printline
+
     z = (y=copy(x),)
-    @tullio z.y[i] = z.y[i-1] + z.y[i]  # version with field access
+    @tullio z.y[i] = z.y[i-1] + z.y[i] # version with field access
     @test z.y == cumsum(x)
+
+@printline
 
     # https://github.com/mcabbott/Tullio.jl/issues/115
     A = zeros(Int, 3,4)
