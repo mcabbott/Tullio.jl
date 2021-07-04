@@ -4,7 +4,7 @@ using .Zygote
 Zygote.@adjoint function (ev::Eval)(args...)
     Z = ev.fwd(args...)
     Z, Δ -> begin
-        isnothing(ev.rev) && error("no gradient definition here!")
+        ev.rev===nothing && throw("No gradient definition found! Running `@tullio` with keyword `verbose=true` may print the reason")
         tuple(nothing, ev.rev(Δ, Z, args...)...)
     end
 end
