@@ -102,6 +102,7 @@ OPTS = Dict(
     :grad => [false, :Base, :Dual],
     :avx => Integer,
     :cuda => Integer,
+    :floops => [true, false],
     :tensor => [true, false],
     )
 
@@ -111,6 +112,7 @@ _THREADS = Ref{Any}(true)
 _GRAD = Ref{Any}(:Base)
 _AVX = Ref{Any}(true)
 _CUDA = Ref{Any}(true)
+_FLOOPS = Ref{Any}(false)
 
 function parse_options(exs...)
     opts = Dict{Symbol,Any}(
@@ -123,6 +125,7 @@ function parse_options(exs...)
         :grad => _GRAD[],
         :avx => _AVX[],
         :cuda => _CUDA[],
+        :floops => _FLOOPS[],
         :tensor => false,
         )
     expr = nothing
@@ -178,6 +181,7 @@ function parse_options(exs...)
         _GRAD[] = opts[:grad]
         _AVX[] = opts[:avx]
         _CUDA[] = opts[:cuda]
+        _FLOOPS[] = opts[:floops]
     end
     opts[:tensor] == false || @warn "option tensor=true is deprecated, try Tullio.@tensor"
     (redfun=opts[:redfun],
@@ -189,6 +193,7 @@ function parse_options(exs...)
         grad=opts[:grad],
         avx=opts[:avx],
         cuda=opts[:cuda],
+        floops=opts[:floops],
         nograd=nograd,
     ), ranges, expr
 end
@@ -1057,6 +1062,25 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if act! != ACT! && isempty(store.sharedind) && store.threads != false
         store.verbose>0 && @warn "can't parallelise this gradient, no shared indices $note"
+    end
+
+    #===== FLoops =====#
+
+    if store.floops != false && isdefined(store.mod, :FLoops)
+        try
+            info0 = store.verbose>0 ? :(@info "running FLoops actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
+            fex = quote
+                local @inline function $act!(::Type{<:AbstractArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    $info0
+                    FLoops.@floop begin $ex1; $ex2 end
+                end
+            end
+            store.verbose==2 && @info "=====FL===== FLoops actor $note" verbosetidy(fex)
+            push!(store.outpre, macroexpand(store.mod, fex))
+            store.verbose==2 && @info "success expanding FLoops.@floops"
+        catch err
+            store.verbose>0 && @warn "FLoops failed $note" err
+        end
     end
 
     #===== LoopVectorization =====#
