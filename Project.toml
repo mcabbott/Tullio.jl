@@ -15,6 +15,8 @@ CUDAKernels = "0.1, 0.2"
 ChainRulesCore = "0.10"
 DiffRules = "1"
 FillArrays = "0.11"
+FLoops = "0.1.10"
+FoldsCUDA = "0.1.5"
 ForwardDiff = "0.10"
 KernelAbstractions = "0.6"
 LoopVectorization = "0.12.48"
@@ -31,6 +33,8 @@ julia = "1.5"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 CUDAKernels = "72cfdca4-0801-4ab0-bf6a-d52aa10adc57"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
+FLoops = "cc61a311-1640-44b5-9fba-1b764f453329"
+FoldsCUDA = "6cd66ae4-5932-4b96-926d-e73e578e42cc"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -46,4 +50,4 @@ VectorizationBase = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
-test = ["Test", "CUDA", "CUDAKernels", "FillArrays", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "LoopVectorization", "NamedDims", "OffsetArrays", "Printf", "Random", "TensorOperations", "Tracker", "VectorizationBase", "Zygote"]
+test = ["Test", "CUDA", "CUDAKernels", "FillArrays", "FLoops", "FoldsCUDA", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "LoopVectorization", "NamedDims", "OffsetArrays", "Printf", "Random", "TensorOperations", "Tracker", "VectorizationBase", "Zygote"]
