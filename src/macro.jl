@@ -1068,19 +1068,36 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
 
     if store.floops != false && isdefined(store.mod, :FLoops)
         try
-            info0 = store.verbose>0 ? :(@info "running FLoops actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
-            fex = quote
+            info1 = store.verbose>0 ? :(@info "running FLoops actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
+            fex1 = quote
+
                 local @inline function $act!(::Type{<:AbstractArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
-                    $info0
+                    $info1
                     FLoops.@floop begin $ex1; $ex2 end
                 end
+
             end
-            store.verbose==2 && @info "=====FL===== FLoops actor $note" verbosetidy(fex)
-            push!(store.outpre, macroexpand(store.mod, fex))
+            store.verbose==2 && @info "=====FL===== FLoops actor $note" verbosetidy(fex1)
+            if store.threads==false
+                # same dodgy switch as for KernelAbstractions, threads=false routes CPU calculation here: 
+                push!(store.outpre, macroexpand(store.mod, fex1))
+            end
+            if isdefined(store.mod, :FoldsCUDA) && isdefined(store.mod, :CUDA)
+                info2 = store.verbose>0 ? :(@info "running FLoops + CUDA actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
+                fex2 = quote
+
+                    local @inline function $act!(::Type{<:CUDA.CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $info1
+                        FLoops.@floop FLoops.CUDAEx() begin $ex1; $ex2 end
+                    end
+
+                end
+                push!(store.outpre, macroexpand(store.mod, fex2))
+            end
             store.verbose==2 && @info "success expanding FLoops.@floops"
         catch err
             store.verbose>0 && @warn "FLoops failed $note" err
-        end
+        end                
     end
 
     #===== LoopVectorization =====#
@@ -1183,11 +1200,11 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             end
             store.verbose==2 && @info "=====KA===== KernelAbstractions kernel $note" verbosetidy(kex1)
             push!(store.outpre, macroexpand(store.mod, kex1))
-            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
+            if isdefined(store.mod, :CUDA)
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
                 kex2 = quote
 
-                    local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    local @inline function $act!(::Type{<:CUDA.CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
                         cu_kern! = $kernel(CUDADevice())
                         $(asserts...)
