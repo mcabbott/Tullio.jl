@@ -22,7 +22,7 @@ _gradient(x...) = Tracker.gradient(x...)
     end
 end
 
-using CUDA
+using CUDA, CUDAKernels
 
 if is_buildkite
     # If we are on Buildkite, we should assert that we have a CUDA GPU available
@@ -31,9 +31,11 @@ end
 
 if false # CUDA.has_cuda_gpu()
     @info "===== found a GPU, starting CUDA tests ====="
-    @testset "===== CUDA tests on GPU =====" begin
+    @testset "===== KernelAbstractions CUDA tests on GPU =====" begin
         include("cuda.jl")
     end
+else
+    @info "===== skipping KernelAbstractions + CUDA tests ====="
 end
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
@@ -66,19 +68,14 @@ _gradient(x...) = Tracker.gradient(x...)
     end
 end
 
-# using CUDA
+using CUDA, FoldsCUDA
 
-# if is_buildkite
-#     # If we are on Buildkite, we should assert that we have a CUDA GPU available
-#     @test CUDA.has_cuda_gpu()
-# end
-
-# if CUDA.has_cuda_gpu()
-#     @info "===== found a GPU, starting CUDA tests ====="
-#     @testset "===== CUDA tests on GPU =====" begin
-#         include("cuda.jl")
-#     end
-# end
+if CUDA.has_cuda_gpu()
+    @info "===== found a GPU, starting CUDA tests ====="
+    @testset "===== FLoops + FoldsCUDA tests on GPU =====" begin
+        include("cuda.jl")
+    end
+end
 
 @info @sprintf("FLoops tests took %.1f seconds", time()-t5)
 
