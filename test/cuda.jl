@@ -1,7 +1,11 @@
 
 using Tullio, Test
-using CUDA, CUDAKernels, KernelAbstractions
+using CUDA 
 CUDA.allowscalar(false)
+
+# using CUDAKernels, KernelAbstractions
+# using FoldsCUDA, FLoops
+
 using Tracker, ForwardDiff
 @tullio grad=Base
 
