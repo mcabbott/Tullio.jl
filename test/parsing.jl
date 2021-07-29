@@ -436,7 +436,7 @@ end
     @test F[end] == 1 + 2^2 + 3^2
     @tullio F[i] = A[clamp(i+k)] * ones(7)[k]
 
-    @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100
+    @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100  avx=false # no method matching _vload(::VectorizationBase.StridedPointer{Int64, 1, 1, 0, ...
     @test axes(G,1) == -4:11
     @test G[-4] == G[11] == 300
 
