@@ -698,6 +698,14 @@ end
        @tullio x[i] := s[i,j]  avx=false # Unexpected Pass with LV
     end
 
+    # https://github.com/mcabbott/Tullio.jl/issues/119
+    struct X{T} y::T end
+    CNT = Ref(0)
+    Base.getproperty(x::X, s::Symbol) = s === :y ? begin CNT[] += 1; getfield(x, :y) end : error("nope")
+    x = X(rand(100))
+    @test sum(x.y) ≈ @tullio _ := x.y[i]
+    @test CNT[] == 2  # getproperty is done outside of loop
+
 end
 
 @printline
