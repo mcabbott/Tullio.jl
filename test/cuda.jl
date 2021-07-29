@@ -63,3 +63,11 @@ A1 = Tracker.gradient(sum∘h, A)[1]
 @tullio s += cu(B)[i,j]^2
 @test s ≈ sum(abs2, A) + sum(abs2, B)
 =#
+
+# https://github.com/mcabbott/Tullio.jl/issues/96
+A, B, C = CUDA.rand(2,2,2), CUDA.rand(2,2), CUDA.rand(2,2,2);
+@tullio A[k,i,a] = tanh(B[i,a] + C[k,i,a]) 
+A2 = similar(A)
+struct Bee{T}; B::T; end
+B2 = Bee(B)
+@test A ≈ @tullio A2[k,i,a] = tanh(B2.B[i,a] + C[k,i,a])

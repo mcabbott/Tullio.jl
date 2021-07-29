@@ -352,9 +352,12 @@ rightwalk(store) = ex -> begin
 
 arrayonly(A::Symbol) = A   # this is for RHS(i,j,k, A,B,C)
 arrayonly(A::Expr) =
-    if @capture_(A, B_[inds__]) || @capture_(A, B_.field_)
+    if @capture_(A, B_[inds__])
         return arrayonly(B)
-    end # returns nothing from :(f(A)), signal to pull function out.
+    elseif @capture_(A, B_.field_) && !(B isa Symbol)
+        return arrayonly(B)
+    end # returns nothing from :(f(A)), signal to pull function out,
+        # and now also from :(A.b), but not :(A.b[i])
 
 saveconstraints(A, inds, store, right=true) = begin
     A1 = arrayfirst(A, store)

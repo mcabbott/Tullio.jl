@@ -436,7 +436,7 @@ end
     @test F[end] == 1 + 2^2 + 3^2
     @tullio F[i] = A[clamp(i+k)] * ones(7)[k]
 
-    @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100
+    @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100  avx=false # no method matching _vload(::VectorizationBase.StridedPointer{Int64, 1, 1, 0, ...
     @test axes(G,1) == -4:11
     @test G[-4] == G[11] == 300
 
@@ -697,6 +697,14 @@ end
     @test_broken [3,7] == let s = [1 2;3 4], zero=one # left because of #50
        @tullio x[i] := s[i,j]  avx=false # Unexpected Pass with LV
     end
+
+    # https://github.com/mcabbott/Tullio.jl/issues/119
+    struct X{T} y::T end
+    CNT = Ref(0)
+    Base.getproperty(x::X, s::Symbol) = s === :y ? begin CNT[] += 1; getfield(x, :y) end : error("nope")
+    x = X(rand(100))
+    @test sum(x.y) ≈ @tullio _ := x.y[i]
+    @test CNT[] == 2  # getproperty is done outside of loop
 
 end
 
