@@ -1087,7 +1087,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             lex = if isnothing(exloopfinal)
                 quote
 
-                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    local @inline function $act!(::Type{<:Array{<:LoopVectorization.NativeTypes}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
                         $check1
@@ -1099,7 +1099,7 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             else # "isnothing(final) ? exp(rhs) : rhs" does not prevent execution of finaliser within @avx
                 quote
 
-                    local @inline function $act!(::Type{<:Array{<:Union{Base.HWReal, Bool}}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                    local @inline function $act!(::Type{<:Array{<:LoopVectorization.NativeTypes}}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $expre
                         $info1
                         $check1
