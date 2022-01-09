@@ -3,10 +3,10 @@ env:
   # SECRET_CODECOV_TOKEN: "..."
 
 steps:
-  - label: "Julia 1.5"
+  - label: "Julia 1.6"
     plugins:
       - JuliaCI/julia#v0.5:
-          version: 1.5
+          version: 1.6
       - JuliaCI/julia-test#v0.3: ~
       # - JuliaCI/julia-coverage#v0.3:
       #     codecov: true
@@ -16,10 +16,10 @@ steps:
     if: build.message !~ /\[skip tests\]/
     timeout_in_minutes: 60
 
-  - label: "Julia 1.6"
+  - label: "Julia 1.7"
     plugins:
       - JuliaCI/julia#v0.5:
-          version: 1.6
+          version: 1.7
       - JuliaCI/julia-test#v0.3: ~
       # - JuliaCI/julia-coverage#v0.3:
       #     codecov: true
