@@ -255,6 +255,15 @@ cu(ΔA) ≈ Tracker.gradient((A,B) -> sum(mul(A, B)), cu(A), cu(B))[1] # true
 Tracker.gradient(x -> (@tullio (max) res := x[i]^3), [1,2,3,-2,-1,3])[1]
 ```
 
+Some warnings are in order:
+* Complete reductions to a number will not work on the GPU at present.
+  They were extremely slow, and a re-organisation of multi-threading for the CPU case killed them, sorry.
+* Gradients are not calculated for scalars, only arrays.
+  Thus for example `gradient(a -> (@tullio _ := $a * A[i]), 3.14)` will be zero.
+* When using `grad=Dual`, the right hand side is evaluated a second time during the backward pass.
+  This avoids needing memory to store partials, but if the function is expensive, it may be slow.
+
+
 </details>
 <details><summary><b>Larger expressions</b></summary>
 
