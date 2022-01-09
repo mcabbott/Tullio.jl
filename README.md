@@ -59,7 +59,7 @@ The option `@tullio verbose=true` will cause it to print index ranges, symbolic 
 and notices when it is unable to use the packages mentioned above.
 And `verbose=2` will print everything.
 
-If it's useful in academic work, you can cite it with this DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5047410.svg)](https://doi.org/10.5281/zenodo.5047410)
+If it's useful in academic work, you can cite it with this DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5047409.svg)](https://doi.org/10.5281/zenodo.5047409)
 
 <details><summary><b>Notation</b></summary>
 
