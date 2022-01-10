@@ -11,7 +11,7 @@ Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [compat]
 CUDA = "3.6"
-CUDAKernels = "0.3.2"
+CUDAKernels = "0.3.3"
 ChainRulesCore = "1"
 DiffRules = "1"
 FillArrays = "0.11, 0.12"
