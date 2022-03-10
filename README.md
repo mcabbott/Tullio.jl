@@ -313,6 +313,58 @@ This block will yield an error.
 end                                                         
 ```        
 
+WARNING: A succession of one-liners can refer to the same array multiple times                                                   
+
+This is safe:
+
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio TMP[i, j, m, n] := A[i, j, k, l] * B[k, l, m, n]
+@tullio TMP[i, j] = TMP[i, j, m, n] * C[m, n]                                                  
+@tullio D[i, j] := TMP[i, j]
+```                                                   
+
+But, within a block, the entire block will be within a series of loops which can be 
+spawned to several threads. Reusing the same symbols can bring data races. 
+
+This is asking for trouble:
+            
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio D[i, j] := begin
+    TMP[i, j, m, n] = A[i, j, k, l] * B[k, l, m, n]
+    TMP[i, j] = TMP[i, j, m, n] * C[m, n]
+    TMP[i, j]
+end
+```
+       
+This is the better code:
+
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio D[i, j] := begin
+    TMP[i, j, m, n] = A[i, j, k, l] * B[k, l, m, n]
+    ANOTHER_TMP[i, j] = TMP[i, j, m, n] * C[m, n]
+    ANOTHER_TMP[i, j]
+end
+```
+       
+            
 Keeping this in mind, here are a few multi-line examples.
         
 ```julia
