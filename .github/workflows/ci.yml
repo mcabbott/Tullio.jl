@@ -46,6 +46,8 @@ jobs:
             ${{ runner.os }}-
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: 'false'
         env:
           JULIA_NUM_THREADS: ${{ matrix.threads }}
           TULLIO_TEST_GROUP: ${{ matrix.group }}
