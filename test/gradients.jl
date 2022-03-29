@@ -181,7 +181,7 @@ end
     @test gradtest(tr2, (3,3,4,7,7))
 
     ## contract! A
-    con1(x) = @tullio C[i,j] := 5 * x[i,k] * r32[k,j]
+    con1(x) = @tullio C[i,j] := 5 * x[i,k] * r32[k,j]  avx=false  # https://github.com/mcabbott/Tullio.jl/pull/144
     @test gradtest(con1, (2,3))
 
     r22 = rand(2,2);
@@ -208,7 +208,7 @@ end
     con8b(x) = @tullio K[i,j] := 5 * r32[i,k] * x[k,j]  avx=false
     @test gradtest(con8b, (2,3))
 
-    con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]
+    con9b(x) = @tullio K[i,j,m,n] := r312[i,j,k] * x[m,k,n]  avx=false  # https://github.com/mcabbott/Tullio.jl/pull/144
     @test gradtest(con9b, (1,2,3))
 
     con10b(x) = @tullio K[n,j,m,i] := r392[i,j,k] * x[m,k,n]  avx=false
@@ -216,7 +216,7 @@ end
 
     r3399 = randn(3,3,9,9);
 
-    con13(x) = @tullio K[i,j] := r3399[s,s,j,k] * x[t,t,k,i]
+    con13(x) = @tullio K[i,j] := r3399[s,s,j,k] * x[t,t,k,i]  avx=false  # https://github.com/mcabbott/Tullio.jl/pull/144
     @test gradtest(con13, (3,3,9,9))
 
     r33 = rand(3,3);
