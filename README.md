@@ -34,21 +34,7 @@ The macro also tries to provide a gradient for use with [Tracker](https://github
 
 * The option `grad=Dual` uses instead [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) to differentiate the right hand side (only for reductions over `+`). This allows for more complicated expressions.
 
-The expression need not be just one line, for example:
-
-```julia
-@tullio out[x, y] := @inbounds(begin  # sum over k
-        a,b = off[k]
-        mat[mod(x+a), mod(y+b)]
-    end) (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
-```
-
-Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
-(If writing into an existing array, with `out[x,y] = begin ...` or `+=`, then ranges would be taken from there.)
-Because it sees assignment being made, it does not attempt to sum over `a,b`, and it assumes that indices could go out of bounds so does not add `@inbounds` for you.
-(Although in fact `mod(x+a) == mod(x+a, axes(mat,1))` is safe.)
-It will also not be able to take a symbolic derivative, but dual numbers will work fine.
-
+The entire right hand side is summed over the full possible range of any indices not appearing on the left.
 Pipe operators `|>` or `<|` indicate functions to be performed *outside* the sum, for example:
 
 ```julia
@@ -266,6 +252,22 @@ Some warnings are in order:
 
 </details>
 <details><summary><b>Larger expressions</b></summary>
+
+The expression need not be just one line, for example:
+
+```julia
+@tullio out[x, y] := @inbounds(begin  # sum over k
+        a,b = off[k]
+        mat[mod(x+a), mod(y+b)]
+    end) (x in axes(mat,1), y in axes(mat,2)) grad=Dual nograd=off
+```
+Here the macro cannot infer the range of the output's indices `x,y`, so they must be provided explicitly.
+(If writing into an existing array, with `out[x,y] = begin ...` or `+=`, then ranges would be taken from there.)
+Because it sees assignment being made, it does not attempt to sum over `a,b`, and it assumes that indices could go out of bounds so does not add `@inbounds` for you.
+(Although in fact `mod(x+a) == mod(x+a, axes(mat,1))` is safe.)
+It will also not be able to take a symbolic derivative, but dual numbers will work fine.
+
+More examples:
 
 ```julia
 using Tullio, OffsetArrays
