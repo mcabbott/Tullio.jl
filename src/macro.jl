@@ -848,8 +848,7 @@ function output_array(store)
         elseif isempty(store.arrays)
             :( similar(1:0, $TYP, tuple($(outaxes...))) )
         else
-            # parent() is a trick to avoid a NamedDims bug
-            :( similar(parent($(store.arrays[1])), $TYP, tuple($(outaxes...),)) )
+            :( similar($(store.arrays[1]), $TYP, tuple($(outaxes...),)) )
         end
         if store.scalar
             push!(store.outex, :( local $ZED = $simex ))
