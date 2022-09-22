@@ -602,8 +602,8 @@ end
     @test B == N[:,1]
 
     @tullio C[j,i] := N[c=j, r=i] + 100 * (1:10)[j] avx=false
-    @test A == C'
-    @test dimnames(C) == (:_, :_) # similar(parent(A)) avoids a bug
+    @test_broken A == C'
+    @test_broken dimnames(C) == (:_, :_) # bug in similar, upstream. Work-around removed in https://github.com/mcabbott/Tullio.jl/pull/159
 
     # writing
     @tullio M[row=i, col=j, i=1] := (1:3)[i] // (1:7)[j] avx=false
