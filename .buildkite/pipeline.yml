@@ -16,10 +16,10 @@ steps:
     if: build.message !~ /\[skip tests\]/
     timeout_in_minutes: 60
 
-  - label: "Julia 1.7"
+  - label: "Julia 1.8"
     plugins:
       - JuliaCI/julia#v0.5:
-          version: 1.7
+          version: 1.8
       - JuliaCI/julia-test#v0.3: ~
       # - JuliaCI/julia-coverage#v0.3:
       #     codecov: true
