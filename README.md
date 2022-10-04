@@ -47,7 +47,8 @@ And `verbose=2` will print everything.
 
 If it's useful in academic work, you can cite it with this DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5047409.svg)](https://doi.org/10.5281/zenodo.5047409)
 
-<details><summary><b>Notation</b></summary>
+## Notation
+<details>
 
 Index notation for some simple functions:
 
@@ -131,7 +132,9 @@ using NamedDims, AxisKeys # Dimension names, plus pretty printing:
 ```
 
 </details>
-<details><summary><b>Fast & slow</b></summary>
+
+## Fast & Slow
+<details>
 
 When used with LoopVectorization, on straightforward matrix multiplication of real numbers, 
 `@tullio` tends to be about as fast as OpenBLAS. Depending on the size, and on your computer. 
@@ -217,6 +220,8 @@ using DSP
 ```
 
 </details>
+
+## Gradients & GPU
 <details><summary><b>Derivatives & GPU</b></summary>
 
 ```julia
@@ -251,7 +256,9 @@ Some warnings are in order:
 
 
 </details>
-<details><summary><b>Larger expressions</b></summary>
+
+## Larger Expressions
+<details>
 
 The expression need not be just one line, for example:
 
@@ -304,7 +311,9 @@ Zygote.gradient(sum∘rowmap, fs, ones(3,2))
 ```
 
 </details>
-<details><summary><b>Options</b></summary>
+
+## Keyword Options
+<details>
 
 The default setting is:
 ```@tullio threads=true fastmath=true avx=true tensor=true cuda=256 grad=Base verbose=false A[i,j] := ...```
@@ -342,7 +351,9 @@ Macros:
 * `Tullio.@einsum` is a variant with a few changes, to allow the running of Einsum.jl's tests.
 
 </details>
-<details><summary><b>Internals</b></summary>
+
+## How it Works
+<details>
 
 The following three macros all end up calling the same functions as does `C = A * B`:
 
@@ -461,7 +472,8 @@ Writing `@tullio verbose=2` will print all of these functions out.
 Scalar reductions, such as `@tullio s := A[i,j] * log(B[j,i])`, are slightly different in that the `act!` function simply returns the sum, i.e. the variable `acc` above.
 
 </details>
-<details><summary><b>Elsewhere</b></summary>
+
+## Elsewhere
 
 Back-end friends & relatives:
 
