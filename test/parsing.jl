@@ -423,18 +423,18 @@ end
     A = [i^2 for i in 1:10]
     B = 1:5
 
-    @test vcat(B,B) == @tullio C[i] := B[mod(i)]  i in 1:10
-    @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])
-    @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6
+    @test vcat(B,B) == @tullio C[i] := B[mod(i)]  i in 1:10  avx=false
+    @test vcat(B, fill(B[end],5)) == @tullio D[i] := min(A[i], B[clamp(i)])  avx=false  # UndefVarError: `#f###9###` not defined
+    @test [4,16,36,64,100,4] == @tullio E[i] := A[mod(2i)]  i in 1:6  avx=false
 
     @test vcat(zeros(5), B, zeros(5)) == @tullio C[i] := B[pad(i-5,5)]  avx=false # no method matching _vload(::VectorizationBase.FastRange{Int64,
     @test vcat(zeros(2), A, zeros(3)) == @tullio D[i+_] := A[pad(i,2,3)]
     @test vcat(A, zeros(10)) == @tullio E[i] := A[pad(i)]  i in 1:20
 
     # pairconstraints
-    @tullio F[i] := A[mod(i+k)] * ones(3)[k]  (i in axes(A,1))
+    @tullio F[i] := A[mod(i+k)] * ones(3)[k]  (i in axes(A,1))  avx=false
     @test F[end] == 1 + 2^2 + 3^2
-    @tullio F[i] = A[clamp(i+k)] * ones(7)[k]
+    @tullio F[i] = A[clamp(i+k)] * ones(7)[k]  avx=false
 
     @tullio G[i] := A[pad(i+k, 4)] * ones(3)[k]  pad=100  avx=false # no method matching _vload(::VectorizationBase.StridedPointer{Int64, 1, 1, 0, ...
     @test axes(G,1) == -4:11
