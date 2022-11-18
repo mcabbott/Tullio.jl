@@ -670,10 +670,10 @@ end
     @test axes(
         @tullio dP[x,y,z] := Diff[a+2, b+2] * Diff[c+2, d+2] *
             P[mod(x+a+c), mod(y+b+d), z] * P[mod(x+a),mod(y+b),z] (a in -1:1,
-            b in -1:1, c in -1:1, d in -1:1, z in 1:3, x in 1:n, y in 1:n)
+            b in -1:1, c in -1:1, d in -1:1, z in 1:3, x in 1:n, y in 1:n)  avx=false  # UndefVarError: `#f###46###` not defined
         ) == (1:4, 1:4, 1:3)
     @test axes(
-        @tullio out[x,y] := Diff[mod(x+(y+2z)),x] * Diff[y,clamp(x+1+2x+y)] z in 1:3
+        @tullio out[x,y] := Diff[mod(x+(y+2z)),x] * Diff[y,clamp(x+1+2x+y)] z in 1:3  avx=false
         ) == (1:3, 1:3)
     # unable to infer range of index z
     @test_throws LoadError @eval @tullio out[x,y] := Diff[mod(x+(y+2z)),x] * Diff[x,y]
