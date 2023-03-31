@@ -8,7 +8,7 @@ using .ReverseDiff
 ReverseDiff.@grad function (ev::Eval)(args...)
     Z = ev.fwd(ReverseDiff.value.(args)...)
     Z, Δ -> begin
-        isnothing(ev.rev) && error("no gradient definition here!")
+        ev.rev===nothing && throw("No gradient definition found! Running `@tullio` with keyword `verbose=true` may print the reason")
         ev.rev(ReverseDiff.value(Δ), Z, ReverseDiff.value.(args)...)
     end
 end

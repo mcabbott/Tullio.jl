@@ -127,6 +127,7 @@ function parse_options(exs...)
         )
     expr = nothing
     nograd = Symbol[]
+    safe = Symbol[]
     ranges = Tuple[]
     for ex in exs
         # Actual options:
@@ -148,6 +149,16 @@ function parse_options(exs...)
                 append!(nograd, ex.args[2].args)
             else
                 throw("this accepts nograd=A or nograd=(A,B,C)")
+            end
+
+        # Safe keyword
+        elseif isexpr(ex, :(=)) && ex.args[1] == :safe
+            if ex.args[2] isa Symbol
+                push!(safe, ex.args[2])
+            elseif isexpr(ex.args[2], :tuple)
+                append!(safe, ex.args[2].args)
+            else
+                throw("this accepts safe=i or safe=(i,j,k)")
             end
 
         # Ranges specified outside:
@@ -190,6 +201,7 @@ function parse_options(exs...)
         avx=opts[:avx],
         cuda=opts[:cuda],
         nograd=nograd,
+        safe=safe,
     ), ranges, expr
 end
 
@@ -591,7 +603,7 @@ detectunsafe(expr, list, store) = MacroTools_postwalk(expr) do ex
             MacroTools_postwalk(i) do x
                 @capture_(x, B_[inner__]) || return x
                 # Now we have found an array which indexes another one, mark its indices unsafe
-                append!(list, filter(j -> j isa Symbol, inner))
+                append!(list, setdiff(filter(j -> j isa Symbol, inner), store.safe))
                 unique!(list)
                 # and don't compute a gradient for the inner array
                 B isa Symbol && push!(store.nograd, B)
