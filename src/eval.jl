@@ -40,8 +40,6 @@ using Requires
 
 # @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
 
-@init @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
-
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
 
 import ChainRulesCore
@@ -57,11 +55,32 @@ function ChainRulesCore.rrule(ev::Eval, args...)
     end
 end
 
-@init @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" begin
-    using .FillArrays: Fill # used by Zygote
-    Tullio.promote_storage(::Type{T}, ::Type{F}) where {T, F<:Fill} = T
-    Tullio.promote_storage(::Type{F}, ::Type{T}) where {T, F<:Fill} = T
+function __init__()
+    @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
+
+    @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" begin
+        using .FillArrays: Fill # used by Zygote
+        Tullio.promote_storage(::Type{T}, ::Type{F}) where {T, F<:Fill} = T
+        Tullio.promote_storage(::Type{F}, ::Type{T}) where {T, F<:Fill} = T
+    end
+
+    #========== CuArrays ==========#
+    @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
+        using .CUDA: CuArray, GPUArrays
+
+        Tullio.threader(fun!::F, ::Type{T},
+            Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple,
+            redfun, block=0, keep=nothing) where {F<:Function, T<:CuArray} =
+            fun!(T, Z, As..., Is..., Js..., keep)
+
+        Tullio.∇threader(fun!::F, ::Type{T},
+            As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
+            fun!(T, As..., Is..., Js...,)
+
+        # Tullio.thread_scalar ... ought to work? Was never fast.
+    end
 end
+
 
 #========== vectorised gradients ==========#
 
@@ -91,25 +110,6 @@ end
 end
 
 =#
-
-#========== CuArrays ==========#
-
-using Requires
-
-@init @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" begin
-    using .CUDA: CuArray, GPUArrays
-
-    Tullio.threader(fun!::F, ::Type{T},
-        Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple,
-        redfun, block=0, keep=nothing) where {F<:Function, T<:CuArray} =
-        fun!(T, Z, As..., Is..., Js..., keep)
-
-    Tullio.∇threader(fun!::F, ::Type{T},
-        As::Tuple, Is::Tuple, Js::Tuple, block=0) where {F<:Function, T<:CuArray} =
-        fun!(T, As..., Is..., Js...,)
-
-    # Tullio.thread_scalar ... ought to work? Was never fast.
-end
 
 #========== storage unwrapper ==========#
 
