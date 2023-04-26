@@ -40,6 +40,8 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
 
+# Provided via en extension on 1.9+
+if !isdefined(Base, :get_extension)
 import ChainRulesCore
 
 function ChainRulesCore.rrule(ev::Eval, args...)
@@ -51,6 +53,7 @@ function ChainRulesCore.rrule(ev::Eval, args...)
         end
         tuple(ChainRulesCore.ZeroTangent(), dxs...)
     end
+end
 end
 
 if !isdefined(Base, :get_extension)
