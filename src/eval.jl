@@ -36,8 +36,6 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:
 
-using Requires
-
 # @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
 
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
@@ -55,12 +53,17 @@ function ChainRulesCore.rrule(ev::Eval, args...)
     end
 end
 
-function __init__()
-    @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("grad/tracker.jl")
-    @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" include("grad/fillarrays.jl")
-    @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("grad/cuda.jl")
+if !isdefined(Base, :get_extension)
+using Requires
 end
 
+@static if !isdefined(Base, :get_extension)
+function __init__()
+    @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("../ext/TullioTrackerExt.jl")
+    @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" include("../ext/TullioFillArraysExt.jl")
+    @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("../ext/TullioCUDAExt.jl")
+end
+end
 
 #========== vectorised gradients ==========#
 
