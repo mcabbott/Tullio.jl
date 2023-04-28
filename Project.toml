@@ -9,6 +9,16 @@ DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
+[weakdeps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
+Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
+
+[extensions]
+TullioCUDAExt = "CUDA"
+TullioFillArraysExt = "FillArrays"
+TullioTrackerExt = "Tracker"
+
 [compat]
 CUDA = "3.6"
 CUDAKernels = "0.3.3, 0.4"
