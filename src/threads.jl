@@ -286,7 +286,7 @@ end
         return tuple(r1, first(r2):cleft), tuple(r1, cleft+1:last(r2))
     end
 end
-@inline @generated function cleave(ranges::Tuple{Vararg{<:UnitRange,N}}, step::Int=4) where {N}
+@inline @generated function cleave(ranges::Tuple{Vararg{UnitRange,N}}, step::Int=4) where {N}
     ex_finds = [quote
         li = length(ranges[$i])
         if li>l
@@ -336,7 +336,7 @@ Just like `cleave`, but makes 3 pieces, for 6-core machines.
         return (r1,a), (r1,b), (r1,c)
     end
 end
-@inline @generated function trisect(ranges::Tuple{Vararg{<:UnitRange,N}}) where {N}
+@inline @generated function trisect(ranges::Tuple{Vararg{UnitRange,N}}) where {N}
     ex_finds = [quote
         li = length(ranges[$i])
         if li>l
