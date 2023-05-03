@@ -20,7 +20,7 @@ TullioFillArraysExt = "FillArrays"
 TullioTrackerExt = "Tracker"
 
 [compat]
-CUDA = "3.6"
+CUDA = "3.6, 4"
 CUDAKernels = "0.3.3, 0.4"
 ChainRulesCore = "1"
 DiffRules = "1"
