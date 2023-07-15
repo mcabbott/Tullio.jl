@@ -1,4 +1,5 @@
 using Test, Printf
+import Pkg
 
 t1 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t1)
@@ -32,4 +33,11 @@ end
 
 if test_group in ["all", "3"]
     include("group-3.jl")
+end
+
+if test_group in ["all", "4"]
+    Pkg.activate(joinpath(@__DIR__, "test_cuda_v4/"))
+    Pkg.develop(path = joinpath(@__DIR__, ".."))
+    Pkg.instantiate()
+    include("group-2.jl")
 end
