@@ -36,8 +36,6 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:
 
-# @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
-
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
 
 if !isdefined(Base, :get_extension)
