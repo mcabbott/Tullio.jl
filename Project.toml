@@ -4,7 +4,6 @@ authors = ["Michael Abbott"]
 version = "0.3.5"
 
 [deps]
-ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
@@ -13,11 +12,13 @@ Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 
 [extensions]
 TullioCUDAExt = "CUDA"
 TullioFillArraysExt = "FillArrays"
 TullioTrackerExt = "Tracker"
+TullioChainRulesCoreExt = "ChainRulesCore"
 
 [compat]
 CUDA = "3.6, 4"
