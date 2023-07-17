@@ -40,6 +40,7 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 
 if !isdefined(Base, :get_extension)
     using Requires
+    include("../ext/TullioChainRulesCoreExt.jl")
 end
 
 @static if !isdefined(Base, :get_extension)
@@ -47,7 +48,6 @@ end
         @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("../ext/TullioTrackerExt.jl")
         @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" include("../ext/TullioFillArraysExt.jl")
         @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("../ext/TullioCUDAExt.jl")
-        @require ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4" include("../ext/TullioChainRulesCoreExt.jl")
     end
 end
 
