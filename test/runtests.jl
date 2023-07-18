@@ -23,17 +23,17 @@ macro printline()  # useful in hunting for where tests get stuck
     printstyled("  ", file, ":", __source__.line, "\n", color=:light_black)
 end
 
-# if test_group in ["all", "1"]
-#     include("group-1.jl")
-# end
-#
-# if test_group in ["all", "2"]
-#     include("group-2.jl")
-# end
-#
-# if test_group in ["all", "3"]
-#     include("group-3.jl")
-# end
+if test_group in ["all", "1"]
+    include("group-1.jl")
+end
+
+if test_group in ["all", "2"]
+    include("group-2.jl")
+end
+
+if test_group in ["all", "3"]
+    include("group-3.jl")
+end
 
 if test_group in ["all", "4"]
     Pkg.activate(joinpath(@__DIR__, "test_cuda_v4/"))
