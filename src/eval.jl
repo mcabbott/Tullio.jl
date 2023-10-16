@@ -36,36 +36,19 @@ Base.getindex(o::OneBox, i::Integer...) = o.val
 #========== gradient hooks ==========#
 # Macros like @adjoint need to be hidden behind include(), it seems:
 
-# @init @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" include("grad/zygote.jl")
-
 # @init @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" include("grad/reverse.jl")
 
-# Provided via en extension on 1.9+
 if !isdefined(Base, :get_extension)
-import ChainRulesCore
-
-function ChainRulesCore.rrule(ev::Eval, args...)
-    Z = ev.fwd(args...)
-    Z, function tullio_back(Δ)
-        isnothing(ev.rev) && error("no gradient definition here!")
-        dxs = map(ev.rev(Δ, Z, args...)) do dx
-            dx === nothing ? ChainRulesCore.ZeroTangent() : dx
-        end
-        tuple(ChainRulesCore.ZeroTangent(), dxs...)
-    end
-end
-end
-
-if !isdefined(Base, :get_extension)
-using Requires
+    using Requires
+    include("../ext/TullioChainRulesCoreExt.jl")
 end
 
 @static if !isdefined(Base, :get_extension)
-function __init__()
-    @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("../ext/TullioTrackerExt.jl")
-    @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" include("../ext/TullioFillArraysExt.jl")
-    @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("../ext/TullioCUDAExt.jl")
-end
+    function __init__()
+        @require Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c" include("../ext/TullioTrackerExt.jl")
+        @require FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b" include("../ext/TullioFillArraysExt.jl")
+        @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("../ext/TullioCUDAExt.jl")
+    end
 end
 
 #========== vectorised gradients ==========#

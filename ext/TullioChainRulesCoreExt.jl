@@ -1,10 +1,6 @@
 module TullioChainRulesCoreExt
 
-if !isdefined(Base, :get_extension)
-    using ..Tullio, ..ChainRulesCore
-else
-    using Tullio, ChainRulesCore
-end
+using Tullio, ChainRulesCore
 
 function ChainRulesCore.rrule(ev::Tullio.Eval, args...)
     Z = ev.fwd(args...)
