@@ -1,4 +1,5 @@
 using Test, Printf
+import Pkg
 
 t1 = @elapsed using Tullio
 @info @sprintf("Loading Tullio took %.1f seconds", t1)

@@ -1161,16 +1161,15 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
             end
             store.verbose==2 && @info "=====KA===== KernelAbstractions kernel $note" verbosetidy(kex1)
             push!(store.outpre, macroexpand(store.mod, kex1))
-            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDADevice()
+            if isdefined(store.mod, :CUDA) && isdefined(store.mod, :CuArray) # new-style, CUDA.jl, with CUDA.CUDABackend()
                 info2 = store.verbose>0 ? :(@info "running KernelAbstractions + CUDA actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
                 kex2 = quote
 
                     local @inline function $act!(::Type{<:CuArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
                         $info2
-                        cu_kern! = $kernel(CUDADevice())
+                        cu_kern! = $kernel(CUDA.CUDABackend())
                         $(asserts...)
-                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$workgroupsize, dependencies=Event(CUDADevice()))
-                        KernelAbstractions.wait(CUDADevice(), $ACC)
+                        $ACC = cu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$workgroupsize)
                     end
 
                 end
@@ -1185,7 +1184,6 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                     cpu_kern! = $kernel(CPU(), 4)
                     $(asserts...)
                     $ACC = cpu_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)))
-                    KernelAbstractions.wait($ACC)
                 end
 
             end

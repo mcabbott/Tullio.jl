@@ -27,7 +27,7 @@ But it also co-operates with various other packages, provided they are loaded be
 
 * It uses [`LoopVectorization.@avx`](https://github.com/chriselrod/LoopVectorization.jl) to speed many things up. (Disable with keyword `avx=false`.) On a good day this will match the speed of OpenBLAS for matrix multiplication.
 
-* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) (plus CUDAKernels) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
+* It uses [`KernelAbstractions.@kernel`](https://github.com/JuliaGPU/KernelAbstractions.jl) to make a GPU version. (Disable with `cuda=false`.) This is somewhat experimental, and may not be fast.
 
 The macro also tries to provide a gradient for use with [Tracker](https://github.com/FluxML/Tracker.jl) or (via  [ChainRules](https://github.com/JuliaDiff/ChainRules.jl)) for [Zygote](https://github.com/FluxML/Zygote.jl), [Yota](https://github.com/dfdx/Yota.jl), etc. <!-- or [ReverseDiff](https://github.com/JuliaDiff/ReverseDiff.jl). -->
 (Disable with `grad=false`, or `nograd=A`.) This is done in one of two ways:
@@ -237,7 +237,7 @@ using Tracker # or Zygote
 ΔA = Tracker.gradient((A,B) -> sum(mul(A, B)), A, B)[1]
 ΔA ≈ ones(3,500) * B' # true
 
-using CUDA, CUDAKernels, KernelAbstractions # Now defined with a GPU version:
+using CUDA, KernelAbstractions # Now defined with a GPU version:
 mul(A, B) = @tullio C[i,k] := A[i,j] * B[j,k]
 
 cu(A * B) ≈ mul(cu(A), cu(B)) # true
