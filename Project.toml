@@ -22,7 +22,7 @@ TullioTrackerExt = "Tracker"
 TullioChainRulesCoreExt = "ChainRulesCore"
 
 [compat]
-CUDA = "3.6, 4, 5"
+CUDA = "4, 5"
 ChainRulesCore = "1"
 DiffRules = "1"
 FillArrays = "0.11, 0.12, 0.13"
@@ -36,7 +36,7 @@ TensorOperations = "3"
 Tracker = "0.2"
 VectorizationBase = "0.21.23"
 Zygote = "0.6.33"
-julia = "1.6"
+julia = "1.8"
 
 [extras]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
