@@ -1,6 +1,0 @@
-[deps]
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
-Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
