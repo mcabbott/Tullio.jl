@@ -278,6 +278,106 @@ It will also not be able to take a symbolic derivative, but dual numbers will wo
 
 More examples:
 
+The syntax within the `begin ... end``` is essentially identical to a single-line `@tullio ...` 
+statement with some care. 
+
+Let's consider the following example:
+        
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio D[i, j] := begin
+    TMP[i, j, m, n] = A[i, j, k, l] * B[k, l, m, n]
+    TMP[i, j, m, n] * C[m, n]
+end
+```
+        
+On the first line of the `@tullio` block, the `:=` assignment follows the syntax of one-liners.
+`:=` creates a new array. `=` would overwrite an existing one.
+        
+However, _within_ the block, the normal Julia syntax applies. `:=` is undefined and cannot be used.
+Within the block and simplifying a lot, Tulio will copy that line verbatim and wrap it within as many
+loops as required and add the necessary code for vectorization, restarts,... The Julia scope syntax is 
+therefore applied. Within the scope of loops, TMP will be created without needing the `:=` syntax 
+(which is invalid).
+
+Another consequence of this is the use of the `<|` leftward pipe symbol. It is not defined in the Julia 
+`Base` package. 
+
+This block is valid.
+                                                   
+```julia                                                    
+@tullio C[k, l] := begin
+    A[i, j, k, l] * B[i, j] |> sqrt
+end   
+```
+        
+This block will yield an error.
+                                                   
+```julia
+@tullio C[k, l] := begin
+    sqrt <| A[i, j, k, l] * B[i, j]
+end                                                         
+```        
+
+WARNING: A succession of one-liners can refer to the same array multiple times                                                   
+
+This is safe:
+
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio TMP[i, j, m, n] := A[i, j, k, l] * B[k, l, m, n]
+@tullio TMP[i, j] = TMP[i, j, m, n] * C[m, n]                                                  
+@tullio D[i, j] := TMP[i, j]
+```                                                   
+
+But, within a block, the entire block will be within a series of loops which can be 
+spawned to several threads. Reusing the same symbols can bring data races. 
+
+This is asking for trouble:
+            
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio D[i, j] := begin
+    TMP[i, j, m, n] = A[i, j, k, l] * B[k, l, m, n]
+    TMP[i, j] = TMP[i, j, m, n] * C[m, n]
+    TMP[i, j]
+end
+```
+       
+This is the better code:
+
+```julia
+using Tullio
+
+A = rand(3, 4, 5, 6)
+B = rand(5, 6, 7, 8)
+C = rand(7, 8)
+
+@tullio D[i, j] := begin
+    TMP[i, j, m, n] = A[i, j, k, l] * B[k, l, m, n]
+    ANOTHER_TMP[i, j] = TMP[i, j, m, n] * C[m, n]
+    ANOTHER_TMP[i, j]
+end
+```
+       
+            
+Keeping this in mind, here are a few multi-line examples.
+        
 ```julia
 using Tullio, OffsetArrays
 
