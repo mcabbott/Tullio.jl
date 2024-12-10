@@ -24,13 +24,16 @@ macro printline()  # useful in hunting for where tests get stuck
 end
 
 if test_group in ["all", "1"]
+    @info "starting test group 1 (basics)"
     include("group-1.jl")
 end
 
 if test_group in ["all", "2"]
+    @info "starting test group 2 (KernelAbstractions etc.)"
     include("group-2.jl")
 end
 
 if test_group in ["all", "3"]
+    @info "starting test group 3 (Zygote, LV)"
     include("group-3.jl")
 end

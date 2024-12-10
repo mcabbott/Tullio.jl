@@ -113,6 +113,8 @@ _gradient(x...) = Yota.grad(x...)[2]
 
 #===== LoopVectorization =====#
 
+if VERSION < v"1.11-"  # LV does not support 1.11
+
 t8 = time()
 using LoopVectorization
 using VectorizationBase
@@ -164,6 +166,8 @@ _gradient(x...) = Tracker.gradient(x...)
 @info @sprintf("LoopVectorization tests took %.1f seconds", time()-t8)
 
 @tullio avx=false
+
+end  # if VERSION...
 
 #===== TensorOperations =====#
 

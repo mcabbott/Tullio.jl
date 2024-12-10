@@ -28,7 +28,7 @@ jobs:
         version:
           - '1.10'
           - '1' # automatically expands to the latest stable 1.x release of Julia
-          - 'nightly'
+          # - 'nightly'
     steps:
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
