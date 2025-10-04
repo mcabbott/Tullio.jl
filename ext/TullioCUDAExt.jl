@@ -6,6 +6,10 @@ else
     using Tullio, CUDA
 end
 
+if isdefined(@__MODULE__, :Metal) && isdefined(@__MODULE__, :MtlArray)
+    @warn "Loading multiple GPU backends can lead to unexpected bugs"
+end
+
 Tullio.threader(fun!::F, ::Type{T},
     Z::AbstractArray, As::Tuple, Is::Tuple, Js::Tuple,
     redfun, block=0, keep=nothing) where {F<:Function, T<:CUDA.CuArray} =
