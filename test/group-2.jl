@@ -11,7 +11,7 @@ _gradient(x...) = Tracker.gradient(x...)
 @testset "KernelAbstractions + gradients" begin
     A = (rand(3,4));
     B = (rand(4,5));
-    @tullio C[i,k] := A[i,j] * B[j,k]  threads=false  # verbose=2
+    @tullio C[i,k] := A[i,j] * B[j,k]  threads=false # verbose=2
     @test C ≈ A * B
 
     @tullio threads=false # else KernelAbstractions CPU kernels not used
@@ -21,6 +21,16 @@ _gradient(x...) = Tracker.gradient(x...)
     for sy in Tullio.SYMBOLS
         @test !isdefined(@__MODULE__, sy)
     end
+end
+
+try # Load Metal before CUDA to avoid Kernel generation problems
+    using Metal
+    vi = Metal.versioninfo();
+    @info "===== found an Apple GPU, starting Metal tests ====="
+    @testset "===== Metal tests on GPU =====" begin
+        include("metal.jl")
+    end
+catch
 end
 
 using CUDA
@@ -36,6 +46,8 @@ if CUDA.has_cuda_gpu()
         include("cuda.jl")
     end
 end
+
+
 
 @info @sprintf("KernelAbstractions tests took %.1f seconds", time()-t4)
 

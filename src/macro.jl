@@ -1175,6 +1175,20 @@ function make_many_actors(act!, args, ex1, outer::Vector, ex3, inner::Vector, ex
                 end
                 store.verbose==2 && @info "=====KA===== KernelAbstractions CUDA actor $note" verbosetidy(kex2)
                 push!(store.outpre, kex2)
+            elseif isdefined(store.mod, :Metal) && isdefined(store.mod, :MtlArray)
+                info2 = store.verbose>0 ? :(@info "running KernelAbstractions + Metal actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
+                kex2 = quote
+
+                    local @inline function $act!(::Type{<:MtlArray}, $(args...), $KEEP=nothing, $FINAL=true) where {$TYP}
+                        $info2
+                        mtl_kern! = $kernel(MetalBackend())
+                        $(asserts...)
+                        $ACC = mtl_kern!($(args...), $KEEP, $FINAL; ndrange=tuple($(sizes...)), workgroupsize=$workgroupsize)
+                    end
+
+                end
+                store.verbose==2 && @info "=====KA===== KernelAbstractions Metal actor $note" verbosetidy(kex2)
+                push!(store.outpre, kex2)
             end
             info3 = store.verbose>0 ? :(@info "running KernelAbstractions CPU actor $($note)" maxlog=3 _id=$(hash(store))) : nothing
             kex3 = quote
