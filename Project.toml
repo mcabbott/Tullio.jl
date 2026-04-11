@@ -1,7 +1,7 @@
 name = "Tullio"
 uuid = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
-authors = ["Michael Abbott"]
 version = "0.3.9"
+authors = ["Michael Abbott"]
 
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
@@ -11,18 +11,18 @@ Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 
 [weakdeps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
-ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 
 [extensions]
 TullioCUDAExt = "CUDA"
+TullioChainRulesCoreExt = "ChainRulesCore"
 TullioFillArraysExt = "FillArrays"
 TullioTrackerExt = "Tracker"
-TullioChainRulesCoreExt = "ChainRulesCore"
 
 [compat]
-CUDA = "4, 5"
+CUDA = "4, 5, 6"
 ChainRulesCore = "1"
 DiffRules = "1"
 FillArrays = "0.11, 0.12, 0.13, 1"
@@ -36,11 +36,11 @@ TensorOperations = "4, 5"
 Tracker = "0.2"
 VectorizationBase = "0.21.23"
 Zygote = "0.6.33, 0.7"
-julia = "1.10"  # note that this is the minimum Julia version, 1.11 & 1.12 etc. are allowed & should work.
+julia = "1.10"
 
 [extras]
-ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
