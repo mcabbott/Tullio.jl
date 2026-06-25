@@ -81,6 +81,17 @@ dbl!(M, S)
 @test all(M[r,c] == 2*S[1,c] for r ∈ 1:3, c ∈ 1:7)
 ```
 
+**Note:**
+
+Unlike most other einstein summation convections, Tullio will wrap the entire right hand side in a reduction, and will not attempt to do term-wise contractions.
+Hence, writing expressions like
+```juia
+@tullio D[i, j] := A[i, k] * B[k, j] + c[i]
+```
+is *not* the same as $D_{ij} = \sum_{k}(A_{ik} B_{kj}) + c_i$ but instead $D_{ij} = \sum_{k}(A_{ik} B_{kj} + c_i)$. This is a natural consequence of Tullio attempting to support general reductions over general code.  
+
+____________
+
 More complicated examples:
 
 ```julia
