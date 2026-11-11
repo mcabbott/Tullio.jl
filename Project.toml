@@ -1,6 +1,6 @@
 name = "Tullio"
 uuid = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
-version = "0.3.9"
+version = "0.3.10"
 authors = ["Michael Abbott"]
 
 [deps]
